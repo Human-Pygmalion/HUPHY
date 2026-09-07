@@ -77,6 +77,35 @@ from .base import Action, Observation, Robot
 logger = logging.getLogger(__name__)
 
 SINGLE_JOINTS = ("hip_pitch", "hip_roll", "hip_yaw", "knee")
+MAX_RATE_DT_S = 0.05
+"""속도 제한이 한 번에 인정하는 최대 경과 시간.
+
+한 주기 몫을 **실측 경과 시간**으로 계산한다. 선언된 주기가 아니라 실제 간격을 쓰는
+이유는, 명령이 50 Hz 로 도착하는데 제어 루프는 100 Hz 로 돌아 한 목표가 1~3 번 쓰이기
+때문이다 (두 시계가 따로 도므로 정확히 2 번이 아니다). 실측 간격을 쓰면 그 어긋남이
+저절로 상쇄되어, 어느 쪽 주기를 바꿔도 실효 속도가 변하지 않는다.
+
+상한이 필요한 이유는 반대 방향의 사고다: 루프가 한 번 멈췄다 돌아오면 경과 시간이
+크게 잡히고, 그만큼 큰 한 걸음이 허용된다. 50 ms(20 Hz)면 정상 지터는 전부 통과하고
+멈춤은 통과하지 못한다."""
+
+FIRST_STEP_DT_S = 0.01
+"""첫 명령(또는 끊김 뒤 첫 명령)에 쓰는 한 주기 몫의 가정값.
+
+경과 시간이 없다고 속도 제한을 걸지 않으면, **첫 명령만 제한 없이 통째로 나간다.**
+그리고 첫 명령이야말로 가장 위험하다 - 2026-09-07 벤치의 두 사고가 정확히 재개
+첫 패킷이었다. 그래서 "모르면 걸지 않는다" 가 아니라 "모르면 가장 빠른 주기를
+가정한다" 로 간다. 100 Hz 가정이므로 실제 루프가 더 느리면 첫 걸음이 필요보다 작을
+뿐이고, 그 방향의 오차는 안전하다."""
+
+RESEED_GAP_S = 0.2
+"""이보다 오래 명령이 끊겼으면 직전 명령을 **측정값으로 다시 잡는다**.
+
+안 그러면 설정점이 관절에서 멀리 떨어진 채 남아 있다가 재개 순간 그만큼을 명령한다.
+2026-09-07 벤치에서 두 번 난 의도치 않은 이동이 이 부류였다 (한 번은 40°/44°).
+로봇쪽 손떼기감지(0.2 s)와 같은 값이라, "전송이 끊겼다" 의 정의가 두 곳에서 갈리지
+않는다."""
+
 ANKLE_JOINTS = ("ankle_pitch", "ankle_roll")
 ANKLE_MOTORS = ("ankle_a", "ankle_b")
 
@@ -206,6 +235,11 @@ class Leg(Robot):
         # 마지막 사건 시각. 누적 카운터만으로는 언제 일어났는지 그래프에서 계단을
         # 찾아야 함. 이 값은 사건 직후 0으로 떨어져 눈에 바로 띔.
         self._last_clip_t: Optional[float] = None
+        # 속도 제한(`safety.guards.clamp_rate`)이 기준으로 삼는 **직전 명령**과 그 시각.
+        # 측정 위치가 아니라 직전 명령이 기준이어야 명령이 모터와 무관하게 보장된 속도로
+        # 나아가고, 오차가 자유롭게 커져 따라잡을 토크를 다 쓴다 (2026-09-07 벤치).
+        self._prev_cmd: Dict[str, float] = {}
+        self._prev_cmd_t: Optional[float] = None
         self._last_reject_t: Optional[float] = None
 
     # ---- 구성 -------------------------------------------------------------
@@ -455,6 +489,16 @@ class Leg(Robot):
         `counters` 에 쌓임.
         """
         now = time.monotonic()
+        # 속도 제한이 쓰는 실측 경과 시간과, "끊겼다 재개됨" 판정. 둘 다 이 주기 전체에
+        # 대해 한 번만 정한다 - 모터마다 다르게 판정하면 한 다리가 서로 다른 규칙으로
+        # 움직인다.
+        elapsed = None if self._prev_cmd_t is None else now - self._prev_cmd_t
+        reseed = elapsed is None or elapsed > RESEED_GAP_S
+        # 첫 주기와 끊김 뒤 첫 주기에는 실측 간격이 없거나 (공백만큼) 터무니없이 크므로
+        # 가정값을 쓴다. `None` 으로 두면 그 한 번이 제한 없이 나가는데, 하필 그
+        # 한 번이 제일 위험하다.
+        dt = FIRST_STEP_DT_S if reseed else min(elapsed, MAX_RATE_DT_S)
+        self._prev_cmd_t = now
         commands: Dict[int, MitCommand] = {}
         sent: Dict[str, float] = {}
         # 이번 주기에 실제로 실어 보낸 것만 남김. 안 보냈으면 0임.
@@ -470,6 +514,15 @@ class Leg(Robot):
                 else None
             )
 
+            # 속도 제한: 한 주기 몫 = 속도 한도 x 실측 경과 시간. 명령이 끊겼다 재개된
+            # 뒤에는 직전 명령을 측정값으로 다시 잡아, 끊긴 동안 벌어진 간격이 한꺼번에
+            # 나가지 않게 한다.
+            vel = self.safety.vel_limit_deg_s(motor_name)
+            max_step = None if vel is None else float(vel) * dt
+            prev_cmd = None if reseed else self._prev_cmd.get(motor_name)
+            if prev_cmd is None:
+                prev_cmd = current_cal      # None 이면 clamp_rate 가 그대로 통과시킴
+
             result = guards.apply(
                 target_cal,
                 current_cal,
@@ -477,6 +530,8 @@ class Leg(Robot):
                 command_margin_deg=self.safety.command_margin_deg,
                 max_delta_deg=self.safety.max_delta_deg,
                 enforce_limits=self.safety.enforce_limits,
+                prev_cmd_deg=prev_cmd,
+                max_step_deg=max_step,
             )
             self.counters.record(result)
             if result.clips:
@@ -487,6 +542,7 @@ class Leg(Robot):
                 continue
 
             sent[motor_name] = result.value
+            self._prev_cmd[motor_name] = result.value
             commands[motor_id] = MitCommand(
                 position_deg=self.cal_to_raw(motor_name, result.value),
                 kp=motor.gains.kp,

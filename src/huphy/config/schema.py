@@ -52,11 +52,65 @@ class SafetyConfig:
     """
 
     max_delta_deg: float = 50.0
-    """한 주기에 움직일 수 있는 최대 각도.
+    """**측정 위치**에서 한 주기에 벗어날 수 있는 최대 각도 — 폭주 상한.
 
     100Hz 기준이라 50° 는 초당 5000° 임. 실제로 그렇게 도는 것이 아니라, 계산이
     튀었을 때 그 이상은 안 나가게 막는 상한임.
+
+    **속도 제한으로 쓰지 말 것** (2026-09-07 벤치). 이 값을 낮추면 명령과 현재각의
+    차이가 그만큼으로 묶이는데, MIT 식이 ``tau = kp*(명령각 - 현재각) + ...`` 이라
+    **토크가 ``kp * 이 값`` 으로 함께 묶인다.** 벤치에서 3° 로 낮춘 결과 kp 30 에서
+    최대 1.57 N·m 밖에 못 냈고, 기준점이 측정값이라 모터가 뒤처지면 명령도 안
+    나아가 느릴수록 더 느려졌다 (이론 300°/s 설정에서 실측 49°/s).
+
+    속도를 제한하려면 :attr:`max_vel_deg_s` 를 쓸 것.
     """
+
+    max_vel_deg_s: Optional[float] = None
+    """진짜 속도 제한. 명령 설정점이 초당 몇 도까지 나아갈 수 있는가.
+
+    None 이면 속도 제한 없음 — 설정하지 않은 로봇은 예전과 동일하게 동작함.
+
+    **각도/초로 적는다.** 이것을 쓰는 제어 루프가 자기 주기로
+    ``max_vel_deg_s / control_hz`` 를 계산해 한 주기 몫으로 환산함. 상수를 "한
+    주기에 몇 도" 로 적으면 제어 주기를 바꿨을 때 실효 속도가 조용히 따라 변한다 —
+    벤치의 3° 가 100 Hz 와 곱해져 300°/s 가 "우연히" 정해졌던 것이 그 예임.
+
+    기준점이 **직전 명령**이라(``safety.guards.clamp_rate``) 명령은 모터가 뒤처지든
+    말든 보장된 속도로 나아가고, 오차는 자유롭게 커져 따라잡을 토크를 다 씀.
+
+    데이터시트 값(출력단, RS03/RS04 매뉴얼):
+
+    ==========  =========  =========  =========
+    조건        rpm        rad/s      °/s
+    ==========  =========  =========  =========
+    무부하      200 ±10%   20.94      1200
+    RS03 정격   180        18.85      1080
+    RS04 정격   167        17.49      1002
+    ==========  =========  =========  =========
+
+    기준은 **정격**이어야 함. 무부하 200 rpm 은 토크 0 일 때만 나오는 값이라 어떤
+    부하에서도 유지되지 않음. 벤치에서는 그 일부만 씀.
+    """
+
+    max_vel_deg_s_by_motor: Dict[str, float] = field(default_factory=dict)
+    """모터별 속도 제한. :attr:`max_vel_deg_s` 를 덮어씀.
+
+    관절마다 감속비도 부하도 다르므로(무릎 RS04 대 발목 RS00) 하나의 값으로 묶는
+    것이 맞지 않음. 여기 없는 모터는 :attr:`max_vel_deg_s` 를 씀.
+    """
+
+    def vel_limit_deg_s(self, motor_name: str) -> Optional[float]:
+        """이 모터에 적용할 속도 제한. 없으면 None (제한 없음)."""
+        v = self.max_vel_deg_s_by_motor.get(motor_name)
+        return self.max_vel_deg_s if v is None else float(v)
+
+    def max_step_deg(self, motor_name: str, control_hz: float) -> Optional[float]:
+        """한 주기 몫으로 환산한 값. 루프가 자기 ``control_hz`` 를 넘겨 부름."""
+        v = self.vel_limit_deg_s(motor_name)
+        if v is None or control_hz <= 0:
+            return None
+        return float(v) / float(control_hz)
 
     enforce_limits: bool = True
     """`False` 로 두면 한계 클리핑을 건너뜀. **커미셔닝 전용임.**

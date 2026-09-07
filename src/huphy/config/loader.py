@@ -38,7 +38,8 @@ IMU_KEYS = {
     "output", "accel_mode", "dist_mode", "rate_hz",
 }
 SAFETY_KEYS = {
-    "command_margin_deg", "max_delta_deg", "enforce_limits", "link_loss_cycles",
+    "command_margin_deg", "max_delta_deg", "max_vel_deg_s", "max_vel_deg_s_by_motor",
+    "enforce_limits", "link_loss_cycles",
 }
 TELEMETRY_KEYS = {"host", "port", "csv_path", "csv_flush_every"}
 
