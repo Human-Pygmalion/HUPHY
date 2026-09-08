@@ -163,18 +163,21 @@ class TestPackCommand:
 
 
 class TestDecodeState:
-    def build(self, motor_id, pos_deg, vel_rad_s, tau_nm, temp_c):
+    def build(self, motor_id, pos_deg, vel_rad_s, tau_nm, temp_c, *, mode=0,
+              fault=False, warning=False):
+        """매뉴얼 6.1절대로 조립함. 온도는 12비트고 Byte6 상위 4비트는 플래그임."""
         pos = mit.float_to_uint(math.radians(pos_deg), -RS02.pmax_rad, RS02.pmax_rad, 16)
         vel = mit.float_to_uint(vel_rad_s, -RS02.vmax_rad_s, RS02.vmax_rad_s, 12)
         tau = mit.float_to_uint(tau_nm, -RS02.tmax_nm, RS02.tmax_nm, 12)
         temp = int(temp_c * 10)
+        b6 = ((mode & 0x03) << 6) | (0x20 if fault else 0) | (0x10 if warning else 0)
         return bytes([
             motor_id,
             (pos >> 8) & 0xFF, pos & 0xFF,
             (vel >> 4) & 0xFF,
             ((vel & 0x0F) << 4) | ((tau >> 8) & 0x0F),
             tau & 0xFF,
-            (temp >> 8) & 0xFF, temp & 0xFF,
+            b6 | ((temp >> 8) & 0x0F), temp & 0xFF,
         ])
 
     def test_round_trip(self):
@@ -197,6 +200,52 @@ class TestDecodeState:
         with pytest.raises(ValueError, match="8바이트"):
             mit.decode_state(bytes([1, 2, 3]), enc=RS02)
 
+    def test_torque_on_does_not_break_temperature(self):
+        """Motor 모드면 Byte6[7]=1 임. 16비트로 읽으면 여기서 3300도가 나옴."""
+        data = self.build(10, 0.0, 0.0, 0.0, 25.0, mode=T.OperationMode.MOTOR)
+        assert data[6] & 0x80                      # 플래그가 실제로 서 있는지
+        assert mit.decode_state(data, enc=RS02)[4] == pytest.approx(25.0)
+
+    def test_flags_do_not_leak_into_temperature(self):
+        """모드·고장·경고가 전부 서도 온도는 그대로여야 함."""
+        data = self.build(10, 0.0, 0.0, 0.0, 25.0, mode=T.OperationMode.MOTOR,
+                          fault=True, warning=True)
+        assert data[6] == 0xB0                     # 0b10 모드 | 고장 | 경고
+        assert mit.decode_state(data, enc=RS02)[4] == pytest.approx(25.0)
+
+    def test_temperature_uses_the_full_12_bits(self):
+        """12비트라 409.5도까지 나옴. 상위 니블이 온도로 쓰이는지 확인함."""
+        data = self.build(10, 0.0, 0.0, 0.0, 130.0)
+        assert data[6] & 0x0F == 0x05              # 1300 = 0x514
+        assert mit.decode_state(data, enc=RS02)[4] == pytest.approx(130.0)
+
+
+class TestDecodeFlags:
+    """Byte6 상위 4비트. 인코딩 범위와 무관해서 범위표가 틀려도 맞음."""
+
+    def test_reset_mode_is_all_clear(self):
+        assert mit.decode_flags(bytes([10, 0, 0, 0, 0, 0, 0x00, 0xFA])) == (0, False, False)
+
+    def test_motor_mode(self):
+        flags = mit.decode_flags(bytes([10, 0, 0, 0, 0, 0, 0x80, 0xFA]))
+        assert flags.mode == T.OperationMode.MOTOR
+        assert not flags.fault
+
+    def test_fault_bit(self):
+        assert mit.decode_flags(bytes([10, 0, 0, 0, 0, 0, 0xA0, 0xFA])).fault
+
+    def test_warning_bit(self):
+        flags = mit.decode_flags(bytes([10, 0, 0, 0, 0, 0, 0x90, 0xFA]))
+        assert flags.warning and not flags.fault
+
+    def test_temperature_nibble_is_ignored(self):
+        """온도가 아무리 커도 플래그를 건드리면 안 됨."""
+        assert mit.decode_flags(bytes([10, 0, 0, 0, 0, 0, 0x0F, 0xFF])) == (0, False, False)
+
+    def test_rejects_short_frame(self):
+        with pytest.raises(ValueError, match="8바이트"):
+            mit.decode_flags(bytes([1, 2, 3]))
+
     def test_wrong_vmax_scales_velocity(self):
         """vmax가 틀리면 속도 읽기가 배율만큼 어긋남.
 
@@ -211,23 +260,54 @@ class TestDecodeState:
 
 
 class TestDecodeFault:
+    """프레임을 **손으로** 적음.
+
+    디코더와 같은 식으로 프레임을 만들면 어떤 바이트 순서를 쓰든 통과함. 순서를
+    검증하려면 매뉴얼이 말하는 바이트 자리를 리터럴로 박아야 함.
+    """
+
+    def named(self, data):
+        """고장값을 이름 집합으로. `MotorFault.active()` 가 하는 일과 같음."""
+        _, word = mit.decode_fault(data)
+        return {n for n, bit in T.FAULT_BITS.items() if word & (1 << bit)}
+
     def test_zero_means_normal(self):
         _, word = mit.decode_fault(bytes([7, 0, 0, 0, 0, 0, 0, 0]))
         assert word == 0
 
-    def test_bit_extraction(self):
-        """bit0 = 과열."""
-        mid, word = mit.decode_fault(bytes([10, 0x00, 0x00, 0x00, 0x01, 0, 0, 0]))
-        assert mid == 10
-        assert word & (1 << T.FAULT_BITS["overtemperature"])
+    def test_byte1_carries_the_error_code(self):
+        """매뉴얼 6.7절: "에러 코드는 응답의 BYTE1 자리로 돌아온다".
 
-    def test_high_bit(self):
-        """bit14 = 스톨/과부하. 상위 바이트에 실림."""
-        word = 1 << T.FAULT_BITS["stall_overload"]
-        data = bytes([10, (word >> 24) & 0xFF, (word >> 16) & 0xFF,
-                      (word >> 8) & 0xFF, word & 0xFF, 0, 0, 0])
-        _, decoded = mit.decode_fault(data)
-        assert decoded & (1 << T.FAULT_BITS["stall_overload"])
+        Byte1 이 최하위 바이트임. 큰 자리 먼저로 읽으면 bit24 가 서서 이름이
+        하나도 안 붙음.
+        """
+        mid, word = mit.decode_fault(bytes([10, 0x01, 0x00, 0x00, 0x00, 0, 0, 0]))
+        assert mid == 10
+        assert word == 1
+        assert self.named(bytes([10, 0x01, 0, 0, 0, 0, 0, 0])) == {"overtemperature"}
+
+    def test_low_byte_faults_all_land_in_byte1(self):
+        """과열·드라이버IC·저전압·과전압이 한꺼번에. 0x0F 하나로 끝남."""
+        assert self.named(bytes([10, 0x0F, 0, 0, 0, 0, 0, 0])) == {
+            "overtemperature", "driver_ic", "undervoltage", "overvoltage"
+        }
+
+    def test_stall_is_in_byte2(self):
+        """bit14 = 0x4000 이므로 두 번째 바이트임."""
+        assert self.named(bytes([10, 0x00, 0x40, 0x00, 0x00, 0, 0, 0])) == {"stall_overload"}
+
+    def test_phase_a_overcurrent_is_in_byte3(self):
+        """bit16 = 0x10000. 4바이트를 다 읽어야 하는 유일한 비트임."""
+        assert self.named(bytes([10, 0x00, 0x00, 0x01, 0x00, 0, 0, 0])) == {
+            "phase_a_overcurrent"
+        }
+
+    def test_every_documented_bit_has_a_name(self):
+        """매뉴얼 6.8절의 11개가 전부 표에 있어야 함.
+
+        이름 없이 16진수만 뜨는 줄이 나오면 여기가 비어 있다는 뜻임.
+        """
+        assert set(T.FAULT_BITS.values()) == {0, 1, 2, 3, 4, 5, 7, 8, 9, 14, 16}
 
     def test_rejects_short_frame(self):
         with pytest.raises(ValueError, match="5바이트"):

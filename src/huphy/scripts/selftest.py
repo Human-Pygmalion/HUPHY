@@ -2,7 +2,7 @@
 
     huphy-test --limb right_leg zero
     huphy-test --limb right_leg range
-    huphy-test --limb all zero          양다리를 같은 루프로
+    huphy-test --robot zero             로봇 전체를 같은 루프로
 
 두 가지임.
 
@@ -34,10 +34,19 @@
 넣은 값이라 그대로 명령하면 스톱에 부딪힘.
 
 
-## 팔다리 여럿
+## 무엇을 조종할지 — `--limb` 과 `--robot`
 
-`--limb all` 이면 `kind: leg` 인 팔다리를 전부 세워 **한 루프로** 돌림. 관절
-이름 앞에 팔다리가 붙음 (`right_leg/knee`).
+    --limb right_leg     다리 하나 (Leg)
+    --robot              로봇 전체 (Biped). kind: leg 인 팔다리를 전부
+
+**플래그가 곧 만들어지는 객체임.** `--limb` 은 예전부터 "팔다리가 여럿이라
+헷갈리니 하나를 짚어라" 는 뜻이고, 로봇 전체는 그것과 다른 층의 선택이라 플래그를
+따로 둠.
+
+`--robot` 이면 관절 이름 앞에 팔다리가 붙음 (`right_leg/knee`). 다리 하나면
+안 붙음 -- 구분할 대상이 없는데 화면과 명령만 달라짐.
+
+드물게 일부만 묶고 싶으면 `--limb left_leg,right_leg` 처럼 나열할 수 있음.
 
 프로세스를 둘 띄우는 것과 다름 -- 명령이 같은 주기에 나가고, 한쪽 통신이 끊기면
 **양쪽이 같이** 멈춤. 따로 띄우면 한쪽이 죽어도 다른 쪽은 계속 움직여 넘어짐.
@@ -64,7 +73,7 @@ from ..robots.biped import join_name
 from ..robots.leg import ANKLE_JOINTS, SINGLE_JOINTS, Leg
 from .bringup import build_biped, build_leg
 from . import table
-from .commission import CONFIG_NAME, _find_config, _pick_limbs
+from .commission import CONFIG_NAME, _find_config, _pick_limbs, all_legs
 
 logger = logging.getLogger("huphy.selftest")
 
@@ -412,7 +421,13 @@ def _add_common(parser, *, suppress: bool) -> None:
     parser.add_argument(
         "--limb",
         default=default(None),
-        help="팔다리 이름. all 이면 다리 전부, 쉼표로 여럿. 하나뿐이면 생략 가능",
+        help="팔다리 이름. 쉼표로 여럿. 팔다리가 하나뿐이면 생략 가능",
+    )
+    parser.add_argument(
+        "--robot",
+        action="store_true",
+        default=default(False),
+        help="로봇 전체를 한 루프로 (kind: leg 인 팔다리 전부)",
     )
     parser.add_argument(
         "--hz",
@@ -451,7 +466,7 @@ def build_parser() -> argparse.ArgumentParser:
             "예시:\n"
             "  --limb right_leg zero\n"
             "  --limb right_leg range --period 10 --margin 8\n"
-            "  --limb all zero                 양다리를 같은 루프로\n"
+            "  --robot zero                    로봇 전체를 같은 루프로\n"
         ),
     )
     _add_common(p, suppress=False)
@@ -495,7 +510,14 @@ def main(argv=None) -> int:
     except ConfigError as e:
         raise SystemExit(str(e)) from None
 
-    limbs: List[LimbConfig] = _pick_limbs(robot, args.limb)
+    if args.robot and args.limb:
+        raise SystemExit(
+            "--robot 과 --limb 을 같이 줄 수 없음. --robot 은 팔다리 전부이고 "
+            "--limb 은 그중 골라 쓰는 것임"
+        )
+    limbs: List[LimbConfig] = (
+        all_legs(robot) if args.robot else _pick_limbs(robot, args.limb)
+    )
     options = dict(
         gain_scale=args.gain_scale,
         allow_uncalibrated=args.allow_uncalibrated,

@@ -98,8 +98,13 @@ def raw(leg):
     return FakeCanBus.instances[-1]
 
 
-def state_frame(motor_id, pos_deg, *, vel_rad_s=0.0, tau_nm=0.0, temp_c=30.0, enc=None):
-    """모터가 돌려주는 상태 프레임을 만듦. 응답은 앞에 모터 id 가 붙음."""
+def state_frame(motor_id, pos_deg, *, vel_rad_s=0.0, tau_nm=0.0, temp_c=30.0, enc=None,
+                mode=T.OperationMode.MOTOR):
+    """모터가 돌려주는 상태 프레임을 만듦. 응답은 앞에 모터 id 가 붙음.
+
+    기본이 Motor 모드임 — 실제 로봇은 토크를 켠 채로 돌고, 그때 Byte6[7] 이 서서
+    온도 디코딩이 깨졌었음. 기본값이 Reset 이면 그 버그를 다시 놓침.
+    """
     enc = enc or T.encoding_for(T.Model.RS02)
     import math
 
@@ -115,7 +120,7 @@ def state_frame(motor_id, pos_deg, *, vel_rad_s=0.0, tau_nm=0.0, temp_c=30.0, en
             (vel >> 4) & 0xFF,
             ((vel & 0x0F) << 4) | ((tau >> 8) & 0x0F),
             tau & 0xFF,
-            (temp >> 8) & 0xFF, temp & 0xFF,
+            ((int(mode) & 0x03) << 6) | ((temp >> 8) & 0x0F), temp & 0xFF,
         ]),
     )
 
@@ -392,11 +397,18 @@ class TestRefreshStates:
 # ===========================================================================
 class TestFault:
     def test_decodes_bits(self, leg, raw):
-        word = 1 << T.FAULT_BITS["overtemperature"]
-        raw.responses[10] = FakeMessage(10, bytes([10, 0, 0, 0, word, 0, 0, 0]))
+        """작은 자리 먼저 — 과열(bit0)은 Byte1 에 옴 (매뉴얼 6.7절)."""
+        raw.responses[10] = FakeMessage(10, bytes([10, 0x01, 0, 0, 0, 0, 0, 0]))
         fault = leg.read_fault(10)
         assert fault.ok is False
         assert fault.active() == ["overtemperature"]
+
+    def test_names_every_bit_it_reports(self, leg, raw):
+        """`raw` 는 0 이 아닌데 `active()` 가 비면 디코딩이 틀린 것임."""
+        raw.responses[10] = FakeMessage(10, bytes([10, 0x0F, 0x40, 0x01, 0, 0, 0, 0]))
+        fault = leg.read_fault(10)
+        assert fault.raw != 0
+        assert len(fault.active()) == 6
 
     def test_zero_is_normal(self, leg, raw):
         raw.responses[10] = FakeMessage(10, bytes([10, 0, 0, 0, 0, 0, 0, 0]))

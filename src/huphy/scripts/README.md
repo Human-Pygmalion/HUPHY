@@ -14,12 +14,25 @@ scripts/
 
 `--limb` 은 팔다리가 둘 이상이면 필수임. 팔다리마다 CAN 채널이 다름.
 
-`huphy-test` 는 여럿을 한 번에 받음.
+`huphy-test` 는 로봇 전체를 한 루프로 돌릴 수 있음.
 
 ```bash
-huphy-test --limb all zero                # kind: leg 인 팔다리 전부
-huphy-test --limb left_leg,right_leg zero # 적은 순서대로
+huphy-test --robot zero                   # kind: leg 인 팔다리 전부
+huphy-test --limb right_leg zero          # 다리 하나
+huphy-test --limb left_leg,right_leg zero # 일부만 묶기 (드묾)
 ```
+
+**플래그가 곧 만들어지는 객체임.**
+
+| | 만들어지는 것 | 관절 이름 |
+|---|---|---|
+| `--limb <이름>` | `Leg` | `knee` |
+| `--robot` | `Biped` | `right_leg/knee` |
+
+`--limb` 은 "팔다리가 여럿이라 헷갈리니 하나를 짚어라" 는 뜻임. 로봇 전체는 그것과
+다른 층의 선택이라 플래그를 따로 둠 — `--limb all` 처럼 단수 플래그에 복수 의미를
+얹으면, 나중에 팔이 붙었을 때 "다리만? 팔까지?" 로 다시 애매해짐. 둘을 같이 주면
+거부함.
 
 프로세스를 둘 띄우는 것과 다름 — 명령이 같은 주기에 나가고, 한쪽 통신이 끊기면
 **양쪽이 같이** 멈춤. 따로 띄우면 한쪽이 죽어도 다른 쪽은 계속 움직여 넘어짐.

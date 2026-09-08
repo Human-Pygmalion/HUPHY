@@ -199,6 +199,23 @@ class TestParser:
         with pytest.raises(SystemExit):
             selftest.build_parser().parse_args(["--limb", "right_leg"])
 
+    def test_robot_works_before_the_subcommand(self):
+        args = selftest.build_parser().parse_args(["--robot", "zero"])
+        assert args.robot is True
+
+    def test_robot_works_after_the_subcommand(self):
+        args = selftest.build_parser().parse_args(["zero", "--robot"])
+        assert args.robot is True
+
+    def test_robot_is_not_set_by_default(self):
+        """다리 하나가 기본임. 로봇 전체는 명시해야 함."""
+        assert selftest.build_parser().parse_args(["zero"]).robot is False
+
+    def test_robot_given_early_is_not_overwritten(self):
+        """서브명령의 기본값이 앞에 적은 값을 덮으면 안 됨."""
+        args = selftest.build_parser().parse_args(["--robot", "zero", "--approach", "1"])
+        assert args.robot is True
+
 
 # ===========================================================================
 # 팔다리가 여럿일 때
@@ -270,3 +287,55 @@ class TestCompositeLimits:
         limits = selftest.joint_limits(biped)
         assert limits["right_leg/ankle_pitch"] == (-40.0, 40.0)
         assert limits["left_leg/ankle_roll"] == (-25.0, 25.0)
+
+
+# ===========================================================================
+# 무엇을 조종할지
+# ===========================================================================
+TWO_LEG_YAML = """
+name: t
+limbs:
+  right_leg:
+    kind: leg
+    side: right
+    channel: can1
+    motors:
+      hip_pitch: {id: 7,  model: RS02, kp: 1.0, kd: 0.1}
+      hip_roll:  {id: 8,  model: RS02, kp: 1.0, kd: 0.1}
+      hip_yaw:   {id: 9,  model: RS02, kp: 1.0, kd: 0.1}
+      knee:      {id: 10, model: RS02, kp: 1.0, kd: 0.1}
+      ankle_a:   {id: 11, model: RS00, kp: 1.0, kd: 0.1}
+      ankle_b:   {id: 12, model: RS00, kp: 1.0, kd: 0.1}
+  left_leg:
+    kind: leg
+    side: left
+    channel: can0
+    motors:
+      hip_pitch: {id: 1, model: RS02, kp: 1.0, kd: 0.1}
+      hip_roll:  {id: 2, model: RS02, kp: 1.0, kd: 0.1}
+      hip_yaw:   {id: 3, model: RS02, kp: 1.0, kd: 0.1}
+      knee:      {id: 4, model: RS02, kp: 1.0, kd: 0.1}
+      ankle_a:   {id: 5, model: RS00, kp: 1.0, kd: 0.1}
+      ankle_b:   {id: 6, model: RS00, kp: 1.0, kd: 0.1}
+"""
+
+
+@pytest.fixture
+def two_legs(tmp_path):
+    path = tmp_path / "config" / "robot.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(TWO_LEG_YAML, encoding="utf-8")
+    return path
+
+
+class TestTarget:
+    def test_robot_and_limb_together_is_an_error(self, two_legs):
+        """--robot 은 팔다리 전부이고 --limb 은 그중 골라 쓰는 것임."""
+        with pytest.raises(SystemExit, match="같이 줄 수 없음"):
+            selftest.main(["--config", str(two_legs), "--robot",
+                           "--limb", "right_leg", "zero"])
+
+    def test_two_legs_need_a_choice(self, two_legs):
+        """팔다리마다 CAN 채널이 달라 잘못 고르면 엉뚱한 쪽이 움직임."""
+        with pytest.raises(SystemExit, match="--limb"):
+            selftest.main(["--config", str(two_legs), "zero"])
