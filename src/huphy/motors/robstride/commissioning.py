@@ -10,12 +10,20 @@
 
 ## MIT 표준 프레임으로 되는 것만 있음
 
-이 파일의 명령은 전부 11-bit 표준 프레임임 (매뉴얼 p.38~39).
+이 파일의 명령은 전부 11-bit 표준 프레임이고, 11비트 ID 가 통째로 모터 CAN ID 인
+형식만 씀 (매뉴얼 6.3~6.11절).
 
+    11-bit ID = 모터 CAN ID
     data[0:6] = 0xFF    data[6] = F_CMD    data[7] = 명령 코드
 
 **파라미터 읽기·쓰기는 여기 없음.** `PARAM_PROTOCOL_FLAG`(0x201F) 와
 `PARAM_ZERO_STA`(0x7029) 를 다루는 명령이 아직 없음. 필요해지면 추가함.
+
+MIT 모드에서 **파라미터를 못 만지는 것이 아님** -- Command 14·15 가 있음
+(`tables.SEL_PARAM_READ` / `SEL_PARAM_WRITE`). 다만 그 명령들은 11비트 ID 상위
+3비트에 선택자를 싣는 **다른 형식**이라 `_command_frame` 으로는 못 만듦. 붙이려면
+프레임 조립부터 손대야 함. 지금은 사람이 `docs/motor_setup.md` 절차대로 private
+프로토콜에서 cansend 로 함.
 
 
 ## 응답 확인
@@ -117,7 +125,10 @@ def set_zero(bus: RobStrideBus, motor_id: int, *, zero_reference: str) -> None:
 
 
 def set_can_id(bus: RobStrideBus, motor_id: int, new_id: int) -> None:
-    """CAN id 를 바꿈 (Command 7).
+    """CAN id 를 바꿈 (Command 7). **전원 재투입 후에도 남음.**
+
+    실물에서 확인함 — 매뉴얼은 "effective immediately" 라고만 하고 영속성을 안
+    적어 놨지만, 실제로는 저장 명령(Command 12) 없이도 유지됨. `set_zero` 와 같음.
 
     **이 버스의 구성과 어긋나게 됨.** 바꾼 뒤에는 이 `RobStrideBus` 객체로 그 모터를
     다룰 수 없으므로, 설정 파일을 고치고 새로 만들어야 함.

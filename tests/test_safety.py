@@ -282,7 +282,10 @@ class TestGuardCounters:
         """
         expected = {
             "clips", "rejects",
-            "clips_limit", "clips_jump",
+            # clips_rate 는 2026-09-07 추가된 속도 제한(clamp_rate)의 것. 폭주 상한
+            # (clips_jump) 과 반드시 따로 세어야 한다 - 둘은 기준점이 다르고, 어느
+            # 쪽이 자르고 있는지가 곧 "느린 이유" 의 답이기 때문이다.
+            "clips_limit", "clips_jump", "clips_rate",
             "rejects_nan", "rejects_nostate",
         }
         assert set(guards.GuardCounters().as_fields()) == expected

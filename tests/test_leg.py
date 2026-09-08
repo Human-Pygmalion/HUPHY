@@ -8,6 +8,7 @@
 """
 
 import math
+import time
 import sys
 import types
 from collections import deque
@@ -22,7 +23,9 @@ from huphy.motors.canbus import CanBus
 from huphy.motors.robstride import tables as T
 from huphy.motors.robstride.bus import RobStrideBus
 from huphy.motors.robstride.codec import mit
-from huphy.robots.leg import ANKLE_JOINTS, JOINT_NAMES, Leg
+from huphy.robots.leg import (
+    ANKLE_JOINTS, FIRST_STEP_DT_S, JOINT_NAMES, Leg, RESEED_GAP_S,
+)
 
 MODELS = {7: T.Model.RS02, 8: T.Model.RS02, 9: T.Model.RS02,
           10: T.Model.RS02, 11: T.Model.RS00, 12: T.Model.RS00}
@@ -707,3 +710,105 @@ class TestAnkleVelocity:
         torque_leg.refresh()
         torque_leg.build_commands({"ankle_pitch": 10.0, "ankle_roll": 5.0})
         assert torque_leg.last_torque == {"ankle_a": 0.0, "ankle_b": 0.0}
+
+
+class TestRateLimit:
+    """속도 제한이 다리 제어 경로에서 실제로 동작하는가 (2026-09-07 벤치).
+
+    guards 단위 시험(tests/test_rate_limit.py)이 램프 자체를 지키고, 이쪽은 다리가
+    그것을 **쓰는 방식**을 지킨다: 실측 경과 시간으로 한 주기 몫을 만들고, 명령이
+    끊겼다 재개되면 설정점을 측정값으로 다시 잡는가.
+    """
+
+    def test_the_command_climbs_while_the_motor_is_stuck(self, fake_can):
+        """벤치의 실제 병증. 모터가 전혀 안 움직여도 명령은 계속 나아가야 한다 -
+        그래야 오차가 쌓이고 토크가 커져 빠져나올 수 있다. 예전 방식은 여기서
+        명령이 measured+max_delta 에 고정돼 영영 못 빠져나왔다."""
+        FakeBus.follow = False                       # 모터가 꿈쩍도 안 함
+        leg = build(safety=SafetyConfig(max_delta_deg=1000.0, max_vel_deg_s=60.0,
+                                  enforce_limits=False))
+        leg.enable()
+        seen = []
+        for _ in range(6):
+            time.sleep(0.01)
+            leg.build_commands({"knee": 90.0})
+            seen.append(leg._prev_cmd["knee"])
+        assert seen == sorted(seen), f"명령이 단조 증가해야 함: {seen}"
+        assert seen[-1] > seen[0] + 0.5, f"6주기 동안 나아간 것이 없음: {seen}"
+        assert seen[-1] < 90.0, "그렇다고 한 번에 목표까지 가면 속도 제한이 아님"
+
+    def test_speed_matches_the_configured_limit(self, fake_can):
+        """실측 경과 시간으로 환산하므로, 어떤 주기로 부르든 초당 이동량은 같다."""
+        FakeBus.follow = False
+        leg = build(safety=SafetyConfig(max_delta_deg=1000.0, max_vel_deg_s=60.0,
+                                  enforce_limits=False))
+        leg.enable()
+        leg.build_commands({"knee": 90.0})           # 첫 호출은 기준 시각을 잡는 것
+        t0 = time.monotonic()
+        start = leg._prev_cmd["knee"]
+        for _ in range(20):
+            time.sleep(0.01)
+            leg.build_commands({"knee": 90.0})
+        elapsed = time.monotonic() - t0
+        moved = leg._prev_cmd["knee"] - start
+        assert moved == pytest.approx(60.0 * elapsed, rel=0.25), (
+            f"{elapsed:.3f}s 에 {moved:.2f}도 = {moved/elapsed:.1f}도/s (한도 60)"
+        )
+
+    def test_a_gap_reseeds_the_setpoint_onto_the_measurement(self, fake_can):
+        """사고 재발 방지. 전송이 끊겼다 재개되면 설정점이 **측정값**에서 다시
+        출발해야 한다 - 끊긴 동안 벌어진 간격을 첫 명령이 한꺼번에 내보내면 안 된다.
+        2026-09-07 벤치의 두 이동(40도·44도, 10도)이 전부 재개 첫 패킷이었다.
+
+        `build_commands` 는 CAN 을 쓰지 않으므로(그 메서드의 docstring) 이 시험에서
+        측정값은 0 도에 머문다. 그것이 오히려 시험을 선명하게 만든다: 램프가 명령을
+        10 도까지 끌고 갔는데 관절은 0 도에 있으므로, 재개 첫 명령이 10 도 근처에서
+        이어지면 재시딩이 안 된 것이고, 0 도에서 한 걸음이면 된 것이다."""
+        leg = build(safety=SafetyConfig(max_delta_deg=1000.0, max_vel_deg_s=60.0,
+                                  enforce_limits=False))
+        leg.enable()
+        for _ in range(40):                          # 60도/s 로 10도까지 램프
+            time.sleep(0.005)
+            leg.build_commands({"knee": 10.0})
+        assert leg._prev_cmd["knee"] == pytest.approx(10.0, abs=1.0), (
+            f"설정 단계에서 목표에 도달하지 못함: {leg._prev_cmd['knee']:.2f}"
+        )
+
+        measured = leg.raw_to_cal("knee", leg.bus.state(10).position_deg)
+        assert abs(measured) < 1.0, f"이 시험은 측정값이 0도 근처임을 전제함: {measured:.2f}"
+
+        time.sleep(RESEED_GAP_S + 0.02)              # 끊김으로 판정될 만큼의 공백
+        leg.build_commands({"knee": 10.0})
+
+        step = 60.0 * FIRST_STEP_DT_S                # 재개 첫 걸음의 크기
+        resumed = leg._prev_cmd["knee"]
+        assert abs(resumed - measured) <= step + 0.05, (
+            f"끊김 뒤 설정점이 측정값({measured:.2f})이 아니라 직전 명령에서 이어짐: "
+            f"{resumed:.2f}"
+        )
+        assert resumed < 5.0, "10도 근처에서 이어졌다면 재시딩이 안 된 것"
+
+    def test_no_limit_configured_behaves_exactly_as_before(self, fake_can):
+        """설정하지 않은 로봇은 예전 동작 그대로. 이 가지가 기존 장비를 바꾸지 않는다."""
+        FakeBus.follow = False
+        leg = build(safety=SafetyConfig(max_delta_deg=1000.0,   # max_vel_deg_s 없음
+                                        enforce_limits=False))
+        leg.enable()
+        time.sleep(0.01)
+        leg.build_commands({"knee": 90.0})
+        assert leg._prev_cmd["knee"] == pytest.approx(90.0), (
+            "속도 제한을 안 걸었으면 목표가 그대로 나가야 함"
+        )
+
+    def test_the_blowup_ceiling_still_applies(self, fake_can):
+        """속도 제한을 넉넉히 줘도 폭주 상한은 살아 있어야 한다."""
+        FakeBus.follow = False
+        leg = build(safety=SafetyConfig(max_delta_deg=5.0, max_vel_deg_s=100000.0,
+                                  enforce_limits=False))
+        leg.enable()
+        time.sleep(0.01)
+        leg.build_commands({"knee": 90.0})
+        # 측정값은 MIT 인코딩으로 양자화되어 정확히 0 이 아니므로 여유를 둔다
+        assert leg._prev_cmd["knee"] == pytest.approx(5.0, abs=0.05), (
+            "측정 0도에서 max_delta_deg 만큼만"
+        )

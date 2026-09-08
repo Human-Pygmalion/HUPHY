@@ -263,6 +263,12 @@ class RobStrideBus(MotorsBus):
 
         제어 루프에서는 이걸 쓰지 않음. 이미 보낸 명령의 응답을 `collect()` 로
         받으면 되므로, 프레임을 두 배로 보낼 이유가 없음.
+
+        **요청 없이 받는 길도 있음** — Command 13(`tables.CMD_ACTIVE_REPORT`)으로
+        능동 보고를 켜면 모터가 스스로 상태 프레임을 보냄(기본 10ms 주기,
+        `EPScan_time` 으로 조정). 미구현이고, 제어 루프에는 쓸 것이 못 됨 —
+        모터 타이머 기준이라 상태 시각이 명령과 안 붙음(이슈 #10). 명령 없이 상태만
+        보는 자리(브링업·모니터링)에 맞음.
         """
         ids = resolve_motor_list(motors, self.motor_ids)
         self.bus.flush_rx()

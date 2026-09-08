@@ -17,7 +17,7 @@
 | IMU | 다리가 아니라 로봇이 들고 있음 |
 | 통신 두절 | 이어지면 양다리가 같이 멈춤 |
 | 수신 | 버스마다 스레드. 수거 대기가 겹침 |
-| 진입점 | `huphy-test --limb all` |
+| 진입점 | `huphy-test --robot` |
 | 캘리브레이션 | 1.0 은 양쪽 다 비어 있음 — **재야 함** |
 | 정책 | 관절 6개짜리. 양다리 모델은 학습 중 |
 
@@ -288,10 +288,21 @@ huphy/right_leg/knee/pos    <- 이렇게 깊어지지 않음
 ## 4. 쓰는 법
 
 ```bash
-huphy-test --limb all zero                 # 양다리를 0도로 두고 붙잡음
-huphy-test --limb all range --period 10    # 양다리 가동 범위 왕복
-huphy-test --limb left_leg,right_leg zero  # 적은 순서대로
+huphy-test --robot zero                    # 로봇 전체를 0도로 두고 붙잡음
+huphy-test --robot range --period 10       # 로봇 전체 가동 범위 왕복
+huphy-test --limb right_leg zero           # 다리 하나
+huphy-test --limb left_leg,right_leg zero  # 일부만 묶기 (드묾)
 ```
+
+**플래그가 곧 만들어지는 객체임.**
+
+| | 만들어지는 것 | 관절 이름 |
+|---|---|---|
+| `--limb right_leg` | `Leg` | `knee` |
+| `--robot` | `Biped` | `right_leg/knee` |
+
+`--limb` 은 예전부터 "팔다리가 여럿이라 헷갈리니 하나를 짚어라" 는 뜻임. 로봇
+전체는 그것과 **다른 층의 선택**이라 플래그를 따로 둠. 둘을 같이 주면 거부함.
 
 프로세스를 둘 띄우는 것과 다름 — 명령이 같은 주기에 나가고, 한쪽 통신이 끊기면
 양쪽이 같이 멈춤.
@@ -347,7 +358,7 @@ loop = ControlLoop(biped, hz=100.0, mode=Mode.CONTROL)
 | 1 | 양다리 배선·CAN 확인 | `commission scan` 에 모터 6개씩 다 뜸 |
 | 2 | 양다리 실측 (`zero` → `sweep`) | 두 JSON 의 `limits_deg` 가 채워짐 |
 | 3 | 다리별 단독 브링업 | 양쪽 다 `huphy-bringup` 으로 사인파가 돎 |
-| 4 | 양다리 영자세 | `huphy-test --limb all zero` 가 유지됨 |
+| 4 | 양다리 영자세 | `huphy-test --robot zero` 가 유지됨 |
 | 5 | 주기 예산 측정 | 12모터에서 목표 Hz 를 지킴 |
 | 6 | 양다리 시뮬 모델과 재학습 | 시뮬에서 서고 걷는 것을 확인 |
 | 7 | 정책 실물 적용 | — |

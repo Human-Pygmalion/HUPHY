@@ -53,7 +53,8 @@ class ClipReason(str, Enum):
     """잘린 이유. 전송은 된다."""
 
     LIMIT = "limit"           # 위치 제한
-    JUMP = "jump"             # 점프 가드
+    JUMP = "jump"             # 점프 가드 (폭주 상한)
+    RATE = "rate"             # 속도 제한 (직전 명령 기준 램프)
 
 
 @dataclass(frozen=True)
@@ -85,12 +86,24 @@ def is_finite(*values: Optional[float]) -> bool:
 def clamp_jump(
     target_deg: float, current_deg: float, max_delta_deg: float
 ) -> Tuple[float, bool]:
-    """직전 위치에서 max_delta 이상 벗어나지 않게 자른다. (값, 잘림여부).
+    """**측정 위치**에서 max_delta 이상 벗어나지 않게 자른다. (값, 잘림여부).
 
-    큰 명령이 한 번에 나가면 모터가 최대 토크로 급가속한다.
+    큰 명령이 한 번에 나가면 모터가 최대 토크로 급가속한다. 이것을 막는 **폭주
+    상한**이며, 기본값 50° 가 그 의도다 (`SafetyConfig.max_delta_deg` 참고).
 
-    **버리지 않고 자르는 것이 중요하다.** 버리면 먼 목표에 영영 도달하지 못하고,
-    자르면 max_delta씩 슬루해서 도달한다. 즉 클리핑 = 속도 제한이다.
+    **이것은 속도 제한이 아니다.** 이전 판 주석은 "클리핑 = 속도 제한이다" 라고
+    적었으나, 벤치 실측이 그것을 반증했다 (2026-09-07):
+
+    * 기준점이 **측정 위치**이므로 명령과 현재각의 차이가 max_delta 를 넘지 못한다.
+      MIT 식이 ``tau = kp*(명령각 - 현재각) + ...`` 이므로 **토크가
+      ``kp * max_delta`` 로 묶인다.** 3° / kp 30 이면 1.57 N·m 다.
+    * 그리고 스스로를 조인다. 모터가 뒤처지면 측정이 안 나아가고 → 명령도 안
+      나아가고 → 오차가 안 쌓이고 → 토크가 안 커진다. 느릴수록 더 느려진다.
+      벤치 실측: 이론 상한 300°/s 인 설정에서 실제 49°/s.
+
+    진짜 속도 제한은 :func:`clamp_rate` 다. 그쪽은 기준점이 **직전 명령**이라
+    명령이 모터와 무관하게 보장된 속도로 나아가고, 오차는 자유롭게 커져 따라잡을
+    토크를 온전히 쓴다. 이 함수는 그 위에 얹는 넉넉한 폭주 상한으로 남는다.
     """
     cur = float(current_deg)
     tgt = float(target_deg)
@@ -104,6 +117,40 @@ def clamp_jump(
     return tgt, False
 
 
+def clamp_rate(
+    target_deg: float, prev_cmd_deg: Optional[float], max_step_deg: float
+) -> Tuple[float, bool]:
+    """**직전 명령**에서 max_step 이상 벗어나지 않게 자른다. (값, 잘림여부).
+
+    이것이 속도 제한이다. ``max_step_deg`` 는 호출부가
+    ``max_vel_deg_s / control_hz`` 로 만들어 넘긴다 — 한도는 **속도(°/s)** 로
+    적고, 그것을 쓰는 루프가 자기 주기로 환산한다. 상수를 그대로 두면 제어 주기를
+    바꿨을 때 실효 속도가 조용히 따라 변한다 (지금 벤치의 3° 가 100 Hz 와 곱해져
+    300°/s 가 "우연히" 정해지는 것이 그 예다).
+
+    기준점이 직전 **명령**인 것이 :func:`clamp_jump` 와의 유일하고 결정적인 차이다:
+
+    * 명령은 모터가 뒤처지든 말든 보장된 속도로 계속 나아간다.
+    * 오차(명령 − 측정)가 자유롭게 커지므로 따라잡거나 부하를 버틸 토크를 다 쓴다.
+
+    ``prev_cmd_deg`` 가 None 이면(무장 직후, 또는 전송이 끊겼다 재개된 뒤) 자르지
+    않고 그대로 통과시킨다. **호출부는 그때 직전 명령을 측정값으로 다시 잡아야
+    한다.** 안 그러면 설정점이 관절에서 멀리 떨어진 채 남아 있다가 재개 순간
+    그만큼을 명령한다 — 2026-09-07 벤치에서 두 번 난 사고가 이 부류다.
+    """
+    tgt = float(target_deg)
+    if prev_cmd_deg is None:
+        return tgt, False
+    prev = float(prev_cmd_deg)
+    limit = abs(float(max_step_deg))
+    delta = tgt - prev
+    if delta > limit:
+        return prev + limit, True
+    if delta < -limit:
+        return prev - limit, True
+    return tgt, False
+
+
 def apply(
     target_deg: float,
     current_deg: Optional[float],
@@ -112,16 +159,27 @@ def apply(
     command_margin_deg: float,
     max_delta_deg: float,
     enforce_limits: bool = True,
+    prev_cmd_deg: Optional[float] = None,
+    max_step_deg: Optional[float] = None,
 ) -> GuardResult:
     """명령 하나에 세 관문을 적용한다.
 
     순서:
       1. 유한값 -- 산술 전에. NaN은 이후 모든 비교를 무력화한다
       2. 위치 제한 -- 안전한 목표로 만든다
-      3. 점프 -- 거기로 가는 속도를 제한한다
+      3. 속도 -- 직전 **명령**에서 한 주기에 갈 수 있는 만큼만 (`max_step_deg`)
+      4. 점프 -- 측정 위치에서 너무 멀면 자르는 **폭주 상한** (`max_delta_deg`)
 
-    2가 3보다 먼저인 것은 "안전한 목표를 정하고 거기로 가는 속도를 제한한다"는
-    순서다. 반대로 하면 점프 제한을 통과한 값이 여전히 한계 밖일 수 있다.
+    2가 3·4보다 먼저인 것은 "안전한 목표를 정하고 거기로 가는 속도를 제한한다"는
+    순서다. 반대로 하면 나중 관문을 통과한 값이 여전히 한계 밖일 수 있다.
+
+    3이 4보다 먼저인 것은 두 관문이 서로 다른 기준점을 쓰기 때문이다. 속도 제한은
+    직전 명령에서 램프를 만들고, 폭주 상한은 그 결과가 측정 위치에서 터무니없이
+    멀지 않은지만 본다. 순서를 바꾸면 램프가 폭주 상한이 만든 값 위에서 시작해
+    두 관문이 서로를 먹는다.
+
+    ``max_step_deg`` 가 None 이면 속도 제한을 걸지 않는다 — 설정하지 않은 로봇은
+    이 함수가 예전과 완전히 동일하게 동작한다.
 
     **출력이 한계 밖일 수 있다.** 현재 위치가 이미 한계 밖이면(사고 후 복구 중)
     한 번에 돌아오지 않고 max_delta씩 돌아온다. 이게 맞는 동작이다.
@@ -142,7 +200,13 @@ def apply(
         if clipped:
             clips.append(ClipReason.LIMIT)
 
-    # 3. 점프 가드
+    # 3. 속도 제한 (직전 명령 기준)
+    if max_step_deg is not None:
+        value, clipped = clamp_rate(value, prev_cmd_deg, max_step_deg)
+        if clipped:
+            clips.append(ClipReason.RATE)
+
+    # 4. 폭주 상한 (측정 위치 기준)
     value, clipped = clamp_jump(value, current_deg, max_delta_deg)
     if clipped:
         clips.append(ClipReason.JUMP)

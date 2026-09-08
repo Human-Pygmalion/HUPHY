@@ -104,10 +104,10 @@ class FakeBus:
         d = msg.data
         if d[0] == 0xFF and d[7] == T.CMD_FAULT and d[6] == T.F_CMD_FAULT_QUERY:
             word = FakeBus.faults.get(mid, 0)
-            # 고장값은 리틀 엔디안임 (codec/mit.py decode_fault 주석 참조).
-            self.rx.append(FakeMessage(
-                mid, bytes([mid]) + int(word).to_bytes(4, "little") + bytes(3)
-            ))
+            self.rx.append(FakeMessage(mid, bytes([          # 작은 자리 먼저 (6.7절)
+                mid, word & 0xFF, (word >> 8) & 0xFF,
+                (word >> 16) & 0xFF, (word >> 24) & 0xFF, 0, 0, 0,
+            ])))
             return
         if d[0] != 0xFF:                        # MIT 명령이면 목표를 따라감
             enc = T.encoding_for(MODELS[mid])
@@ -659,12 +659,6 @@ class TestSweepNeedsSomewhereToSave:
 # 팔다리 여럿 고르기
 # ===========================================================================
 class TestPickLimbs:
-    def test_all_takes_every_leg(self, cfg):
-        robot = load_robot(cfg)
-        assert [l.name for l in commission._pick_limbs(robot, "all")] == [
-            "right_leg", "left_leg"
-        ]
-
     def test_a_single_name_still_gives_a_list(self, cfg):
         robot = load_robot(cfg)
         assert [l.name for l in commission._pick_limbs(robot, "right_leg")] == [
@@ -694,8 +688,36 @@ class TestPickLimbs:
         with pytest.raises(SystemExit, match="--limb"):
             commission._pick_limbs(robot, None)
 
-    def test_all_with_no_legs_is_an_error(self, cfg):
+    def test_all_is_not_a_limb_name(self, cfg):
+        """로봇 전체는 --robot 이 맡음. --limb 은 팔다리를 짚는 플래그임."""
+        robot = load_robot(cfg)
+        with pytest.raises(SystemExit):
+            commission._pick_limbs(robot, "all")
+
+
+class TestAllLegs:
+    def test_it_takes_every_leg(self, cfg):
+        robot = load_robot(cfg)
+        assert [l.name for l in commission.all_legs(robot)] == [
+            "right_leg", "left_leg"
+        ]
+
+    def test_it_keeps_the_config_order(self, cfg):
+        """순서가 관절 이름 순서와 텔레메트리 열 순서를 정함."""
+        robot = load_robot(cfg)
+        assert [l.name for l in commission.all_legs(robot)] == list(robot.limbs)
+
+    def test_it_skips_other_kinds(self, cfg):
+        """팔은 같은 제어 패턴으로 움직일 수 없음. 필요하면 --limb 에 나열함."""
+        robot = load_robot(cfg)
+        limbs = dict(robot.limbs)
+        limbs["left_leg"] = replace(limbs["left_leg"], kind="arm")
+        assert [l.name for l in commission.all_legs(replace(robot, limbs=limbs))] == [
+            "right_leg"
+        ]
+
+    def test_no_legs_is_an_error(self, cfg):
         robot = load_robot(cfg)
         arms = {n: replace(l, kind="arm") for n, l in robot.limbs.items()}
         with pytest.raises(SystemExit, match="kind: leg"):
-            commission._pick_limbs(replace(robot, limbs=arms), "all")
+            commission.all_legs(replace(robot, limbs=arms))
