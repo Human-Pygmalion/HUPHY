@@ -361,7 +361,30 @@ loop.run(motion)
 ```python
 JOINT_ORDER = ("hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_pitch", "ankle_roll")
 #              id 7        id 8        id 9       id 10   id 11 + id 12 로 풀림
+
+MOTOR_ORDER = ("hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_a", "ankle_b")
+#              앞 네 칸은 같음                              id 11      id 12 로 그대로
 ```
+
+### 발목이 두 갈래임
+
+시뮬이 발목을 두 축 관절로 두느냐 두 모터로 두느냐에 따라 모델이 내는 마지막 두
+칸이 다름. 어느 쪽인지는 **실행할 때 인자로 고름** (`huphy-run --ankle-space`).
+
+| | 모델이 내는 것 | 실물에서 |
+|---|---|---|
+| `rp` | 발판 자세 (pitch/roll) | IK 를 거쳐 모터각으로 |
+| `ab` | 모터 각도 | 그대로 나감 |
+
+`PolicySpec` 에 안 넣은 이유: `action_scale` 도 `obs_dim` 도 두 공간이 똑같아서,
+규격에 넣으면 같은 모델이 `balance_rp`/`balance_ab` 로 둘씩 늘어날 뿐임.
+
+**어긋나도 코드로는 안 잡힘.** 관찰 개수도 행동 개수도 같아 가중치 검사를 그냥
+통과함. 사람이 맞게 골라야 하고, `huphy-run` 이 시작 화면에 찍음.
+
+받는 쪽(`Leg`)은 인자를 안 받음 — **들어온 이름을 보고** 갈림. 플래그를 따로 들면
+명령과 그 해석이 어긋날 수 있는데, 명령 자체가 어느 공간인지 말해 주면 어긋날
+수가 없음.
 
 ### 관찰
 

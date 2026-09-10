@@ -101,6 +101,10 @@ Observation         {"knee.pos": 29.97, ...}     관절 이름 -> 도 (cal)
 이름을 모르고 순서만 앎** — `JOINT_ORDER`
 [policy.py:51](../src/huphy/control/policy.py#L51) 가 그 순서를 정함.
 
+순서가 둘임. 발목을 발판 자세로 학습했으면 `JOINT_ORDER`, 모터로 학습했으면
+`MOTOR_ORDER` 임 (`ankle_a`/`ankle_b`). `huphy-run --ankle-space` 로 고르고,
+`ab` 면 발목이 기구학을 지나가지 않고 그대로 모터로 감.
+
 **자세를 원본 형식으로 안 씀.** 센서가 오일러를 주든 쿼터니언을 주든 벤더 모듈이
 중력방향으로 만들어 올리고, 정책은 `imu_state.gravity` 3칸만 봄
 ([sensors/base.py](../src/huphy/sensors/base.py)).
