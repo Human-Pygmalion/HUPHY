@@ -19,6 +19,7 @@ import pytest
 
 from huphy.motors.robstride import tables as T
 from huphy.motors.robstride.codec import mit
+from huphy.control import policy
 from huphy.scripts import run
 from huphy.scripts.run import main
 from huphy.sensors.base import ImuState
@@ -225,11 +226,12 @@ class TestRun:
         assert "넘어져도 멈추지 않음" in out
 
     def test_the_ankle_goes_out_as_torque(self, go):
+        """--ankle-output torque 를 줬을 때. 기본은 위치임."""
         """시뮬은 발목 두 축이 독립 관절임. 실물은 모터 둘이 같이 만듦.
 
         마지막 몇 개는 정지 직전 `hold()` 라 위치 명령임. 도는 동안을 봄.
         """
-        go(*REAL)
+        go(*REAL, "--ankle-output", "torque")
         raw = FakeBus.instances[-1]
         enc = T.encoding_for(T.Model.RS00)
         gains = []
@@ -245,7 +247,7 @@ class TestRun:
 
     def test_the_ankle_carries_torque(self, go):
         """kp=0 이면 모터는 tau_ff 만 냄. 그 값이 0이면 발목이 떨어짐."""
-        go(*REAL)
+        go(*REAL, "--ankle-output", "torque")
         raw = FakeBus.instances[-1]
         enc = T.encoding_for(T.Model.RS00)
         torques = []
@@ -326,3 +328,62 @@ class TestEnterWatcher:
         with run.EnterWatcher(motion):
             pass
         assert not motion.is_started()
+
+
+# ===========================================================================
+# 발목 공간
+# ===========================================================================
+class TestAnkleSpace:
+    def test_position_is_the_default(self, go):
+        """인자 없이 돌리면 발목도 나머지 4관절처럼 위치로 나감."""
+        go(*REAL)
+        raw = FakeBus.instances[-1]
+        enc = T.encoding_for(T.Model.RS00)
+        gains = []
+        for msg in raw.sent:
+            if msg.arbitration_id not in (11, 12) or msg.data[0] == 0xFF:
+                continue
+            d = msg.data
+            gains.append(
+                mit.uint_to_float(((d[3] & 0x0F) << 8) | d[4], 0.0, enc.kp_max, 12)
+            )
+        assert gains, "발목에 아무것도 안 나감"
+        # 앞쪽 kp=0 은 연결할 때 나가는 상태 조회(PASSIVE)임. 토크가 아님.
+        assert sum(1 for kp in gains if kp > 0.2) > 5, (
+            f"위치로 나간 것이 없음: {gains[:8]}"
+        )
+
+    def test_ab_with_torque_stops_before_opening_can(self, fake_can, cfg):
+        """Leg 이 첫 주기에 거부하기는 하지만, 그때는 이미 토크가 들어간 뒤임."""
+        FakeBus.instances = []
+        with pytest.raises(SystemExit, match="같이 쓸 수 없음"):
+            run.main(["--config", str(cfg), "--limb", "right_leg",
+                      *REAL, "--ankle-space", "ab", "--ankle-output", "torque"])
+        assert FakeBus.instances == [], "CAN 을 열기 전에 멈춰야 함"
+
+    def test_ab_sends_motor_angles(self, go):
+        """모터 공간 모델은 발목 각도를 직접 냄. IK 를 지나가지 않음."""
+        go(*REAL, "--ankle-space", "ab")
+        raw = FakeBus.instances[-1]
+        ankle = [m for m in raw.sent if m.arbitration_id in (11, 12)
+                 and m.data[0] != 0xFF]
+        assert ankle, "발목에 아무것도 안 나감"
+
+    def test_ab_zero_pose_uses_motor_names(self):
+        assert set(run.zero_pose(policy.MOTOR_ORDER)) == set(policy.MOTOR_ORDER)
+        assert set(run.zero_pose(policy.JOINT_ORDER)) == set(policy.JOINT_ORDER)
+
+    def test_zero_pose_is_all_zero(self):
+        """두 공간의 영자세가 같은 물리 자세임 -- solve_ik(0,0) == (0,0)."""
+        assert set(run.zero_pose(policy.MOTOR_ORDER).values()) == {0.0}
+
+    def test_the_banner_shows_the_space(self, go):
+        _, out = go(*REAL, "--ankle-space", "ab")
+        assert "ab" in out
+        assert "ankle_a" in out
+
+    def test_an_unknown_space_is_refused_by_argparse(self):
+        with pytest.raises(SystemExit):
+            run.build_parser().parse_args(
+                ["--policy", "balance", "--ankle-space", "xy"]
+            )

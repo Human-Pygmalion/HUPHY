@@ -18,6 +18,22 @@
 파일의 입력 개수가 그 값과 다르면 **모터를 켜기 전에** 멈춤.
 
 
+## 발목 공간은 이름이 아니라 인자로 고름
+
+모델이 발목을 발판 자세로 내는지 모터 각도로 내는지는 규격에 안 넣었음 --
+`action_scale` 도 `obs_dim` 도 두 공간이 똑같아서, 넣으면 같은 모델이
+`balance_rp`/`balance_ab` 로 둘씩 늘어날 뿐임.
+
+    --ankle-space rp    ankle_pitch, ankle_roll    IK 를 거쳐 모터로
+    --ankle-space ab    ankle_a, ankle_b           그대로 모터로
+
+**어긋나도 코드로는 안 잡힘.** 관찰 개수도 행동 개수도 같아서 가중치 검사를
+그냥 통과함. 사람이 맞게 골라야 하고, 시작 화면에 어느 쪽인지 찍음.
+
+발목 출력은 기본이 위치임. 토크는 관절 공간 PD 를 야코비안으로 내리는 것이라
+`rp` 에서만 쓸 수 있음 -- `ab` 와 같이 주면 시작 전에 멈춤.
+
+
 ## 게인이 설정 파일 값이 아님
 
 `robot.yaml` 의 `kp`/`kd` 는 사람이 브링업에서 튜닝하는 값임. 정책은 **학습에 쓴
@@ -25,8 +41,9 @@
 
     kp = 20.0,  kd = 0.502     mjlab 의 half_huphy.xml
 
-발목은 모터가 아니라 **관절**에 이 게인을 걺. 모터 두 개가 로드로 두 축을 같이
-만들어서 지렛대 비가 자세마다 달라지므로, 관절 토크를 만들어 야코비안으로 내림.
+`--ankle-output torque` 면 발목은 모터가 아니라 **관절**에 이 게인을 걺. 모터 두
+개가 로드로 두 축을 같이 만들어서 지렛대 비가 자세마다 달라지므로, 관절 토크를
+만들어 야코비안으로 내림.
 
 
 ## 아직 없는 것
@@ -46,7 +63,7 @@ import signal
 import sys
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from ..config import ConfigError, LimbConfig, load_robot
 from ..control import ControlLoop, Mode, policy, rsl_rl
@@ -88,6 +105,17 @@ ZERO_POSE = {joint: 0.0 for joint in policy.JOINT_ORDER}
 본 적 없는 입력을 받음.
 """
 
+
+def zero_pose(order) -> Dict[str, float]:
+    """그 공간의 영자세. 이름만 다르고 값은 전부 0 임.
+
+    두 공간의 영자세가 **같은 물리 자세**임 -- `solve_ik(0, 0) == (0, 0)` 이라
+    발판을 0도로 두는 것과 발목 모터를 0도로 두는 것이 같음. 그래서 접근 단계가
+    데려다 놓는 자세도 공간과 무관하게 같음.
+    """
+    return {name: 0.0 for name in order}
+
+
 DEFAULT_APPROACH_S = 3.0
 """영점 자세까지 옮기는 데 쓰는 시간.
 
@@ -96,7 +124,7 @@ DEFAULT_APPROACH_S = 3.0
 """
 
 
-def staged(approach_motion, approach_s: float, policy_motion):
+def staged(approach_motion, approach_s: float, policy_motion, hold_pose=None):
     """영점으로 옮김 -> 그 자세로 기다림 -> Enter 누르면 정책.
 
     셋을 한 덩어리로 묶어 제어 루프에 넘김. 루프는 이 안에 단계가 있는 줄 모름.
@@ -105,15 +133,17 @@ def staged(approach_motion, approach_s: float, policy_motion):
     하기 때문임.
 
     `start()` 를 부르기 전까지는 영점 자세를 계속 보냄 -- 사람이 로봇에서 손을 떼고
-    자리를 잡을 시간임.
+    자리를 잡을 시간임. `hold_pose` 를 주면 그것을 보냄. 발목을 모터 공간으로
+    돌릴 때는 기다리는 자세도 그 공간의 이름이어야 함.
     """
     started = [False, 0.0]
+    waiting = dict(ZERO_POSE if hold_pose is None else hold_pose)
 
     def motion(t: float, observation):
         if t < approach_s:
             return approach_motion(t, observation)
         if not started[0]:
-            return dict(ZERO_POSE)
+            return dict(waiting)
         if started[1] == 0.0:
             started[1] = t
         return policy_motion(t - started[1], observation)
@@ -168,7 +198,9 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "예시:\n"
             "  --limb right_leg --policy balance\n"
-            "  --limb right_leg --policy hopping --weights runs/model_49999.pt\n\n"
+            "  --limb right_leg --policy hopping --weights runs/model_49999.pt\n"
+            "  --limb right_leg --policy balance --ankle-output torque\n"
+            "  --limb right_leg --policy balance --ankle-space ab\n\n"
             "상태 기계와 토크 가드가 아직 없음. 사람이 지켜보며 돌릴 것.\n"
         ),
     )
@@ -181,6 +213,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--weights", type=Path,
         help=f"가중치 파일. 기본값은 {WEIGHTS_DIR}/<정책이름>.pt",
+    )
+    p.add_argument(
+        "--ankle-space", choices=sorted(policy.ORDERS), default="rp",
+        help="모델이 발목을 무엇으로 내는지. rp=발판 자세, ab=모터 각도",
+    )
+    p.add_argument(
+        "--ankle-output", choices=("position", "torque"), default="position",
+        help="발목 두 모터에 각도를 보낼지 토크를 보낼지. torque 는 rp 에서만",
     )
     p.add_argument(
         "--hz", type=float, default=POLICY_HZ,
@@ -233,6 +273,15 @@ def main(argv=None) -> int:
     limb: LimbConfig = _pick_limb(robot, args.limb)
     spec = SPECS[args.policy]
 
+    # 토크 경로는 관절 공간 PD 라 pitch/roll 이 있어야 함. 여기서 막지 않으면
+    # Leg 이 첫 주기에 거부하는데, 그때는 이미 토크가 들어간 뒤임.
+    if args.ankle_space == "ab" and args.ankle_output == "torque":
+        raise SystemExit(
+            "--ankle-space ab 는 --ankle-output torque 와 같이 쓸 수 없음. "
+            "모터 공간 모델은 발목 각도를 직접 내므로 position 으로 돌릴 것"
+        )
+    order = policy.ORDERS[args.ankle_space]
+
     # 모터를 켜기 전에 읽음. 규격이 어긋나면 여기서 멈추는 것이 안전함.
     weights = _weights_path(args)
     try:
@@ -244,7 +293,7 @@ def main(argv=None) -> int:
         robot, limb,
         allow_uncalibrated=args.allow_uncalibrated,
         gains=Gains(kp=POLICY_KP, kd=POLICY_KD),
-        ankle_output="torque",
+        ankle_output=args.ankle_output,
         ankle_kp=(POLICY_KP, POLICY_KP),
         ankle_kd=(POLICY_KD, POLICY_KD),
     )
@@ -273,7 +322,9 @@ def main(argv=None) -> int:
         f"\n  {limb.name}  {limb.channel}  {args.hz:.0f}Hz\n"
         f"  정책     {args.policy}  (입력 {spec.obs_dim}, x{spec.action_scale})\n"
         f"  가중치   {weights}\n"
-        f"  게인     kp={POLICY_KP} kd={POLICY_KD}  발목은 토크\n"
+        f"  게인     kp={POLICY_KP} kd={POLICY_KD}\n"
+        f"  발목     {args.ankle_space} ({order[-2]}, {order[-1]})"
+        f"  {args.ankle_output}\n"
         f"  IMU      {', '.join(i.name for i in leg.imus)}\n\n"
         f"  {args.approach:.0f}초에 걸쳐 영점 자세로 옮긴 뒤 그 자세로 기다립니다.\n"
         f"  Enter 를 누르면 정책이 시작됩니다.\n\n"
@@ -281,14 +332,16 @@ def main(argv=None) -> int:
         f"  Ctrl-C 로 멈춤. 멈출 때 자세를 붙잡은 뒤 토크를 끊음.\n"
     )
 
+    target_pose = zero_pose(order)
     start_pose = {
         joint: float(leg.get_observation().get(f"{joint}.pos", 0.0))
-        for joint in policy.JOINT_ORDER
+        for joint in order
     }
     motion = staged(
-        approach(ZERO_POSE, start_pose, args.approach),
+        approach(target_pose, start_pose, args.approach),
         args.approach,
-        policy.policy_motion(model, leg.imus[0], spec=spec),
+        policy.policy_motion(model, leg.imus[0], spec=spec, order=order),
+        hold_pose=target_pose,
     )
 
     try:
