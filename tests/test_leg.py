@@ -22,7 +22,7 @@ from huphy.motors.canbus import CanBus
 from huphy.motors.robstride import tables as T
 from huphy.motors.robstride.bus import RobStrideBus
 from huphy.motors.robstride.codec import mit
-from huphy.robots.leg import ANKLE_JOINTS, JOINT_NAMES, Leg
+from huphy.robots.leg import ANKLE_JOINTS, ANKLE_MOTORS, JOINT_NAMES, Leg
 
 MODELS = {7: T.Model.RS02, 8: T.Model.RS02, 9: T.Model.RS02,
           10: T.Model.RS02, 11: T.Model.RS00, 12: T.Model.RS00}
@@ -168,8 +168,9 @@ class TestConstruction:
         with pytest.raises(ValueError, match=r"필요한 모터가 없음 \['knee'\]"):
             build(short)
 
-    def test_action_features_are_joints(self, leg):
-        assert set(leg.action_features) == set(JOINT_NAMES)
+    def test_action_features_cover_both_ankle_spaces(self, leg):
+        """여덟 개가 동시에 오는 것이 아니라 발목은 둘 중 한 쌍만 옴."""
+        assert set(leg.action_features) == set(JOINT_NAMES) | set(ANKLE_MOTORS)
 
     def test_observation_features_are_motors(self, leg):
         """관찰은 모터 단위임. 실제로 측정되는 것이 그것이기 때문임."""
@@ -707,3 +708,95 @@ class TestAnkleVelocity:
         torque_leg.refresh()
         torque_leg.build_commands({"ankle_pitch": 10.0, "ankle_roll": 5.0})
         assert torque_leg.last_torque == {"ankle_a": 0.0, "ankle_b": 0.0}
+
+
+# ===========================================================================
+# 발목 명령 공간
+# ===========================================================================
+class TestAnkleCommandSpace:
+    def test_motor_space_goes_out_as_given(self, leg):
+        """ab 는 받은 값이 이미 모터 각도임. cal -> raw 만 거치고 그대로 나감."""
+        commands = leg.build_commands({"ankle_a": 10.0, "ankle_b": -5.0})
+        assert commands[11].position_deg == pytest.approx(10.0)
+        assert commands[12].position_deg == pytest.approx(-5.0)
+
+    def test_motor_space_does_not_go_through_ik(self, leg):
+        """같은 숫자를 관절로 주면 IK 를 거쳐 다른 모터각이 나옴.
+
+        ab 가 그 값과 다르다는 것이 곧 기구학을 안 지났다는 뜻임.
+        """
+        through_ik = leg.build_commands({"ankle_pitch": 10.0, "ankle_roll": -5.0})
+        direct = leg.build_commands({"ankle_a": 10.0, "ankle_b": -5.0})
+        assert through_ik[11].position_deg != pytest.approx(
+            direct[11].position_deg
+        )
+
+    def test_joint_space_still_solves(self, leg):
+        """rp 경로 회귀. IK 를 거쳐 나온 값이라 명령값과 다름."""
+        commands = leg.build_commands({"ankle_pitch": 10.0, "ankle_roll": 0.0})
+        assert commands[11].position_deg != pytest.approx(10.0)
+
+    def test_motor_space_gets_the_same_guard(self, leg):
+        """한계는 캘리브레이션이 모터 단위로 재 둔 값이라 그대로 걸림."""
+        commands = leg.build_commands({"ankle_a": 999.0, "ankle_b": 0.0})
+        lo, hi = LIMITS["ankle_a"]
+        assert commands[11].position_deg <= hi
+        assert leg.counters.clips["limit"] > 0
+
+    def test_half_a_motor_pair_is_rejected(self, leg):
+        """모터 두 개가 두 자유도를 같이 만들어서 한쪽만 받으면 비틀림."""
+        with pytest.raises(ValueError, match="함께 줘야 함"):
+            leg.build_commands({"ankle_a": 10.0})
+
+    def test_half_a_joint_pair_is_rejected(self, leg):
+        with pytest.raises(ValueError, match="함께 줘야 함"):
+            leg.build_commands({"ankle_pitch": 10.0})
+
+    def test_mixing_the_two_spaces_is_rejected(self, leg):
+        """어느 쪽을 따를지 정할 근거가 없음. 조용히 하나를 고르지 않음."""
+        with pytest.raises(ValueError, match="두 공간이 섞임"):
+            leg.build_commands({"ankle_pitch": 10.0, "ankle_a": 5.0})
+
+    def test_unknown_name_still_rejected(self, leg):
+        with pytest.raises(ValueError, match="모르는 관절"):
+            leg.build_commands({"ankle_c": 10.0})
+
+    def test_motor_space_with_torque_output_is_rejected(self, fake_can):
+        """토크 경로는 관절 공간 PD 라 pitch/roll 이 있어야 함.
+
+        그냥 두면 빈 사전이 나와 발목만 조용히 명령을 못 받음.
+        """
+        leg = build(ankle_output="torque", ankle_kp=(20.0, 20.0))
+        with pytest.raises(ValueError, match="ankle_output"):
+            leg.build_commands({"ankle_a": 10.0, "ankle_b": -5.0})
+
+    def test_joint_space_with_torque_output_still_works(self, fake_can):
+        leg = build(ankle_output="torque", ankle_kp=(20.0, 20.0))
+        commands = leg.build_commands({"ankle_pitch": 5.0, "ankle_roll": 0.0})
+        assert commands[11].kp == 0.0
+        assert commands[11].torque_nm != 0.0
+
+    def test_no_ankle_command_is_still_fine(self, leg):
+        """발목을 안 주면 그 두 모터만 직전 명령을 유지함."""
+        commands = leg.build_commands({"knee": 10.0})
+        assert 11 not in commands and 12 not in commands
+
+
+class TestMotorSpaceLastSent:
+    def test_motor_targets_are_kept(self, leg):
+        """명령한 축이 곧 그 모터임. 목표가 없으면 err 이 늘 0으로 나옴."""
+        leg.build_commands({"ankle_a": 10.0, "ankle_b": -5.0})
+        assert leg.last_sent["ankle_a"] == pytest.approx(10.0)
+        assert leg.last_sent["ankle_b"] == pytest.approx(-5.0)
+
+    def test_joint_names_come_too(self, leg):
+        """모터각을 FK 로 되짚어 발판 자세도 같이 냄."""
+        leg.build_commands({"ankle_a": 10.0, "ankle_b": -5.0})
+        assert "ankle_pitch" in leg.last_sent
+        assert "ankle_roll" in leg.last_sent
+
+    def test_joint_space_logs_are_unchanged(self, leg):
+        """rp 로 명령했을 때는 예전 그대로. 같은 열이 다른 뜻이 되면 안 됨."""
+        leg.build_commands({"ankle_pitch": 10.0, "ankle_roll": 0.0})
+        assert "ankle_a" not in leg.last_sent
+        assert "ankle_pitch" in leg.last_sent

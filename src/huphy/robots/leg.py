@@ -84,6 +84,24 @@ JOINT_NAMES = SINGLE_JOINTS + ANKLE_JOINTS
 REQUIRED_MOTORS = SINGLE_JOINTS + ANKLE_MOTORS
 """설정에 반드시 있어야 하는 모터 이름. 발목만 관절 이름과 다름."""
 
+COMMANDABLE = JOINT_NAMES + ANKLE_MOTORS
+"""명령으로 받을 수 있는 이름 전부. **여덟 개가 동시에 오는 것이 아님.**
+
+발목은 둘 중 한 쌍만 옴 -- `ankle_pitch`+`ankle_roll` 이거나 `ankle_a`+`ankle_b`.
+어느 쪽인지는 `_ankle_space` 가 이름을 보고 판정함.
+"""
+
+ANKLE_SPACE_JOINT = "rp"
+ANKLE_SPACE_MOTOR = "ab"
+"""발목 명령이 어느 공간으로 왔는지.
+
+    rp   발판 자세 (ankle_pitch, ankle_roll)   IK 를 거쳐 모터각으로
+    ab   모터 각도 (ankle_a, ankle_b)          그대로 나감
+
+**플래그로 받지 않고 이름으로 판정함.** 플래그를 따로 들면 명령과 그 해석이
+어긋날 수 있는데, 명령 자체가 어느 공간인지 말해 주면 어긋날 수가 없음.
+"""
+
 ANKLE_POSITION = "position"
 ANKLE_TORQUE = "torque"
 """발목 두 모터에 무엇을 실어 보낼지.
@@ -268,8 +286,13 @@ class Leg(Robot):
 
     @property
     def action_features(self) -> Dict[str, type]:
-        """명령 필드. **관절 단위**임. 발목은 pitch/roll 로 받음."""
-        return {j: float for j in JOINT_NAMES}
+        """명령으로 받을 수 있는 필드. **발목이 두 갈래임.**
+
+        여덟 개가 동시에 오는 것이 아니라 발목은 둘 중 한 쌍만 옴 --
+        `ankle_pitch`+`ankle_roll` 이거나 `ankle_a`+`ankle_b`. 나머지 네 관절은
+        모터와 1:1 이라 갈릴 것이 없음.
+        """
+        return {j: float for j in COMMANDABLE}
 
     # ---- 수명 -------------------------------------------------------------
     @property
@@ -410,29 +433,68 @@ class Leg(Robot):
         self._ankle_pose = pose
 
     # ---- 명령 -------------------------------------------------------------
-    def _motor_targets(self, action: Action) -> Dict[str, float]:
-        """관절 목표 -> 모터별 cal 목표. 발목만 기구학을 거침.
+    def _ankle_space(self, action: Action) -> Optional[str]:
+        """발목 명령이 어느 공간으로 왔는지. 발목 명령이 없으면 `None`.
 
-        모르는 관절 이름은 에러임. 오타를 조용히 무시하면 그 관절만 직전 명령을
-        유지해 자세가 어긋남.
+        **한 쌍을 통째로 줘야 함.** 모터 두 개가 두 자유도를 같이 만들어서, 한쪽만
+        받으면 두 로드가 서로 다른 자세를 요구해 관절이 비틀림.
+
+        **두 공간을 섞어 주는 것도 거부함.** 어느 쪽을 따를지 정할 근거가 없고,
+        조용히 하나를 고르면 나머지가 무시된 줄 모른 채로 돎.
         """
-        unknown = sorted(set(action) - set(JOINT_NAMES))
+        joints = set(action) & set(ANKLE_JOINTS)
+        motors = set(action) & set(ANKLE_MOTORS)
+
+        if joints and motors:
+            raise ValueError(
+                f"{self.id}: 발목 명령에 두 공간이 섞임 "
+                f"(관절 {sorted(joints)}, 모터 {sorted(motors)}). "
+                f"둘 중 한 쌍만 줄 것"
+            )
+        if not joints and not motors:
+            return None
+
+        pair, space = (
+            (ANKLE_JOINTS, ANKLE_SPACE_JOINT) if joints else (ANKLE_MOTORS, ANKLE_SPACE_MOTOR)
+        )
+        if not all(name in action for name in pair):
+            raise ValueError(
+                f"{self.id}: 발목은 {pair[0]} 와 {pair[1]} 를 함께 줘야 함 "
+                f"(받은 것: {sorted(joints or motors)}). "
+                f"모터 두 개가 두 자유도를 같이 만들기 때문임"
+            )
+        return space
+
+    def _motor_targets(self, action: Action, space: Optional[str]) -> Dict[str, float]:
+        """명령 -> 모터별 cal 목표. **발목만 공간에 따라 갈림.**
+
+        모르는 이름은 에러임. 오타를 조용히 무시하면 그 관절만 직전 명령을 유지해
+        자세가 어긋남.
+
+        `ab` 는 받은 값이 이미 모터 각도라 기구학을 지나가지 않음. 아래(가드,
+        cal -> raw)는 원래부터 모터 이름으로 돌아가므로 손댈 것이 없음.
+        """
+        unknown = sorted(set(action) - set(COMMANDABLE))
         if unknown:
             raise ValueError(
-                f"{self.id}: 모르는 관절 {unknown} (가용: {list(JOINT_NAMES)})"
+                f"{self.id}: 모르는 관절 {unknown} (가용: {list(COMMANDABLE)})"
             )
 
         targets = {j: float(action[j]) for j in SINGLE_JOINTS if j in action}
 
-        wants_ankle = any(j in action for j in ANKLE_JOINTS)
-        if wants_ankle:
-            if not all(j in action for j in ANKLE_JOINTS):
+        if space == ANKLE_SPACE_MOTOR:
+            if self.ankle_output == ANKLE_TORQUE:
+                # 토크 경로는 관절 공간 PD 라 pitch/roll 이 있어야 함. 그냥 두면
+                # `_ankle_torque` 가 빈 사전을 내고 발목만 조용히 명령을 못 받음.
                 raise ValueError(
-                    f"{self.id}: 발목은 pitch 와 roll 을 함께 줘야 함 "
-                    f"(받은 것: {sorted(set(action) & set(ANKLE_JOINTS))}). "
-                    f"모터 두 개가 두 자유도를 같이 만들기 때문임"
+                    f"{self.id}: 모터 공간 발목 명령({', '.join(ANKLE_MOTORS)})은 "
+                    f"ankle_output={ANKLE_TORQUE!r} 와 같이 쓸 수 없음. "
+                    f"{ANKLE_POSITION!r} 로 만들 것"
                 )
-            if self.ankle_output is ANKLE_TORQUE or self.ankle_output == ANKLE_TORQUE:
+            targets.update({m: float(action[m]) for m in ANKLE_MOTORS})
+
+        elif space == ANKLE_SPACE_JOINT:
+            if self.ankle_output == ANKLE_TORQUE:
                 # 토크로 보낼 때는 모터 각도가 필요 없음. `_ankle_torque` 가 처리함.
                 return targets
             try:
@@ -455,12 +517,13 @@ class Leg(Robot):
         `counters` 에 쌓임.
         """
         now = time.monotonic()
+        space = self._ankle_space(action)
         commands: Dict[int, MitCommand] = {}
         sent: Dict[str, float] = {}
         # 이번 주기에 실제로 실어 보낸 것만 남김. 안 보냈으면 0임.
         self._last_torque = {m: 0.0 for m in ANKLE_MOTORS}
 
-        for motor_name, target_cal in self._motor_targets(action).items():
+        for motor_name, target_cal in self._motor_targets(action, space).items():
             motor = self.config.motors[motor_name]
             motor_id = motor.id
             state = self.bus.state(motor_id)
@@ -496,7 +559,9 @@ class Leg(Robot):
         if self.ankle_output == ANKLE_TORQUE:
             commands.update(self._ankle_torque(action, sent))
 
-        self._last_sent = self._as_joint_space(sent)
+        self._last_sent = self._as_joint_space(
+            sent, keep_motors=space == ANKLE_SPACE_MOTOR
+        )
         return commands
 
     def _ankle_torque(
@@ -576,14 +641,26 @@ class Leg(Robot):
             return (0.0, 0.0)
         return (float(joint[0]), float(joint[1]))
 
-    def _as_joint_space(self, motor_cal: Mapping[str, float]) -> Dict[str, float]:
+    def _as_joint_space(
+        self, motor_cal: Mapping[str, float], *, keep_motors: bool = False
+    ) -> Dict[str, float]:
         """실제로 나간 모터 목표를 관절 이름으로 되돌림.
 
         발목은 FK 를 거쳐야 하는데 비싸므로, 잘리지 않았으면 명령한 값을 그대로 씀.
         잘렸으면 FK 로 되짚어 **실제로 실행된 자세**를 냄 — 로그를 믿으려면
         무엇을 보냈는지가 아니라 무엇이 실행됐는지가 필요함.
+
+        `keep_motors` 면 발목 **모터** 목표도 남김. 모터 공간으로 명령했을 때 켬 --
+        그때는 명령한 축이 곧 그 모터인데, 목표가 없으면 텔레메트리가 실측을 목표로
+        대신 써서(`snapshot.py` 의 `sent.get(motor, pos)`) `ankle_a/err` 이 늘 0이
+        됨. 정작 봐야 할 추종 오차가 사라짐.
+
+        관절 공간으로 명령했을 때는 안 켬. 그때 명령한 축은 pitch/roll 이고 모터
+        열은 부수적이라, 켜면 예전 로그와 같은 열이 다른 뜻이 됨.
         """
         out = {j: v for j, v in motor_cal.items() if j in SINGLE_JOINTS}
+        if keep_motors:
+            out.update({m: v for m, v in motor_cal.items() if m in ANKLE_MOTORS})
         # 토크로 보냈으면 발목이 이미 관절 이름으로 들어 있음. 되짚을 모터각이 없음.
         out.update({j: v for j, v in motor_cal.items() if j in ANKLE_JOINTS})
         if not all(m in motor_cal for m in ANKLE_MOTORS):
