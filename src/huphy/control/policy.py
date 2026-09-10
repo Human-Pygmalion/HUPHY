@@ -38,6 +38,25 @@
     정규화된 입력 = (관찰 - mean) / std
 
 **빼먹으면 모델이 전혀 다르게 동작함.** 모델을 부르는 쪽에서 적용해 넘길 것.
+
+
+## 발목이 두 갈래임
+
+마지막 두 칸이 무엇이냐가 모델마다 다름.
+
+    JOINT_ORDER   ... ankle_pitch  ankle_roll    발판 자세. 실물에서 IK 를 거침
+    MOTOR_ORDER   ... ankle_a      ankle_b       모터 각도. 그대로 나감
+
+시뮬이 발목을 두 축 관절로 두느냐 두 모터로 두느냐에 달린 것이고, **가중치
+파일에는 안 들어 있음** -- 관찰 개수도 행동 개수도 둘이 같아서(24/26, 6) 파일만
+봐서는 구분되지 않음.
+
+그래서 `PolicySpec` 에 넣지 않고 실행할 때 인자로 받음 (`huphy-run
+--ankle-space`). 규격에 넣으면 같은 모델이 `balance_rp`/`balance_ab` 로 둘씩
+늘어나는데, 정작 규격의 나머지 값(action_scale, obs_dim)은 똑같음.
+
+**이름이 어긋나도 코드로는 안 잡힘.** 사람이 맞게 골라야 하고, `huphy-run` 이
+시작 화면에 어느 쪽인지 찍음.
 """
 
 from __future__ import annotations
@@ -62,7 +81,37 @@ JOINT_ORDER: Tuple[str, ...] = (
 엉뚱하게 움직이고, 프레임도 응답도 정상이라 코드로는 안 잡힘.
 """
 
+MOTOR_ORDER: Tuple[str, ...] = (
+    "hip_pitch",
+    "hip_roll",
+    "hip_yaw",
+    "knee",
+    "ankle_a",
+    "ankle_b",
+)
+"""발목을 모터로 학습한 모델의 순서. **앞 네 칸은 `JOINT_ORDER` 와 같음.**
+
+발목만 다름 -- 발판 자세(pitch/roll)가 아니라 모터 각도임. 실물에서 기구학을
+지나가지 않고 그대로 모터로 감.
+
+길이가 `JOINT_ORDER` 와 같아서 **행동 개수로는 구분되지 않음.** 어느 쪽인지는
+실행할 때 사람이 고름.
+"""
+
+ORDERS: Dict[str, Tuple[str, ...]] = {
+    "rp": JOINT_ORDER,
+    "ab": MOTOR_ORDER,
+}
+"""`--ankle-space` 값 -> 순서. **이 매핑은 여기에만 둠.**
+
+진입점이 자기 사전을 들면 두 군데가 되고, 한쪽만 늘어나는 날이 옴.
+"""
+
 ACTION_DIM = len(JOINT_ORDER)
+"""행동 개수. 두 순서가 같은 길이라 어느 쪽이든 6임.
+
+검사는 `len(order)` 로 함 -- 길이의 근거는 이 상수가 아니라 쓰는 순서임.
+"""
 
 
 @dataclass(frozen=True)
@@ -109,12 +158,17 @@ def observation_vector(
     last_action: Sequence[float],
     *,
     spec: PolicySpec,
+    order: Tuple[str, ...] = JOINT_ORDER,
     t: float = 0.0,
 ) -> np.ndarray:
     """관찰을 모델 입력 벡터로. 길이는 `spec.obs_dim`.
 
     `last_action` 은 **모델이 직전에 낸 값 그대로**임 -- 관절 목표로 바꾸기 전의
     것. 시뮬의 `last_action` 이 그것임.
+
+    `order` 가 `MOTOR_ORDER` 면 발목 두 칸을 `ankle_a.pos` / `ankle_b.pos` 에서
+    읽음. **둘 다 `Leg.get_observation()` 에 이미 있음** -- 모터 값이 기본이고
+    발판 자세는 FK 로 덧붙인 것이라, 공간이 바뀌어도 관찰 쪽은 손댈 것이 없음.
     """
     out = []
 
@@ -126,8 +180,8 @@ def observation_vector(
     out.extend(imu_state.gravity)
 
     # 관절 각도·속도. 기본 자세가 전부 0 이라 상대 각도가 곧 각도임.
-    out.extend(math.radians(float(observation.get(f"{j}.pos", 0.0))) for j in JOINT_ORDER)
-    out.extend(math.radians(float(observation.get(f"{j}.vel", 0.0))) for j in JOINT_ORDER)
+    out.extend(math.radians(float(observation.get(f"{j}.pos", 0.0))) for j in order)
+    out.extend(math.radians(float(observation.get(f"{j}.vel", 0.0))) for j in order)
 
     out.extend(float(v) for v in last_action)
 
@@ -143,20 +197,29 @@ def observation_vector(
     return vector
 
 
-def joint_targets(action: Sequence[float], *, spec: PolicySpec) -> Dict[str, float]:
-    """모델 출력 -> 관절 목표 각도 (도).
+def joint_targets(
+    action: Sequence[float],
+    *,
+    spec: PolicySpec,
+    order: Tuple[str, ...] = JOINT_ORDER,
+) -> Dict[str, float]:
+    """모델 출력 -> 목표 각도 (도).
 
         목표 = 기본자세 + action_scale x 행동
 
     기본 자세가 전부 0 이라 두 번째 항만 남음.
+
+    **`order` 가 `MOTOR_ORDER` 면 키가 모터 이름으로 나옴** (`ankle_a`/`ankle_b`).
+    이름을 붙이는 자리가 여기 하나뿐이라, 공간을 바꾸는 것이 곧 이 인자를 바꾸는
+    것임. 받는 쪽(`Leg`)은 들어온 이름을 보고 알아서 갈림.
     """
-    if len(action) != ACTION_DIM:
+    if len(action) != len(order):
         raise ValueError(
-            f"{spec.name}: 행동이 {len(action)}개인데 {ACTION_DIM}개여야 함"
+            f"{spec.name}: 행동이 {len(action)}개인데 {len(order)}개여야 함"
         )
     return {
         joint: math.degrees(spec.action_scale * float(value))
-        for joint, value in zip(JOINT_ORDER, action)
+        for joint, value in zip(order, action)
     }
 
 
@@ -169,6 +232,7 @@ def policy_motion(
     imu: Any,
     *,
     spec: PolicySpec = BALANCE,
+    order: Tuple[str, ...] = JOINT_ORDER,
 ) -> Callable[[float, Dict[str, Any]], Optional[Dict[str, float]]]:
     """정책을 `Motion` 으로 만듦. 제어 루프가 그대로 받음.
 
@@ -176,15 +240,18 @@ def policy_motion(
 
     **`t` 는 이 동작이 시작한 시점부터임.** 상태 기계가 상태별 경과 시간을 넘기므로
     뛰는 위상이 상태에 들어간 순간부터 셈.
+
+    `order` 가 관찰과 목표 양쪽에 같이 걸림 -- 한쪽만 바꾸면 모델이 읽은 축과
+    시킨 축이 어긋남.
     """
-    last_action = [0.0] * ACTION_DIM
+    last_action = [0.0] * len(order)
 
     def motion(t: float, observation: Dict[str, Any]) -> Optional[Dict[str, float]]:
         vector = observation_vector(
-            observation, imu.read(), last_action, spec=spec, t=t
+            observation, imu.read(), last_action, spec=spec, order=order, t=t
         )
         action = model(vector)
         last_action[:] = [float(v) for v in action]
-        return joint_targets(last_action, spec=spec)
+        return joint_targets(last_action, spec=spec, order=order)
 
     return motion

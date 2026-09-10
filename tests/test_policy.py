@@ -16,6 +16,8 @@ from huphy.control.policy import (
     BALANCE,
     HOPPING,
     JOINT_ORDER,
+    MOTOR_ORDER,
+    ORDERS,
     hop_phase,
     joint_targets,
     observation_vector,
@@ -248,3 +250,77 @@ class TestSpecs:
     def test_only_hopping_has_a_phase(self):
         assert not BALANCE.uses_hop_phase
         assert HOPPING.uses_hop_phase
+
+
+# ===========================================================================
+# 발목이 두 갈래
+# ===========================================================================
+def motor_observation(**over):
+    out = {}
+    for joint in MOTOR_ORDER:
+        out[f"{joint}.pos"] = 0.0
+        out[f"{joint}.vel"] = 0.0
+    out.update(over)
+    return out
+
+
+class TestMotorSpace:
+    def test_only_the_ankle_differs(self):
+        """앞 네 칸이 같아야 함. 순서가 어긋나면 값은 다 정상인데 로봇만 엉뚱해짐."""
+        assert MOTOR_ORDER[:4] == JOINT_ORDER[:4]
+        assert MOTOR_ORDER[4:] == ("ankle_a", "ankle_b")
+
+    def test_same_length(self):
+        """행동 개수로는 두 공간이 구분되지 않음. 사람이 골라야 하는 이유임."""
+        assert len(MOTOR_ORDER) == len(JOINT_ORDER)
+
+    def test_orders_maps_the_cli_values(self):
+        assert ORDERS == {"rp": JOINT_ORDER, "ab": MOTOR_ORDER}
+
+    def test_observation_reads_the_motor_axes(self):
+        """모터 값은 Leg 관찰에 이미 있음. 관찰 쪽은 손댈 것이 없음."""
+        vector = observation_vector(
+            motor_observation(**{"ankle_a.pos": 30.0}),
+            imu(),
+            [0.0] * 6,
+            spec=BALANCE,
+            order=MOTOR_ORDER,
+        )
+        assert vector[6 + 4] == pytest.approx(math.radians(30.0))
+
+    def test_observation_length_is_unchanged(self):
+        """공간이 관찰 길이를 안 바꿈. obs_dim 검사로는 못 거름."""
+        vector = observation_vector(
+            motor_observation(), imu(), [0.0] * 6,
+            spec=BALANCE, order=MOTOR_ORDER,
+        )
+        assert vector.size == BALANCE.obs_dim
+
+    def test_targets_carry_motor_names(self):
+        targets = joint_targets([0.0] * 6, spec=BALANCE, order=MOTOR_ORDER)
+        assert set(targets) == set(MOTOR_ORDER)
+        assert "ankle_pitch" not in targets
+
+    def test_scale_is_the_same(self):
+        """공간이 바뀌어도 action_scale 의 뜻은 같음."""
+        rp = joint_targets([1.0] * 6, spec=BALANCE, order=JOINT_ORDER)
+        ab = joint_targets([1.0] * 6, spec=BALANCE, order=MOTOR_ORDER)
+        assert ab["ankle_a"] == pytest.approx(rp["ankle_pitch"])
+
+    def test_wrong_action_count_is_measured_against_the_order(self):
+        with pytest.raises(ValueError, match="6개여야 함"):
+            joint_targets([0.0] * 5, spec=BALANCE, order=MOTOR_ORDER)
+
+    def test_motion_uses_the_order_on_both_sides(self):
+        """관찰과 목표에 같은 순서가 걸려야 함. 한쪽만 바꾸면 축이 어긋남."""
+        seen = {}
+
+        def model(vector):
+            seen["size"] = vector.size
+            return [0.0] * 6
+
+        motion = policy_motion(model, FakeImu(), spec=BALANCE, order=MOTOR_ORDER)
+        targets = motion(0.0, motor_observation())
+
+        assert seen["size"] == BALANCE.obs_dim
+        assert set(targets) == set(MOTOR_ORDER)
