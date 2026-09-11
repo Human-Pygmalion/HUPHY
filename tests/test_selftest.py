@@ -339,3 +339,99 @@ class TestTarget:
         """팔다리마다 CAN 채널이 달라 잘못 고르면 엉뚱한 쪽이 움직임."""
         with pytest.raises(SystemExit, match="--limb"):
             selftest.main(["--config", str(two_legs), "zero"])
+
+
+# ===========================================================================
+# pose — 준 각도로
+# ===========================================================================
+LEG_JOINTS = ["hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_pitch", "ankle_roll"]
+
+
+class TestPoseOrder:
+    def test_single_leg_is_bare_names(self):
+        assert selftest.pose_order(FakeLeg()) == LEG_JOINTS
+
+    def test_robot_puts_the_left_leg_first(self):
+        """양다리 모델의 출력 규격과 같은 순서. robot.yaml 은 오른다리가 먼저여도."""
+        biped = FakeBiped([leg_named("right_leg"), leg_named("left_leg")])
+        order = selftest.pose_order(biped)
+        assert order[:6] == [f"left_leg/{j}" for j in LEG_JOINTS]
+        assert order[6:] == [f"right_leg/{j}" for j in LEG_JOINTS]
+
+    def test_unknown_legs_go_last(self):
+        biped = FakeBiped([leg_named("third_leg"), leg_named("left_leg")])
+        assert selftest.pose_order(biped)[0] == "left_leg/hip_pitch"
+        assert selftest.pose_order(biped)[-1] == "third_leg/ankle_roll"
+
+
+class TestParsePose:
+    def test_numbers_follow_the_order(self):
+        targets = selftest.parse_pose(["1", "2", "3", "4", "5", "6"], LEG_JOINTS)
+        assert targets == dict(zip(LEG_JOINTS, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
+
+    def test_negative_numbers(self):
+        targets = selftest.parse_pose(["-10", "0", "0", "30.5", "0", "-5.5"], LEG_JOINTS)
+        assert targets["hip_pitch"] == -10.0
+        assert targets["ankle_roll"] == -5.5
+
+    def test_wrong_count_says_the_order(self):
+        """몇 번째가 어느 관절인지 알려 줘야 다시 칠 수 있음."""
+        with pytest.raises(SystemExit, match="6개여야 함") as err:
+            selftest.parse_pose(["1", "2"], LEG_JOINTS)
+        assert "hip_pitch" in str(err.value)
+
+    def test_names_leave_the_rest_at_zero(self):
+        """지금 자세를 쓰면 로봇이 어디 있었느냐에 따라 목표가 달라짐."""
+        targets = selftest.parse_pose(["knee=30"], LEG_JOINTS)
+        assert targets["knee"] == 30.0
+        assert targets["hip_pitch"] == 0.0
+        assert set(targets) == set(LEG_JOINTS)
+
+    def test_names_with_a_leg_prefix(self):
+        order = [f"left_leg/{j}" for j in LEG_JOINTS]
+        targets = selftest.parse_pose(["left_leg/knee=-5"], order)
+        assert targets["left_leg/knee"] == -5.0
+
+    def test_unknown_name_is_refused(self):
+        with pytest.raises(SystemExit, match="모르는 관절"):
+            selftest.parse_pose(["elbow=10"], LEG_JOINTS)
+
+    def test_motor_names_are_not_taken(self):
+        """발목은 관절 공간만 받음. 모터 이름을 섞으면 Leg 이 두 공간 혼합으로 거부함."""
+        with pytest.raises(SystemExit, match="모르는 관절"):
+            selftest.parse_pose(["ankle_a=10"], LEG_JOINTS)
+
+    def test_mixing_numbers_and_names_is_refused(self):
+        """숫자가 어느 관절로 갈지 정할 근거가 없음."""
+        with pytest.raises(SystemExit, match="섞을 수 없음"):
+            selftest.parse_pose(["10", "knee=30"], LEG_JOINTS)
+
+    def test_not_a_number_is_refused(self):
+        with pytest.raises(SystemExit, match="숫자가 아님"):
+            selftest.parse_pose(["knee=abc"], LEG_JOINTS)
+
+    def test_nan_is_refused(self):
+        with pytest.raises(SystemExit, match="유한한"):
+            selftest.parse_pose(["knee=nan"], LEG_JOINTS)
+
+    def test_nothing_given_is_refused(self):
+        with pytest.raises(SystemExit):
+            selftest.parse_pose([], LEG_JOINTS)
+
+
+class TestPoseParser:
+    def test_negative_numbers_are_values_not_options(self):
+        args = selftest.build_parser().parse_args(["pose", "-10", "0", "5"])
+        assert args.values == ["-10", "0", "5"]
+
+    def test_common_options_after_the_values(self):
+        args = selftest.build_parser().parse_args(
+            ["--robot", "pose", "knee=30", "--approach", "5"]
+        )
+        assert args.values == ["knee=30"]
+        assert args.approach == 5.0
+        assert args.robot is True
+
+    def test_values_are_required(self):
+        with pytest.raises(SystemExit):
+            selftest.build_parser().parse_args(["pose"])

@@ -505,6 +505,9 @@ Ctrl-C       루프의 finally 를 지나므로 같은 순서
 ```bash
 huphy-test --limb right_leg zero
 huphy-test --limb right_leg range --period 10 --margin 8
+huphy-test --limb right_leg pose 0 10 0 30 0 0
+huphy-test --robot pose 0 10 0 30 0 0  0 10 0 30 0 0
+huphy-test --robot pose left_leg/knee=30 right_leg/knee=-20
 ```
 
 정해진 패턴으로 Ctrl-Q 를 누를 때까지 계속 움직임.
@@ -513,6 +516,26 @@ huphy-test --limb right_leg range --period 10 --margin 8
 |---|---|---|
 | `zero` | 관절 전부를 0도로 두고 붙잡음 | 자세가 유지되는가. 처지면 `kp` 부족, 떨면 과함 |
 | `range` | 관절마다 최소~최대를 오감 | 끝까지 가는가. 걸리는 데는 없는가 |
+| `pose` | 준 각도로 옮기고 붙잡음 | 원하는 자세를 직접 넣어 봄 |
+
+### `pose` 의 각도 넣는 법
+
+둘 중 하나만 씀. 섞으면 거부함 — 숫자가 어느 관절로 갈지 정할 근거가 없음.
+
+| | 방식 | 안 준 관절 |
+|---|---|---|
+| 숫자만 | 다리 하나 6개, 로봇 전체 12개를 순서대로 | — (전부 줘야 함) |
+| `이름=값` | 준 관절만 | **0** |
+
+숫자 순서는 `hip_pitch hip_roll hip_yaw knee ankle_pitch ankle_roll` 이고, 로봇
+전체면 **왼다리 6개 다음 오른다리 6개**임. 양다리 모델의 출력 규격과 같은 순서라
+모델이 낼 자세를 그대로 옮겨 넣을 수 있음. `robot.yaml` 의 다리 순서와는 무관함.
+
+안 준 관절을 지금 자세가 아니라 0 으로 두는 이유: 결과가 실행할 때마다 같아야 함.
+시작 전에 목표 전부를 표로 찍고, 한계 밖이면 표시함. 발목 외 관절은 가드가 한계
+안쪽으로 자르고, 발목은 기구학이 못 풀면 그 목표를 버림.
+
+발목은 관절 공간(pitch/roll)만 받음. 음수는 그냥 치면 됨 (`-10`).
 
 지금 자세에서 목표까지 `--approach` 초(기본 3)에 걸쳐 옮긴 뒤 패턴을 시작함.
 왕복은 사인파이고 `--period`(기본 6초)에 한 번 오감.

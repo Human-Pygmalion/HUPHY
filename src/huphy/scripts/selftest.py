@@ -3,13 +3,15 @@
     huphy-test --limb right_leg zero
     huphy-test --limb right_leg range
     huphy-test --robot zero             로봇 전체를 같은 루프로
+    huphy-test --robot pose 0 10 0 30 0 0  0 10 0 30 0 0
 
-두 가지임.
+세 가지임.
 
     zero     관절 전부를 0도로 두고 붙잡음
     range    관절마다 최소~최대를 오감
+    pose     준 각도로 옮기고 붙잡음
 
-둘 다 **Ctrl-Q 를 누를 때까지** 계속함. 끝나면 자세를 붙잡은 채로 토크를 끊음.
+셋 다 **Ctrl-Q 를 누를 때까지** 계속함. 끝나면 자세를 붙잡은 채로 토크를 끊음.
 
 
 ## 무엇을 보는 것인가
@@ -68,7 +70,7 @@ import tty
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..config import ConfigError, LimbConfig, load_robot
-from ..control import ControlLoop, Mode, motions
+from ..control import ControlLoop, Mode, motions, policy
 from ..robots.biped import join_name
 from ..robots.leg import ANKLE_JOINTS, SINGLE_JOINTS, Leg
 from .bringup import build_biped, build_leg
@@ -396,7 +398,120 @@ def cmd_range(args, robot, loop: ControlLoop) -> int:
     )
 
 
-COMMANDS = {"zero": cmd_zero, "range": cmd_range}
+def pose_order(robot) -> List[str]:
+    """`pose` 에 숫자만 나열할 때의 순서.
+
+        다리 하나    hip_pitch hip_roll hip_yaw knee ankle_pitch ankle_roll
+        로봇 전체    왼다리 6개 -> 오른다리 6개
+
+    **양다리 모델의 출력 규격과 같은 순서임** (`policy.BIPED_LEGS`). 모델이 낼
+    자세를 손으로 넣어 볼 때 순서를 따로 외울 필요가 없게 함. `robot.yaml` 의
+    `limbs` 순서(지금 오른다리가 먼저)와는 무관함.
+
+    규격에 없는 다리 이름은 뒤에 설정 순서대로 붙음.
+    """
+    def rank(part) -> int:
+        legs = policy.BIPED_LEGS
+        return legs.index(part.id) if part.id in legs else len(legs)
+
+    ordered = sorted(parts(robot), key=rank)
+    return [
+        named(robot, part, joint)
+        for part in ordered
+        for joint in list(SINGLE_JOINTS) + list(ANKLE_JOINTS)
+    ]
+
+
+def parse_pose(tokens, order) -> Dict[str, float]:
+    """`pose` 인자를 관절 목표로. 두 방식 중 하나만 받음.
+
+        숫자만        정확히 len(order) 개. order 순서대로
+        이름=값       준 관절만 그 값, 나머지는 0
+
+    **섞으면 거부함.** 숫자 몇 개와 이름 몇 개가 섞이면 숫자가 어느 관절에 갈지
+    정할 근거가 없음.
+
+    이름으로 줄 때 안 준 관절을 **지금 자세가 아니라 0 으로** 두는 이유: 결과가
+    실행할 때마다 같아야 함. 지금 자세를 쓰면 로봇이 어디 있었느냐에 따라 목표가
+    달라짐. 시작 전에 목표 전부를 표로 찍으므로 사람이 확인할 수 있음.
+
+    발목은 관절 공간(pitch/roll)만 받음.
+    """
+    tokens = list(tokens)
+    if not tokens:
+        raise SystemExit("각도를 줄 것. 숫자를 나열하거나 이름=값 으로")
+
+    with_names = [t for t in tokens if "=" in t]
+    if with_names and len(with_names) != len(tokens):
+        raise SystemExit(
+            "숫자와 이름=값 을 섞을 수 없음. 숫자는 순서로, 이름은 이름으로 갈 곳을 "
+            "정하는데 섞이면 숫자가 어디로 갈지 알 수 없음"
+        )
+
+    def number(text: str, where: str) -> float:
+        try:
+            value = float(text)
+        except ValueError:
+            raise SystemExit(f"{where}: 숫자가 아님 ({text!r})") from None
+        if not math.isfinite(value):
+            raise SystemExit(f"{where}: 유한한 숫자여야 함 ({text!r})")
+        return value
+
+    if with_names:
+        out = {name: 0.0 for name in order}
+        for token in tokens:
+            name, _, text = token.partition("=")
+            name = name.strip()
+            if name not in out:
+                raise SystemExit(
+                    f"모르는 관절 {name!r}. 가용: {', '.join(order)}"
+                )
+            out[name] = number(text, name)
+        return out
+
+    if len(tokens) != len(order):
+        raise SystemExit(
+            f"각도가 {len(tokens)}개인데 {len(order)}개여야 함. 순서:\n  "
+            + "\n  ".join(order)
+        )
+    return {name: number(text, name) for name, text in zip(order, tokens)}
+
+
+def cmd_pose(args, robot, loop: ControlLoop) -> int:
+    """준 각도로 옮기고 붙잡음."""
+    order = pose_order(robot)
+    targets = parse_pose(args.values, order)
+    limits = joint_limits(robot)
+
+    print(f"\n{robot.id} 자세 유지 -- {len(order)}개 관절")
+    print("  " + table.header(
+        ("관절", 22, "<"), ("목표", 9), ("최소", 9), ("최대", 9), ("", 8, "<")
+    ))
+    outside = []
+    for name in order:
+        value = targets[name]
+        span = limits.get(name)
+        if span is None:
+            lo_text, hi_text, note = f"{'--':>9}", f"{'--':>9}", "한계없음"
+        else:
+            lo, hi = span
+            lo_text, hi_text = f"{lo:9.2f}", f"{hi:9.2f}"
+            note = "" if lo <= value <= hi else "범위밖"
+            if note:
+                outside.append(name)
+        print(f"  {name:<22} {value:9.2f} {lo_text} {hi_text} {note}")
+
+    if outside:
+        print(
+            f"\n  범위 밖 관절: {outside}.\n"
+            f"  발목 외 관절은 가드가 한계 안쪽으로 자름. 발목은 기구학이 못 풀면 버림."
+        )
+    print(f"\n  {args.approach:g}초에 걸쳐 옮긴 뒤 그대로 유지합니다.")
+
+    return _run(robot, loop, targets, motions.hold(targets), approach_s=args.approach)
+
+
+COMMANDS = {"zero": cmd_zero, "range": cmd_range, "pose": cmd_pose}
 
 
 # ===========================================================================
@@ -467,6 +582,9 @@ def build_parser() -> argparse.ArgumentParser:
             "  --limb right_leg zero\n"
             "  --limb right_leg range --period 10 --margin 8\n"
             "  --robot zero                    로봇 전체를 같은 루프로\n"
+            "  --limb right_leg pose 0 10 0 30 0 0\n"
+            "  --robot pose 0 10 0 30 0 0  0 10 0 30 0 0      왼다리 6 -> 오른다리 6\n"
+            "  --robot pose left_leg/knee=30 right_leg/knee=30   나머지는 0\n"
         ),
     )
     _add_common(p, suppress=False)
@@ -489,6 +607,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_MARGIN_DEG,
         help=f"한계에서 남길 여유. 기본 {DEFAULT_MARGIN_DEG:.0f}도",
+    )
+
+    ps = sub.add_parser(
+        "pose",
+        help="준 각도로 옮기고 붙잡음. 숫자를 순서대로 나열하거나 이름=값",
+    )
+    _add_common(ps, suppress=True)
+    ps.add_argument(
+        "values",
+        nargs="+",
+        metavar="각도",
+        help="숫자만(다리 하나 6개, 로봇 전체 12개 -- 왼다리 먼저) 또는 이름=값",
     )
     return p
 
