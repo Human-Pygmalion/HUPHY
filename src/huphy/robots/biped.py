@@ -313,6 +313,17 @@ class Biped(Robot):
                 out[join_name(part.id, motor)] = value
         return out
 
+    def link_counts(self) -> Dict[str, Dict[str, int]]:
+        """모터별 누적 무응답. `팔다리/모터` -> `{asked, missed}`. 세는 것은 팔다리가 함."""
+        out: Dict[str, Dict[str, int]] = {}
+        for part in self.parts:
+            counts = getattr(part, "link_counts", None)
+            if not callable(counts):
+                continue
+            for motor, value in counts().items():
+                out[join_name(part.id, motor)] = value
+        return out
+
     def since_clip(self, now: Optional[float] = None) -> float:
         """마지막 클리핑 이후 경과 (초). 없었으면 -1.
 

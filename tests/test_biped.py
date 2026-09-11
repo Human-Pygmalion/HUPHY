@@ -420,3 +420,15 @@ class TestImus:
         biped = Biped([part], imus=[FakeImu("torso")])
 
         assert {i.name for i in biped.all_imus} == {"torso", "shin"}
+
+
+class TestLinkCounts:
+    def test_carries_the_part(self, log):
+        part = FakePart("right_leg", log)
+        part.link_counts = lambda: {"knee": {"asked": 5, "missed": 1}}
+        assert Biped([part]).link_counts() == {
+            "right_leg/knee": {"asked": 5, "missed": 1}
+        }
+
+    def test_skips_parts_without_it(self, biped):
+        assert biped.link_counts() == {}

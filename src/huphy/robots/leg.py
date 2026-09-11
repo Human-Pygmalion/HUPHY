@@ -218,6 +218,13 @@ class Leg(Robot):
         # 반드시 상태 프레임으로 답하므로, 안 오면 그 모터가 처리하지 않은 것임.
         self._missing: set = set(self.config.motor_ids)
         self._miss_streak: Dict[int, int] = {i: 0 for i in self.config.motor_ids}
+        self._asked: Dict[int, int] = {i: 0 for i in self.config.motor_ids}
+        self._missed: Dict[int, int] = {i: 0 for i in self.config.motor_ids}
+        """모터별 누적. 명령한 횟수와 그중 응답이 없던 횟수.
+
+        `_miss_streak` 는 **연속** 횟수라 한 번 답하면 0 으로 돌아감. 가끔씩 빠지는
+        모터는 거기서 안 보임 -- 실행이 끝난 뒤 "몇 번 빠졌나" 는 이쪽이 말함.
+        """
         self._awaiting: Tuple[int, ...] = tuple(self.config.motor_ids)
         """직전에 명령을 보낸 모터들. 응답을 기다리는 대상임."""
 
@@ -721,10 +728,26 @@ class Leg(Robot):
         # 명령하지 않은 모터는 판정 대상이 아님. 직전 상태를 그대로 둠.
         self._missing = {m for m in missing if m in self._awaiting}
         for motor_id in self._awaiting:
+            self._asked[motor_id] += 1
             if motor_id in self._missing:
                 self._miss_streak[motor_id] += 1
+                self._missed[motor_id] += 1
             else:
                 self._miss_streak[motor_id] = 0
+
+    def link_counts(self) -> Dict[str, Dict[str, int]]:
+        """모터별 누적. 모터 이름 -> `{asked, missed}`.
+
+            asked    명령(또는 상태 조회)을 보낸 횟수
+            missed   그중 응답이 없던 횟수
+
+        **연결한 뒤부터 셈.** 연결 직후의 상태 조회도 들어감. 실행이 끝난 뒤 어느
+        모터가 얼마나 빠졌는지 보는 데 씀 -- 텔레메트리 없이도 볼 수 있게.
+        """
+        return {
+            name: {"asked": self._asked[motor.id], "missed": self._missed[motor.id]}
+            for name, motor in self.config.motors.items()
+        }
 
     def link_status(self, now: Optional[float] = None) -> Dict[str, Dict[str, float]]:
         """모터별 링크 상태. 관절 이름 -> `{age, ack, miss}`.

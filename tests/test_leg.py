@@ -800,3 +800,43 @@ class TestMotorSpaceLastSent:
         leg.build_commands({"ankle_pitch": 10.0, "ankle_roll": 0.0})
         assert "ankle_a" not in leg.last_sent
         assert "ankle_pitch" in leg.last_sent
+
+
+# ===========================================================================
+# 누적 무응답
+# ===========================================================================
+class TestLinkCounts:
+    def test_starts_from_the_connect_refresh(self, leg):
+        """연결 직후의 상태 조회도 들어감."""
+        counts = leg.link_counts()
+        assert counts["knee"]["asked"] == 1
+        assert counts["knee"]["missed"] == 0
+
+    def test_counts_every_command(self, leg):
+        for _ in range(3):
+            leg.send(leg.build_commands({"knee": 10.0}))
+            leg.collect()
+        assert leg.link_counts()["knee"]["asked"] == 4
+
+    def test_a_missing_reply_is_counted(self, leg, monkeypatch):
+        monkeypatch.setattr(leg.bus, "collect", lambda expect=None, **k: [10])
+        leg.send(leg.build_commands({"knee": 10.0}))
+        leg.collect()
+        assert leg.link_counts()["knee"]["missed"] == 1
+
+    def test_it_does_not_reset_when_the_motor_answers_again(self, leg, monkeypatch):
+        """연속 횟수(miss)와 다름. 가끔씩 빠지는 모터가 여기서는 보여야 함."""
+        replies = iter([[10], []])
+        monkeypatch.setattr(leg.bus, "collect", lambda expect=None, **k: next(replies))
+        for _ in range(2):
+            leg.send(leg.build_commands({"knee": 10.0}))
+            leg.collect()
+        assert leg.link_counts()["knee"]["missed"] == 1
+        assert leg.link_status()["knee"]["miss"] == 0
+
+    def test_uncommanded_motors_are_not_counted(self, leg):
+        """명령 안 한 모터는 응답이 없는 게 정상임."""
+        before = leg.link_counts()["hip_pitch"]["asked"]
+        leg.send(leg.build_commands({"knee": 10.0}))
+        leg.collect()
+        assert leg.link_counts()["hip_pitch"]["asked"] == before
