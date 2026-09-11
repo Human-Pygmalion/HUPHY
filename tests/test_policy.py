@@ -16,8 +16,13 @@ from huphy.control.policy import (
     BALANCE,
     HOPPING,
     JOINT_ORDER,
+    BIPED_LEGS,
+    BIPED_ORDERS,
     MOTOR_ORDER,
     ORDERS,
+    biped_order,
+    for_joints,
+    observation_size,
     hop_phase,
     joint_targets,
     observation_vector,
@@ -324,3 +329,81 @@ class TestMotorSpace:
 
         assert seen["size"] == BALANCE.obs_dim
         assert set(targets) == set(MOTOR_ORDER)
+
+
+
+# ===========================================================================
+# 양다리 12칸
+# ===========================================================================
+def biped_observation(order, **over):
+    out = {}
+    for joint in order:
+        out[f"{joint}.pos"] = 0.0
+        out[f"{joint}.vel"] = 0.0
+    out.update(over)
+    return out
+
+
+class TestBipedOrder:
+    def test_left_leg_comes_first(self):
+        """학습 쪽과 정한 규격임. 왼다리 6칸 다음에 오른다리 6칸."""
+        assert BIPED_LEGS == ("left_leg", "right_leg")
+        order = BIPED_ORDERS["rp"]
+        assert all(name.startswith("left_leg/") for name in order[:6])
+        assert all(name.startswith("right_leg/") for name in order[6:])
+
+    def test_each_leg_keeps_the_single_leg_order(self):
+        order = BIPED_ORDERS["rp"]
+        assert tuple(n.split("/", 1)[1] for n in order[:6]) == JOINT_ORDER
+        assert tuple(n.split("/", 1)[1] for n in order[6:]) == JOINT_ORDER
+
+    def test_motor_space_has_its_own_twelve(self):
+        order = BIPED_ORDERS["ab"]
+        assert order[4:6] == ("left_leg/ankle_a", "left_leg/ankle_b")
+        assert order[10:12] == ("right_leg/ankle_a", "right_leg/ankle_b")
+
+    def test_every_space_has_a_biped_order(self):
+        """ORDERS 에서 만들어서 둘이 안 갈라짐."""
+        assert set(BIPED_ORDERS) == set(ORDERS)
+
+    def test_names_split_the_way_biped_splits_them(self):
+        """Biped.split_action 이 첫 / 앞을 다리 이름으로 봄."""
+        from huphy.robots.biped import split_name
+
+        assert split_name(BIPED_ORDERS["rp"][0]) == ("left_leg", "hip_pitch")
+
+    def test_biped_order_of_a_custom_leg_order(self):
+        assert biped_order(("knee",)) == ("left_leg/knee", "right_leg/knee")
+
+
+class TestObservationSize:
+    def test_matches_the_single_leg_specs(self):
+        """다리 하나 규격의 obs_dim 과 같은 식이어야 함."""
+        assert observation_size(6) == BALANCE.obs_dim
+        assert observation_size(6, uses_hop_phase=True) == HOPPING.obs_dim
+
+    def test_biped_sizes(self):
+        assert observation_size(12) == 42
+        assert observation_size(12, uses_hop_phase=True) == 44
+
+    def test_for_joints_only_changes_obs_dim(self):
+        """action_scale 과 위상은 그대로 가져감."""
+        spec = for_joints(HOPPING, 12)
+        assert spec.obs_dim == 44
+        assert spec.action_scale == HOPPING.action_scale
+        assert spec.hop_period_s == HOPPING.hop_period_s
+
+    def test_biped_observation_has_the_computed_length(self):
+        order = BIPED_ORDERS["rp"]
+        spec = for_joints(BALANCE, len(order))
+        vector = observation_vector(
+            biped_observation(order), imu(), [0.0] * 12, spec=spec, order=order,
+        )
+        assert vector.size == 42
+
+    def test_biped_targets_are_named_left_first(self):
+        order = BIPED_ORDERS["rp"]
+        spec = for_joints(BALANCE, len(order))
+        targets = joint_targets([0.0] * 12, spec=spec, order=order)
+        assert list(targets)[:1] == ["left_leg/hip_pitch"]
+        assert list(targets)[6:7] == ["right_leg/hip_pitch"]

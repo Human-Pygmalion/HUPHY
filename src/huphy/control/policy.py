@@ -62,7 +62,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import numpy as np
@@ -113,6 +113,50 @@ ACTION_DIM = len(JOINT_ORDER)
 검사는 `len(order)` 로 함 -- 길이의 근거는 이 상수가 아니라 쓰는 순서임.
 """
 
+BIPED_LEGS: Tuple[str, ...] = ("left_leg", "right_leg")
+"""양다리 모델이 다리를 늘어놓는 순서. **왼다리가 먼저임.**
+
+학습 쪽과 정한 출력 규격임 -- 왼다리 6칸 다음에 오른다리 6칸. 이름은
+`robot.yaml` 의 `limbs` 키와 같아야 함 (`Biped` 가 그 이름으로 명령을 나눔).
+
+`Biped.joint_names` 에서 순서를 끌어오면 **안 됨.** 그쪽은 `robot.yaml` 에 적힌
+순서를 따르는데 지금 설정은 오른다리가 먼저임. 모델 규격은 설정 파일이 아니라
+학습이 정하는 것이라 여기 고정해 둠.
+"""
+
+
+def biped_order(leg_order: Tuple[str, ...]) -> Tuple[str, ...]:
+    """다리 하나의 순서를 양다리 12칸으로. 이름 앞에 다리를 붙임.
+
+        (hip_pitch, ..., ankle_roll)
+          -> (left_leg/hip_pitch, ..., left_leg/ankle_roll,
+              right_leg/hip_pitch, ..., right_leg/ankle_roll)
+
+    구분자 `/` 는 `robots/biped.py` 의 것과 같음. `Biped.split_action` 이 첫 `/`
+    앞을 다리 이름으로 봄.
+    """
+    return tuple(f"{leg}/{joint}" for leg in BIPED_LEGS for joint in leg_order)
+
+
+BIPED_ORDERS: Dict[str, Tuple[str, ...]] = {
+    space: biped_order(order) for space, order in ORDERS.items()
+}
+"""`--ankle-space` 값 -> 양다리 12칸 순서. `ORDERS` 에서 만들어 둘이 안 갈라짐."""
+
+
+def observation_size(joint_count: int, *, uses_hop_phase: bool = False) -> int:
+    """관찰 벡터 길이. 관절 수에서 계산함.
+
+        각속도 3 + 중력방향 3 + 관절각 n + 관절속도 n + 직전행동 n (+ 위상 2)
+
+    다리 하나(n=6)면 24/26, 양다리(n=12)면 42/44.
+
+    **학습 쪽이 이 구성을 그대로 늘렸다는 가정임.** 다르게 짰으면 가중치 파일의
+    입력 개수와 안 맞아 `rsl_rl.load` 가 모터를 켜기 전에 멈춤 -- 틀린 채로 돌지는
+    않음.
+    """
+    return 3 + 3 + 3 * int(joint_count) + (2 if uses_hop_phase else 0)
+
 
 @dataclass(frozen=True)
 class PolicySpec:
@@ -138,6 +182,17 @@ HOPPING = PolicySpec(
 )
 
 
+def for_joints(spec: PolicySpec, joint_count: int) -> PolicySpec:
+    """같은 규격을 관절 수에 맞춰 늘림. `obs_dim` 만 다시 계산함.
+
+    양다리 경로가 씀. `action_scale` 과 위상은 그대로 가져감 -- **학습 쪽이 양다리
+    모델을 같은 값으로 학습했다는 가정임.** 양다리 규격이 따로 정해지면 그때
+    `BALANCE` 같은 상수를 하나 더 두면 됨.
+    """
+    return replace(
+        spec,
+        obs_dim=observation_size(joint_count, uses_hop_phase=spec.uses_hop_phase),
+    )
 
 
 def hop_phase(t: float, period_s: float) -> Tuple[float, float]:
