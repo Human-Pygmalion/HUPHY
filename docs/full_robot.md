@@ -345,9 +345,12 @@ loop = ControlLoop(biped, hz=100.0, mode=Mode.CONTROL)
 
 - **양다리 시뮬 모델과 재학습** — 지금 모델은 관절 6개, 관찰 24/26칸이고 시뮬
   파일이 `half_huphy.xml` 임
-- **관찰을 모델 입력으로 옮기는 곳** — 관절 순서와 이름 규칙을 학습 쪽과 맞춰야
-  함. `control/policy.py` 의 `JOINT_ORDER` 가 그 자리임
-- **`huphy-run` 의 양다리 경로** — 위 둘이 정해진 뒤에 붙임
+- **관찰을 모델 입력으로 옮기는 곳** — 양다리 12칸 순서는 학습 쪽과 정했음
+  (왼다리 6 → 오른다리 6). `control/policy.py` 의 `BIPED_LEGS` / `BIPED_ORDERS`
+- **`huphy-run` 의 양다리 경로** — 붙였음. `huphy-run --robot`. 관찰 42/44칸,
+  출력 12칸을 가중치와 대조함. `action_scale` 은 `--policy` 규격을 그대로 씀
+- **최종 실행기** — 설정 파일 하나로 인자 없이 도는 것.
+  [policy_runner.md](policy_runner.md) 에 설계 검토
 
 ---
 
