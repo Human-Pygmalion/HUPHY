@@ -12,6 +12,7 @@
 import json
 import math
 import sys
+import time
 import types
 from collections import deque
 
@@ -108,7 +109,18 @@ class FakeBus:
             self.rx.append(_state_frame(mid, FakeBus.position[mid]))
 
     def recv(self, timeout=None):
-        return self.rx.popleft() if self.rx else None
+        """큐가 비면 `timeout` 만큼 기다림. **실물 recv 가 그렇게 함.**
+
+        바로 돌아오게 두면 양다리 경로에서 켜지는 수신 스레드가 쉬지 않고 돌며 GIL
+        을 쥠. 파이썬은 5ms 마다 스레드를 바꾸는데 드레인 예산은 2ms 라, 메인
+        스레드가 첫 상태 조회를 놓치고 그 다리가 끝까지 명령을 못 받음 -- 테스트가
+        절반 확률로 흔들렸음. 실물(socketcan)은 select 로 기다리며 GIL 을 놓음.
+        """
+        if self.rx:
+            return self.rx.popleft()
+        if timeout:
+            time.sleep(timeout)
+        return None
 
     def shutdown(self):
         pass
