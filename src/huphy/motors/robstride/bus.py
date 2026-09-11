@@ -48,7 +48,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 from ..base import Motor, MotorFault, MotorState, MotorsBus, resolve_motor_list
-from ..canbus import CanBus, CanFrame
+from ..canbus import DEFAULT_DRAIN_S, CanBus, CanFrame
 from . import tables
 from .codec import mit
 
@@ -104,10 +104,23 @@ class RobStrideBus(MotorsBus):
         motors: Mapping[int, Motor],
         *,
         protocol: tables.Protocol = tables.Protocol.MIT,
+        drain_s: float = DEFAULT_DRAIN_S,
     ) -> None:
+        if drain_s < 0:
+            raise ValueError(f"drain_s 는 0 이상이어야 함 (받은 값 {drain_s})")
         self.bus = bus
         self.motors = dict(motors)
         self.protocol = protocol
+        self.drain_s = float(drain_s)
+        """응답을 기다리는 최대 시간 (초). `collect` 와 `refresh_states` 가 씀.
+
+        기다린 개수가 다 오면 즉시 빠져나가므로 **정상 주기에는 이만큼 쓰지 않음.**
+        응답이 늦거나 빠질 때만 끝까지 기다림.
+
+        크게 잡으면 늦게 온 응답을 이번 주기에 받아 무응답이 줄지만, 모터 하나가
+        죽으면 매 주기 이만큼을 통째로 씀 -- 주기 예산을 넘겨 밀림이 됨. 작게 잡으면
+        그 반대임. 기본 2ms 는 100Hz 예산 10ms 의 20% 임.
+        """
 
         # 모델 문자열을 벤더 enum 으로 옮기는 유일한 지점임. 여기서 걸러 두면
         # 제어 중에 오타가 드러나는 일이 없음.
@@ -215,13 +228,19 @@ class RobStrideBus(MotorsBus):
         return self.bus.send_many(frames)
 
     # ---- 상태 -------------------------------------------------------------
-    def collect(self, *, expect: Optional[int] = None, timeout_s: float = 0.002) -> List[int]:
+    def collect(
+        self, *, expect: Optional[int] = None, timeout_s: Optional[float] = None
+    ) -> List[int]:
         """도착한 응답을 해석해 캐시에 넣음. **응답이 없었던 모터 id** 를 반환함.
 
         `expect` 를 주면 그만큼 채웠을 때 즉시 빠져나감. 정상 주기에는 예산을
         쓰지 않음.
+
+        `timeout_s` 를 안 주면 `self.drain_s` 를 씀. 예전에는 여기에 0.002 가 따로
+        박혀 있어서 `canbus.DEFAULT_DRAIN_S` 를 바꿔도 제어 경로에는 안 닿았음.
         """
-        frames = self.bus.drain(expect=expect, timeout_s=timeout_s)
+        wait = self.drain_s if timeout_s is None else float(timeout_s)
+        frames = self.bus.drain(expect=expect, timeout_s=wait)
 
         seen = set()
         now = time.monotonic()

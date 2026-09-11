@@ -80,6 +80,7 @@ def build_leg(
     ankle_kd: Tuple[float, float] = (0.0, 0.0),
     reader: bool = False,
     imus: Optional[List[object]] = None,
+    drain_s: Optional[float] = None,
 ) -> Leg:
     """설정에서 다리 하나를 만듦.
 
@@ -102,6 +103,9 @@ def build_leg(
 
     `imus` 를 주면 그것을 씀. 빈 목록을 주면 **센서를 안 붙임** -- 로봇 전체가
     들고 있을 때임 (`build_biped`).
+
+    `drain_s` 는 응답을 기다리는 최대 시간임. 안 주면 버스 기본값(2ms). 양다리는
+    다리마다 따로 기다리므로 두 다리 다 응답이 늦으면 최악 두 배가 됨.
     """
     if gains is not None:
         limb = replace(
@@ -125,9 +129,11 @@ def build_leg(
     if limb.side == "left":
         geometry = geometry.mirrored()
 
+    bus_options = {} if drain_s is None else {"drain_s": drain_s}
     bus = RobStrideBus(
         CanBus(limb.channel, interface=limb.interface, reader=reader),
         limb.motors_by_id(),
+        **bus_options,
     )
     return Leg(
         limb,

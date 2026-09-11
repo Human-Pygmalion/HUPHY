@@ -430,3 +430,43 @@ class TestFault:
         """조회한 모터가 아닌 응답은 버림. 남의 고장값을 자기 것으로 읽으면 안 됨."""
         raw.responses[10] = FakeMessage(11, bytes([11, 0, 0, 0, 1, 0, 0, 0]))
         assert leg.read_fault(10, timeout_s=0.001) is None
+
+
+# ===========================================================================
+# 수거 예산
+# ===========================================================================
+class TestDrainBudget:
+    def test_default_is_the_canbus_constant(self, fake_can):
+        """예전에는 bus.py 에 0.002 가 따로 박혀 있어 상수를 바꿔도 안 닿았음."""
+        from huphy.motors.canbus import DEFAULT_DRAIN_S
+
+        bus = RobStrideBus(CanBus("can1"), {10: Motor(id=10, model="RS02")})
+        assert bus.drain_s == DEFAULT_DRAIN_S
+
+    def test_collect_waits_the_configured_budget(self, fake_can, monkeypatch):
+        bus = RobStrideBus(
+            CanBus("can1"), {10: Motor(id=10, model="RS02")}, drain_s=0.007
+        )
+        seen = {}
+        monkeypatch.setattr(
+            bus.bus, "drain",
+            lambda expect=None, timeout_s=None, **k: seen.setdefault("t", timeout_s) and [],
+        )
+        bus.collect(expect=1)
+        assert seen["t"] == 0.007
+
+    def test_an_explicit_timeout_still_wins(self, fake_can, monkeypatch):
+        bus = RobStrideBus(
+            CanBus("can1"), {10: Motor(id=10, model="RS02")}, drain_s=0.007
+        )
+        seen = {}
+        monkeypatch.setattr(
+            bus.bus, "drain",
+            lambda expect=None, timeout_s=None, **k: seen.setdefault("t", timeout_s) and [],
+        )
+        bus.collect(expect=1, timeout_s=0.001)
+        assert seen["t"] == 0.001
+
+    def test_negative_is_refused(self, fake_can):
+        with pytest.raises(ValueError, match="0 이상"):
+            RobStrideBus(CanBus("can1"), {10: Motor(id=10, model="RS02")}, drain_s=-1)

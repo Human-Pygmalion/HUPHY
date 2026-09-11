@@ -618,3 +618,21 @@ class TestBuildBiped:
         robot = load_robot(cfg)
         leg = bringup.build_leg(robot, robot.limb("right_leg"))
         assert not leg.bus.bus.use_reader
+
+
+class TestDrainOption:
+    def test_default_leaves_the_bus_default(self, cfg):
+        from huphy.motors.canbus import DEFAULT_DRAIN_S
+
+        robot = load_robot(cfg)
+        leg = bringup.build_leg(robot, robot.limb("right_leg"))
+        assert leg.bus.drain_s == DEFAULT_DRAIN_S
+
+    def test_it_reaches_the_bus(self, cfg):
+        robot = load_robot(cfg)
+        leg = bringup.build_leg(robot, robot.limb("right_leg"), drain_s=0.005)
+        assert leg.bus.drain_s == 0.005
+
+    def test_it_reaches_both_legs(self, cfg):
+        biped = bringup.build_biped(load_robot(cfg), drain_s=0.005)
+        assert all(p.bus.drain_s == 0.005 for p in biped.parts)
