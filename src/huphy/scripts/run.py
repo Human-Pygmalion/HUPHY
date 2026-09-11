@@ -1,6 +1,7 @@
 """정책 실행 — 학습한 모델로 다리를 움직임.
 
     huphy-run --limb right_leg --policy balance
+    huphy-run --robot --policy balance --weights runs/biped.pt
 
 브링업과 **같은 다리·같은 루프**를 씀. 다르게 들어가는 것은 매 주기 관절 목표를
 내는 것 하나뿐임 -- 브링업은 사인파 같은 것을 넣고, 여기는 모델을 넣음.
@@ -34,6 +35,28 @@
 `rp` 에서만 쓸 수 있음 -- `ab` 와 같이 주면 시작 전에 멈춤.
 
 
+## 양다리 — `--robot`
+
+모델이 12칸을 냄. 순서는 학습 쪽과 정한 규격임.
+
+    0-5    left_leg/hip_pitch ... left_leg/ankle_roll
+    6-11   right_leg/hip_pitch ... right_leg/ankle_roll
+
+**왼다리가 먼저임.** `robot.yaml` 의 `limbs` 순서(지금 오른다리가 먼저)와
+무관함 -- 모델 규격은 설정 파일이 아니라 학습이 정하므로 `policy.BIPED_LEGS` 에
+고정해 둠. 이름을 붙인 뒤로는 `Biped` 가 이름을 보고 다리별로 나눔.
+
+관찰 길이는 관절 수에서 계산함 (42, 위상이 있으면 44). `action_scale` 과 위상은
+`--policy` 로 고른 규격을 그대로 씀 -- 양다리 모델도 같은 값으로 학습했다는
+가정이고, 다르면 규격을 하나 더 두면 됨.
+
+가중치 파일의 입력·출력 개수를 **둘 다** 대조함. 다리 하나 모델에 `--robot` 을
+주면 모터를 켜기 전에 멈춤.
+
+IMU 는 다리가 아니라 로봇에 붙음 (`build_biped`). 설정의 `mount` 가 어느
+다리든 로봇 전체의 센서로 읽힘.
+
+
 ## 게인이 설정 파일 값이 아님
 
 `robot.yaml` 의 `kp`/`kd` 는 사람이 브링업에서 튜닝하는 값임. 정책은 **학습에 쓴
@@ -65,11 +88,11 @@ import threading
 from pathlib import Path
 from typing import Dict, Optional
 
-from ..config import ConfigError, LimbConfig, load_robot
+from ..config import ConfigError, load_robot
 from ..control import ControlLoop, Mode, policy, rsl_rl
 from ..motors.base import Gains
-from .bringup import build_leg
-from .commission import CONFIG_NAME, _find_config, _pick_limb
+from .bringup import build_biped, build_leg
+from .commission import CONFIG_NAME, _find_config, _pick_limb, all_legs
 from .selftest import approach
 
 logger = logging.getLogger("huphy.run")
@@ -200,12 +223,17 @@ def build_parser() -> argparse.ArgumentParser:
             "  --limb right_leg --policy balance\n"
             "  --limb right_leg --policy hopping --weights runs/model_49999.pt\n"
             "  --limb right_leg --policy balance --ankle-output torque\n"
-            "  --limb right_leg --policy balance --ankle-space ab\n\n"
+            "  --limb right_leg --policy balance --ankle-space ab\n"
+            "  --robot --policy balance --weights runs/biped.pt   양다리 12칸\n\n"
             "상태 기계와 토크 가드가 아직 없음. 사람이 지켜보며 돌릴 것.\n"
         ),
     )
     p.add_argument("--config", type=Path, help=f"기본값: 위로 올라가며 {CONFIG_NAME} 을 찾음")
     p.add_argument("--limb", help="팔다리 이름. 하나뿐이면 생략 가능")
+    p.add_argument(
+        "--robot", action="store_true",
+        help="양다리 모델을 로봇 전체로 돌림. 12칸, 왼다리 먼저",
+    )
     p.add_argument(
         "--policy", required=True, choices=sorted(SPECS),
         help="어느 정책인지. 관찰 개수와 action_scale 이 여기서 정해짐",
@@ -270,7 +298,11 @@ def main(argv=None) -> int:
     except ConfigError as e:
         raise SystemExit(f"{e}") from e
 
-    limb: LimbConfig = _pick_limb(robot, args.limb)
+    if args.robot and args.limb:
+        raise SystemExit(
+            "--robot 과 --limb 을 같이 줄 수 없음. --robot 은 다리 전부이고 "
+            "--limb 은 그중 하나를 고르는 것임"
+        )
     spec = SPECS[args.policy]
 
     # 토크 경로는 관절 공간 PD 라 pitch/roll 이 있어야 함. 여기서 막지 않으면
@@ -280,31 +312,60 @@ def main(argv=None) -> int:
             "--ankle-space ab 는 --ankle-output torque 와 같이 쓸 수 없음. "
             "모터 공간 모델은 발목 각도를 직접 내므로 position 으로 돌릴 것"
         )
-    order = policy.ORDERS[args.ankle_space]
 
-    # 모터를 켜기 전에 읽음. 규격이 어긋나면 여기서 멈추는 것이 안전함.
+    # 양다리면 12칸 순서를 쓰고 관찰 길이를 다시 계산함. 순서는 학습 쪽과 정한
+    # 규격(왼다리 먼저)이지 robot.yaml 의 순서가 아님 -- policy.BIPED_LEGS.
+    if args.robot:
+        limbs = all_legs(robot)
+        names = {limb.name for limb in limbs}
+        missing = [leg for leg in policy.BIPED_LEGS if leg not in names]
+        if missing:
+            raise SystemExit(
+                f"양다리 모델이 기대하는 다리가 설정에 없음: {missing} "
+                f"(있는 것: {sorted(names)}). robot.yaml 의 limbs 이름이 "
+                f"{list(policy.BIPED_LEGS)} 여야 함"
+            )
+        order = policy.BIPED_ORDERS[args.ankle_space]
+        spec = policy.for_joints(spec, len(order))
+    else:
+        limbs = [_pick_limb(robot, args.limb)]
+        order = policy.ORDERS[args.ankle_space]
+
+    # 모터를 켜기 전에 읽음. 규격이 어긋나면 여기서 멈추는 것이 안전함. 출력
+    # 개수도 대조함 -- 다리 하나 모델에 --robot 을 주면 여기서 걸림.
     weights = _weights_path(args)
     try:
-        model = rsl_rl.load(weights, spec=spec)
+        model = rsl_rl.load(weights, spec=spec, action_dim=len(order))
     except (ValueError, OSError) as e:
         raise SystemExit(f"{e}") from e
 
-    leg = build_leg(
-        robot, limb,
+    options = dict(
         allow_uncalibrated=args.allow_uncalibrated,
         gains=Gains(kp=POLICY_KP, kd=POLICY_KD),
         ankle_output=args.ankle_output,
         ankle_kp=(POLICY_KP, POLICY_KP),
         ankle_kd=(POLICY_KD, POLICY_KD),
     )
+    if args.robot:
+        leg = build_biped(robot, limbs, **options)
+    else:
+        leg = build_leg(robot, limbs[0], **options)
 
+    # 다리 하나면 그 다리에 붙은 IMU, 양다리면 로봇에 붙은 IMU 임
+    # (build_biped 가 센서를 다리가 아니라 로봇에 붙임). 둘 다 .imus 로 꺼냄.
     if not leg.imus:
+        where = "로봇" if args.robot else limbs[0].name
+        hint = (
+            "robot.yaml 의 imus 에 적을 것"
+            if args.robot
+            else f"robot.yaml 의 imus 에 mount: {limbs[0].name} 로 적을 것"
+        )
         raise SystemExit(
-            f"{limb.name} 에 IMU 가 없음. 정책 입력의 6칸이 IMU 값임 "
-            f"(각속도 3, 중력 방향 3).\n"
-            f"robot.yaml 의 imus 에 mount: {limb.name} 로 적을 것"
+            f"{where} 에 IMU 가 없음. 정책 입력의 6칸이 IMU 값임 "
+            f"(각속도 3, 중력 방향 3).\n{hint}"
         )
 
+    channels = [limb.channel for limb in limbs]
     try:
         leg.connect()
     except ImportError as e:
@@ -312,14 +373,16 @@ def main(argv=None) -> int:
     except ConnectionError as e:
         raise SystemExit(
             f"{e}\n채널이 올라와 있는지 확인할 것:\n"
-            f"  sudo ip link set {limb.channel} up type can bitrate 1000000"
+            + "\n".join(
+                f"  sudo ip link set {c} up type can bitrate 1000000" for c in channels
+            )
         ) from e
 
     loop = ControlLoop(leg, hz=args.hz, mode=Mode.CONTROL)
     signal.signal(signal.SIGINT, lambda *_: loop.stop())
 
     print(
-        f"\n  {limb.name}  {limb.channel}  {args.hz:.0f}Hz\n"
+        f"\n  {leg.id}  {' '.join(channels)}  {args.hz:.0f}Hz\n"
         f"  정책     {args.policy}  (입력 {spec.obs_dim}, x{spec.action_scale})\n"
         f"  가중치   {weights}\n"
         f"  게인     kp={POLICY_KP} kd={POLICY_KD}\n"

@@ -40,7 +40,7 @@ import io
 import pickle
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -131,23 +131,32 @@ def _elu(x: np.ndarray) -> np.ndarray:
     return np.where(x > 0.0, x, np.expm1(np.minimum(x, 0.0)))
 
 
-def load(path: "str | Path", *, spec: PolicySpec):
+def load(path: "str | Path", *, spec: PolicySpec, action_dim: Optional[int] = None):
     """체크포인트를 읽어 **벡터를 받아 행동을 내는 함수**를 냄.
 
     정규화까지 안에서 함 -- 부르는 쪽은 관찰 벡터를 그대로 넘기면 됨.
 
     입력 개수가 `spec` 과 다르면 여기서 멈춤. 관찰 구성이 학습 때와 달라진 것이고,
     그대로 두면 신경망이 엉뚱한 자리의 숫자를 읽음.
+
+    `action_dim` 을 주면 **출력 개수도** 대조함. 다리 하나 모델(6)에 양다리 순서(12)
+    를 붙이거나 그 반대면 여기서 멈춤 -- 그대로 두면 `joint_targets` 에서야 걸리는데
+    그때는 이미 토크가 들어간 뒤임.
     """
     state, archive, root = _read(path)
     layers = _layers(state, archive, root)
 
     obs_dim = layers[0][0].shape[1]
-    action_dim = layers[-1][0].shape[0]
+    out_dim = layers[-1][0].shape[0]
     if obs_dim != spec.obs_dim:
         raise ValueError(
             f"{path}: 신경망 입력이 {obs_dim}개인데 {spec.name} 은 {spec.obs_dim}개임. "
             f"정책 이름이 파일과 맞는지 볼 것"
+        )
+    if action_dim is not None and out_dim != action_dim:
+        raise ValueError(
+            f"{path}: 신경망 출력이 {out_dim}개인데 관절 순서는 {action_dim}개임. "
+            f"다리 하나 모델인지 양다리 모델인지 볼 것 (--robot)"
         )
 
     mean = _array(state["obs_normalizer._mean"], archive, root).reshape(-1)
@@ -167,5 +176,5 @@ def load(path: "str | Path", *, spec: PolicySpec):
         return weight @ x + bias
 
     model.obs_dim = obs_dim          # type: ignore[attr-defined]
-    model.action_dim = action_dim    # type: ignore[attr-defined]
+    model.action_dim = out_dim       # type: ignore[attr-defined]
     return model

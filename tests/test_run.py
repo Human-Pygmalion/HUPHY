@@ -96,6 +96,7 @@ class FakeBus:
     instances = []
 
     def __init__(self, **kwargs):
+        self.kwargs = kwargs
         self.rx = deque()
         self.sent = []
         FakeBus.instances.append(self)
@@ -226,10 +227,10 @@ class TestRun:
         assert "넘어져도 멈추지 않음" in out
 
     def test_the_ankle_goes_out_as_torque(self, go):
-        """--ankle-output torque 를 줬을 때. 기본은 위치임."""
-        """시뮬은 발목 두 축이 독립 관절임. 실물은 모터 둘이 같이 만듦.
+        """--ankle-output torque 를 줬을 때. 기본은 위치임.
 
-        마지막 몇 개는 정지 직전 `hold()` 라 위치 명령임. 도는 동안을 봄.
+        시뮬은 발목 두 축이 독립 관절임. 실물은 모터 둘이 같이 만듦. 마지막 몇
+        개는 정지 직전 `hold()` 라 위치 명령임. 도는 동안을 봄.
         """
         go(*REAL, "--ankle-output", "torque")
         raw = FakeBus.instances[-1]
@@ -387,3 +388,143 @@ class TestAnkleSpace:
             run.build_parser().parse_args(
                 ["--policy", "balance", "--ankle-space", "xy"]
             )
+
+
+# ===========================================================================
+# 양다리 — --robot
+# ===========================================================================
+BIPED_YAML = ROBOT_YAML.replace("""imus:""", """  left_leg:
+    kind: leg
+    side: left
+    channel: can0
+    motors:
+      hip_pitch: {id: 1, model: RS02, kp: 30.0, kd: 1.0}
+      hip_roll:  {id: 2, model: RS02, kp: 30.0, kd: 1.0}
+      hip_yaw:   {id: 3, model: RS02, kp: 30.0, kd: 1.0}
+      knee:      {id: 4, model: RS02, kp: 30.0, kd: 1.0}
+      ankle_a:   {id: 5, model: RS00, kp: 30.0, kd: 1.0}
+      ankle_b:   {id: 6, model: RS00, kp: 30.0, kd: 1.0}
+imus:""")
+
+
+@pytest.fixture
+def biped_cfg(fake_can, tmp_path, monkeypatch):
+    """오른다리가 먼저 적힌 설정 -- 지금 robot.yaml 과 같은 순서임.
+
+    왼다리 모터(1-6)도 가짜 버스가 응답하게 함. 안 그러면 왼다리가 죽은 채로 돌아
+    통신 두절로 멈추는데, 테스트는 그래도 통과해 버림.
+    """
+    for mid in range(1, 7):
+        monkeypatch.setitem(MODELS, mid, T.Model.RS00 if mid in (5, 6) else T.Model.RS02)
+        monkeypatch.setitem(FakeBus.position, mid, 0.0)
+    (tmp_path / "config" / "calibration").mkdir(parents=True)
+    robot = tmp_path / "config" / "robot.yaml"
+    robot.write_text(BIPED_YAML, encoding="utf-8")
+    (tmp_path / "config" / "calibration" / "right_leg.json").write_text(
+        json.dumps(CALIBRATION, ensure_ascii=False), encoding="utf-8"
+    )
+    return robot
+
+
+@pytest.fixture
+def biped_model(monkeypatch):
+    """42 -> 12 인 가짜 모델. 무엇을 받았는지 기록함."""
+    seen = {}
+
+    def fake_load(path, *, spec, action_dim=None):
+        seen["obs_dim"] = spec.obs_dim
+        seen["action_dim"] = action_dim
+
+        def model(vector):
+            seen["vector_size"] = len(vector)
+            return [0.0] * 12
+
+        model.obs_dim = spec.obs_dim
+        model.action_dim = 12
+        return model
+
+    monkeypatch.setattr(run.rsl_rl, "load", fake_load)
+    return seen
+
+
+@pytest.fixture
+def go_robot(fake_can, biped_cfg, monkeypatch, capsys):
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    def _go(*argv):
+        code = main(["--config", str(biped_cfg), "--robot", *argv])
+        return code, capsys.readouterr().out
+    return _go
+
+
+def _position_commands(motor_id):
+    """제어 중에 나간 위치 명령. 연결할 때 나가는 상태 조회(kp=0)는 뺌."""
+    enc = T.encoding_for(MODELS[motor_id])
+    out = []
+    for bus in FakeBus.instances:
+        for msg in bus.sent:
+            if msg.arbitration_id != motor_id or msg.data[0] == 0xFF:
+                continue
+            d = msg.data
+            kp = mit.uint_to_float(((d[3] & 0x0F) << 8) | d[4], 0.0, enc.kp_max, 12)
+            if kp > 0.2:
+                out.append(msg)
+    return out
+
+
+class TestRobot:
+    def test_it_runs_both_legs(self, go_robot, biped_model):
+        _, out = go_robot(*REAL)
+        channels = {bus.kwargs.get("channel") for bus in FakeBus.instances}
+        assert channels == {"can0", "can1"}
+        assert "통신 두절" not in out, "한쪽 다리가 응답을 안 해서 멈춘 것임"
+
+    def test_the_spec_grows_to_twelve_joints(self, go_robot, biped_model):
+        """관찰 42칸, 출력 12칸으로 대조함."""
+        go_robot(*REAL)
+        assert biped_model["obs_dim"] == 42
+        assert biped_model["action_dim"] == 12
+
+    def test_the_model_gets_the_computed_vector(self, go_robot, biped_model):
+        go_robot(*REAL)
+        assert biped_model["vector_size"] == 42
+
+    def test_both_legs_receive_commands(self, go_robot, biped_model):
+        """12칸이 이름을 달고 Biped 에서 다리별로 나뉘어 나감."""
+        go_robot(*REAL)
+        assert _position_commands(4), "왼무릎에 제어 명령이 안 나감"
+        assert _position_commands(10), "오른무릎에 제어 명령이 안 나감"
+
+    def test_each_leg_gets_its_own_channel(self, go_robot, biped_model):
+        """왼다리 명령이 오른다리 선으로 가면 안 됨."""
+        go_robot(*REAL)
+        for bus in FakeBus.instances:
+            ids = {m.arbitration_id for m in bus.sent}
+            if bus.kwargs.get("channel") == "can0":
+                assert ids <= set(range(1, 7))
+            else:
+                assert ids <= set(range(7, 13))
+
+    def test_the_banner_names_the_robot(self, go_robot, biped_model):
+        _, out = go_robot(*REAL)
+        assert "can0" in out and "can1" in out
+
+    def test_robot_and_limb_together_is_refused(self, fake_can, biped_cfg):
+        with pytest.raises(SystemExit, match="같이 줄 수 없음"):
+            main(["--config", str(biped_cfg), "--robot", "--limb", "right_leg", *REAL])
+        assert FakeBus.instances == []
+
+    def test_a_single_leg_model_is_refused(self, fake_can, biped_cfg):
+        """다리 하나 모델(입력 24)에 --robot 을 주면 모터를 켜기 전에 멈춤."""
+        with pytest.raises(SystemExit, match="입력이 24개"):
+            main(["--config", str(biped_cfg), "--robot", *REAL])
+        assert FakeBus.instances == []
+
+    def test_missing_leg_names_are_refused(self, fake_can, tmp_path, monkeypatch):
+        """모델은 left_leg/right_leg 로 명령을 냄. 설정 이름이 다르면 못 나눔."""
+        (tmp_path / "config").mkdir()
+        robot = tmp_path / "config" / "robot.yaml"
+        robot.write_text(ROBOT_YAML, encoding="utf-8")      # right_leg 하나뿐
+        with pytest.raises(SystemExit, match="left_leg"):
+            main(["--config", str(robot), "--robot", *REAL])
+        assert FakeBus.instances == []

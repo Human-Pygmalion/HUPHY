@@ -142,3 +142,22 @@ class TestWithPolicy:
         targets = motion(0.0, observation)
         assert set(targets) == set(policy.JOINT_ORDER)
         assert all(np.isfinite(v) for v in targets.values())
+
+
+class TestActionDim:
+    def test_matching_output_passes(self):
+        """다리 하나 모델은 6칸을 냄."""
+        path, spec = WEIGHTS["balance"]
+        model = rsl_rl.load(path, spec=spec, action_dim=6)
+        assert model.action_dim == 6
+
+    def test_a_mismatched_output_is_refused(self):
+        """다리 하나 모델에 양다리 순서(12)를 붙이면 모터를 켜기 전에 멈춤."""
+        with pytest.raises(ValueError, match="출력이 6개인데 관절 순서는 12개"):
+            path, spec = WEIGHTS["balance"]
+            rsl_rl.load(path, spec=spec, action_dim=12)
+
+    def test_omitting_it_skips_the_check(self):
+        """기존 호출부는 그대로 통과함."""
+        path, spec = WEIGHTS["balance"]
+        assert rsl_rl.load(path, spec=spec).action_dim == 6
