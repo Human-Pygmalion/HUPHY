@@ -540,3 +540,28 @@ class TestRobot:
         with pytest.raises(SystemExit, match="left_leg"):
             main(["--config", str(robot), "--robot", *REAL])
         assert FakeBus.instances == []
+
+
+class TestDrainAndReport:
+    def test_drain_reaches_the_bus(self, go, monkeypatch):
+        seen = {}
+        real = run.build_leg
+
+        def spy(*args, **kwargs):
+            seen["drain_s"] = kwargs.get("drain_s")
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(run, "build_leg", spy)
+        go(*REAL, "--drain-ms", "5")
+        assert seen["drain_s"] == 0.005
+
+    def test_the_report_is_printed(self, go):
+        """텔레메트리 없이도 이 주기로 몇 번 빠졌는지 보임."""
+        _, out = go(*REAL)
+        assert "수거 대기" in out
+        assert "대기초과" in out
+        assert "가드 자름" in out
+
+    def test_negative_drain_is_refused(self, go):
+        with pytest.raises(SystemExit, match="0 이상"):
+            go(*REAL, "--drain-ms", "-1")

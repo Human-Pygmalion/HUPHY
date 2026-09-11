@@ -435,3 +435,19 @@ class TestPoseParser:
     def test_values_are_required(self):
         with pytest.raises(SystemExit):
             selftest.build_parser().parse_args(["pose"])
+
+
+class TestDrainOption:
+    def test_default_is_the_bus_default(self):
+        from huphy.motors.canbus import DEFAULT_DRAIN_S
+
+        args = selftest.build_parser().parse_args(["zero"])
+        assert args.drain_ms == DEFAULT_DRAIN_S * 1000.0
+
+    def test_given_after_the_subcommand(self):
+        args = selftest.build_parser().parse_args(["pose", "knee=10", "--drain-ms", "5"])
+        assert args.drain_ms == 5.0
+
+    def test_negative_is_refused(self, two_legs):
+        with pytest.raises(SystemExit, match="0 이상"):
+            selftest.main(["--config", str(two_legs), "--robot", "--drain-ms", "-1", "zero"])

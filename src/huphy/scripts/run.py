@@ -91,6 +91,8 @@ from typing import Dict, Optional
 from ..config import ConfigError, load_robot
 from ..control import ControlLoop, Mode, policy, rsl_rl
 from ..motors.base import Gains
+from ..motors.canbus import DEFAULT_DRAIN_S
+from . import failures
 from .bringup import build_biped, build_leg
 from .commission import CONFIG_NAME, _find_config, _pick_limb, all_legs
 from .selftest import approach
@@ -255,6 +257,13 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"제어 주기. 기본 {POLICY_HZ:.0f} (학습 주기와 같아야 함)",
     )
     p.add_argument(
+        "--drain-ms", type=float, default=DEFAULT_DRAIN_S * 1000.0,
+        help=(
+            f"응답을 기다리는 최대 시간(ms). 기본 {DEFAULT_DRAIN_S * 1000.0:g}. "
+            f"늘리면 늦은 응답을 받지만 모터가 죽으면 매 주기 그만큼 씀"
+        ),
+    )
+    p.add_argument(
         "--approach", type=float, default=DEFAULT_APPROACH_S,
         help=f"영점 자세까지 옮기는 시간. 기본 {DEFAULT_APPROACH_S:.0f}초",
     )
@@ -339,8 +348,11 @@ def main(argv=None) -> int:
     except (ValueError, OSError) as e:
         raise SystemExit(f"{e}") from e
 
+    if args.drain_ms < 0:
+        raise SystemExit(f"--drain-ms 는 0 이상이어야 함 (받은 값 {args.drain_ms})")
     options = dict(
         allow_uncalibrated=args.allow_uncalibrated,
+        drain_s=args.drain_ms / 1000.0,
         gains=Gains(kp=POLICY_KP, kd=POLICY_KD),
         ankle_output=args.ankle_output,
         ankle_kp=(POLICY_KP, POLICY_KP),
@@ -410,7 +422,10 @@ def main(argv=None) -> int:
     try:
         with EnterWatcher(motion):
             stats = loop.run(motion, duration_s=args.duration)
-        print(f"\n  {stats.summary()}")
+        print("\n" + failures.report(leg, stats))
+        if stats.link_loss is not None:
+            # 정상 종료와 구분되어야 함 -- 둘 다 조용히 끝남.
+            print(f"\n  ** 통신 두절로 멈춤: {stats.link_loss} **")
         if not stats.kept_up:
             print("  주기를 못 지킴. 정책이 시뮬과 다르게 움직임")
             return 1

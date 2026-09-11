@@ -74,7 +74,8 @@ from ..control import ControlLoop, Mode, motions, policy
 from ..robots.biped import join_name
 from ..robots.leg import ANKLE_JOINTS, SINGLE_JOINTS, Leg
 from .bringup import build_biped, build_leg
-from . import table
+from . import failures, table
+from ..motors.canbus import DEFAULT_DRAIN_S
 from .commission import CONFIG_NAME, _find_config, _pick_limbs, all_legs
 
 logger = logging.getLogger("huphy.selftest")
@@ -324,12 +325,8 @@ def _run(robot, loop: ControlLoop, targets, motion, *, approach_s: float) -> int
     with QuitWatcher(loop):
         stats = loop.run(plan)
 
-    print(
-        f"\n  {stats.cycles}주기 {stats.total_s:.1f}초, 평균 {stats.mean_hz:.1f}Hz "
-        f"(목표 {stats.target_hz:.0f}Hz)"
-    )
-    if stats.missing_cycles:
-        print(f"  응답이 빠진 주기: {stats.missing_cycles}")
+    # 텔레메트리 없이도 이 주기로 몇 번 빠졌는지 보게 함 (scripts/failures.py).
+    print("\n" + failures.report(robot, stats))
     if stats.link_loss is not None:
         # 정상 종료와 구분되어야 함 -- 둘 다 조용히 끝남.
         print(f"\n  ** 통신 두절로 멈춤: {stats.link_loss} **")
@@ -551,6 +548,15 @@ def _add_common(parser, *, suppress: bool) -> None:
         help="제어 주기. 기본은 설정의 control_hz",
     )
     parser.add_argument(
+        "--drain-ms",
+        type=float,
+        default=default(DEFAULT_DRAIN_S * 1000.0),
+        help=(
+            f"응답을 기다리는 최대 시간(ms). 기본 {DEFAULT_DRAIN_S * 1000.0:g}. "
+            f"늘리면 늦은 응답을 받지만 모터가 죽으면 매 주기 그만큼 씀"
+        ),
+    )
+    parser.add_argument(
         "--gain-scale",
         type=float,
         default=default(1.0),
@@ -648,9 +654,12 @@ def main(argv=None) -> int:
     limbs: List[LimbConfig] = (
         all_legs(robot) if args.robot else _pick_limbs(robot, args.limb)
     )
+    if args.drain_ms < 0:
+        raise SystemExit(f"--drain-ms 는 0 이상이어야 함 (받은 값 {args.drain_ms})")
     options = dict(
         gain_scale=args.gain_scale,
         allow_uncalibrated=args.allow_uncalibrated,
+        drain_s=args.drain_ms / 1000.0,
     )
 
     # 팔다리가 하나면 다리 그대로 씀 -- 관절 이름에 접두어가 붙지 않아 화면과
