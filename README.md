@@ -2,8 +2,8 @@
 
 휴머노이드 로봇 제어. RobStride 액추에이터를 CAN 으로 제어함.
 
-지금은 **다리 하나**(모터 6개, CAN 채널 1개)가 동작하고, 팔·상체가 붙어도 같은
-구조가 그대로 늘어남.
+**양다리**(모터 12개, CAN 채널 2개)를 한 루프로 돌림. 다리 하나만 따로 돌리는 것도
+그대로 됨 (`--limb`). 팔·상체가 붙어도 같은 구조가 그대로 늘어남.
 
 ---
 
@@ -219,7 +219,7 @@ pip install -e ".[imu]"     # + pyserial. IMU 를 붙일 때만
 ### 확인
 
 ```bash
-python -m pytest tests -q          # 956 passed
+python -m pytest tests -q          # 1200 passed
 huphy-commission --help
 ```
 
@@ -352,7 +352,7 @@ CanBus("can1", interface="socketcan")
 **시작 전에 링크가 맞는지 볼 것.** 여기서부터 나오는 모든 명령이 이것을 따라감.
 
 ```bash
-readlink config/robot.yaml      # robot_v0.5.yaml
+readlink config/robot.yaml      # robot_v1.0.yaml
 ```
 
 ```bash
@@ -500,6 +500,8 @@ right_leg 영점: hip_pitch, hip_roll, hip_yaw, knee, ankle_a, ankle_b
 ```bash
 huphy-test --limb right_leg zero      # 관절 전부를 0도로 두고 붙잡음
 huphy-test --limb right_leg range     # 관절마다 최소~최대를 오감
+huphy-test --limb right_leg pose 0 10 0 30 0 0    # 준 각도로 옮기고 붙잡음
+huphy-test --robot zero               # 양다리를 한 루프로
 ```
 
 **Ctrl-Q 를 누를 때까지** 계속함. 사람이 답을 고르는 자리가 없어서 다리를 보거나
@@ -533,11 +535,91 @@ huphy-test --limb right_leg range     # 관절마다 최소~최대를 오감
 물려 있어 **모터 한계를 관절 한계로 옮길 수 없기** 때문임 — 한 모터의 최대각이
 다른 모터의 자세에 따라 달라짐.
 
+### `pose` — 원하는 자세를 직접
+
+각도를 두 방식 중 하나로 줌. 섞으면 거부함.
+
+```bash
+huphy-test --limb right_leg pose 0 10 0 30 0 0              # 6개를 순서대로
+huphy-test --robot pose 0 10 0 30 0 0  0 10 0 30 0 0        # 12개. 왼다리 먼저
+huphy-test --robot pose left_leg/knee=30 right_leg/knee=-20 # 나머지는 0
+```
+
+숫자 순서는 `hip_pitch hip_roll hip_yaw knee ankle_pitch ankle_roll` 이고, 로봇
+전체면 **왼다리 6개 다음 오른다리 6개**임. 양다리 모델의 출력 순서와 같아서 모델이
+낼 자세를 그대로 옮겨 넣을 수 있음.
+
+시작 전에 목표 전부를 표로 찍고 한계 밖이면 표시함. 발목은 관절 공간(pitch/roll)만
+받고, 음수는 그냥 치면 됨 (`-10`).
+
+### `--robot` — 양다리를 한 루프로
+
+```bash
+huphy-test --robot zero
+huphy-test --limb left_leg,right_leg zero    # 일부만 묶기 (드묾)
+```
+
+프로세스를 둘 띄우는 것과 다름 — **명령이 같은 주기에 나가고, 한쪽 통신이 끊기면
+양쪽이 같이 멈춤.** 따로 띄우면 한쪽이 죽어도 다른 쪽은 계속 움직여 넘어짐.
+
+`--robot` 이면 관절 이름 앞에 다리가 붙음 (`right_leg/knee`). 다리 하나면 안 붙음.
+주기는 팔다리 중 가장 느린 `control_hz` 에 맞춤.
+
+`--robot` 과 `--limb` 을 같이 주면 거부함.
+
 ### 시작할 때 천천히 감
 
 지금 자세가 어디든 목표까지 `--approach` 초(기본 3)에 걸쳐 옮긴 뒤에 패턴을 시작함.
 토크를 넣는 순간 목표가 멀리 있으면 관절이 튐 — 점프 가드가 자르기는 하지만 그 전에
 큰 토크가 한 번 나감.
+
+### 끝나면 실패 집계를 찍음
+
+텔레메트리를 켜지 않아도 **이 주기로 돌렸을 때 몇 번 빠졌는지** 보임.
+
+```
+  주기       1000회 10.0초  평균 99.8Hz / 목표 100Hz  밀림 3회  최악 14.2ms
+  수거 대기  2ms x 2다리 = 최악 4ms  (주기 10.0ms 의 40%)
+  무응답     12주기 (1.2%)
+
+  채널        송신실패  수신실패  대기초과      버림
+  can1               0         0         7         0
+  can0               0         0         5         0
+
+  모터                      빠짐    명령    비율
+  left_leg/ankle_a             7    1001    0.7%
+
+  가드 자름   limit 4
+  가드 거부   없음
+```
+
+| 줄 | 무엇 |
+|---|---|
+| 밀림 | 목표 주기를 크게 넘긴 횟수 |
+| 대기초과 | 기다린 개수를 못 채우고 수거 대기를 다 쓴 횟수 |
+| 버림 | 수신 스레드 큐가 차서 버린 프레임. `--robot` 일 때만 |
+| 모터별 | 명령한 횟수 대비 응답이 없던 횟수. **빠진 모터만** 나옴 |
+
+**연결한 뒤부터의 누적**임. 연결 직후 상태 조회와 영자세로 옮기는 구간이 들어감.
+
+`huphy-run` 도 같은 집계를 찍음.
+
+### `--drain-ms` — 응답을 기다리는 최대 시간
+
+```bash
+huphy-test --robot --hz 100 --drain-ms 4 zero
+```
+
+기본 2ms. 기다린 개수가 다 오면 즉시 빠져나가므로 **정상 주기에는 이만큼 쓰지
+않음.**
+
+| | |
+|---|---|
+| 늘리면 | 늦게 온 응답을 그 주기에 받아 무응답·대기초과가 줄어듦 |
+| 대신 | 모터 하나가 죽으면 매 주기 이만큼을 통째로 써서 주기가 밀림 |
+
+양다리는 다리마다 따로 기다려 **최악 두 배**임. 주기의 절반을 넘으면 집계에 경고가
+찍힘. `--hz` 와 같이 바꿔 가며 실패 집계를 비교하는 용도임.
 
 ### 플래그
 
@@ -546,6 +628,8 @@ huphy-test --limb right_leg range     # 관절마다 최소~최대를 오감
 | `--approach 3` | 시작 자세까지 옮기는 시간 |
 | `--period 6` | `range` 한 번 왕복하는 시간. 길수록 천천히 |
 | `--margin 5` | 한계에서 남길 여유. 한계는 하드스톱을 잰 값이라 그대로 명령하면 부딪힘 |
+| `--drain-ms 2` | 응답을 기다리는 최대 시간 (ms) |
+| `--robot` | 다리 전부를 한 루프로. `--limb` 과 같이 못 씀 |
 | `--gain-scale` `--hz` `--allow-uncalibrated` | 브링업과 같음 |
 
 플래그는 서브명령 앞뒤 어디에 적어도 됨.
@@ -747,11 +831,45 @@ huphy-bringup --limb right_leg
 ### 동작 확인 — 정해진 패턴을 계속
 
 ```bash
-huphy-test --limb right_leg zero      # 관절 전부를 0도로 두고 붙잡음
-huphy-test --limb right_leg range     # 관절마다 최소~최대를 오감
+huphy-test --limb right_leg zero        # 관절 전부를 0도로 두고 붙잡음
+huphy-test --limb right_leg range       # 관절마다 최소~최대를 오감
+huphy-test --limb right_leg pose 0 10 0 30 0 0     # 준 각도로
+huphy-test --robot zero                 # 다리 전부를 한 루프로
+huphy-test --robot --hz 200 --drain-ms 4 zero      # 주기·수거 대기를 바꿔 가며
 ```
 
-Ctrl-Q 까지 계속함. 자세한 것은 [6번](#6-동작-확인).
+Ctrl-Q 까지 계속함. 끝나면 실패 집계를 찍음. 자세한 것은 [6번](#6-동작-확인).
+
+### 정책 실행 — 학습한 모델로 움직임
+
+```bash
+huphy-run --limb right_leg --policy balance                        # 다리 하나
+huphy-run --limb right_leg --policy balance --ankle-output torque  # 발목을 토크로
+huphy-run --robot --policy balance --weights runs/biped.pt         # 양다리 12칸
+```
+
+`.pt` 에는 신경망만 들어 있고 `action_scale` 이나 관찰 구성은 안 들어 있음. 그건
+`--policy` 이름이 정함 (`balance`, `hopping`). **파일의 입력·출력 개수가 그 규격과
+다르면 모터를 켜기 전에 멈춤.**
+
+영자세로 `--approach` 초에 걸쳐 옮긴 뒤 **Enter 를 눌러야** 정책이 시작됨. Ctrl-C
+로 멈추고, 멈출 때 자세를 붙잡은 뒤 토크를 끊음.
+
+| | 무엇 |
+|---|---|
+| `--policy` | **필수.** 어느 규격인지. 관찰 개수와 `action_scale` 이 여기서 정해짐 |
+| `--weights` | 기본값은 `config/policies/<정책이름>.pt` |
+| `--ankle-space rp` | 모델이 발목을 무엇으로 내는지. `rp` 발판 자세 / `ab` 모터 각도 |
+| `--ankle-output position` | 발목에 각도를 보낼지 토크를 보낼지. `torque` 는 `rp` 에서만 |
+| `--robot` | 양다리 모델(12칸). 왼다리 6개 → 오른다리 6개 순서 |
+| `--hz 50` | 제어 주기. **학습 주기와 같아야 함** |
+| `--duration` `--approach` `--drain-ms` `--allow-uncalibrated` | 위와 같음 |
+
+**`--ankle-space` 를 잘못 골라도 코드가 못 잡음.** 두 공간이 관찰 개수도 행동
+개수도 같아서 가중치 검사를 그냥 통과함. 시작 화면에 어느 쪽인지 찍으므로 눈으로
+확인할 것. 설정 파일로 옮기는 설계는 [`docs/policy_runner.md`](docs/policy_runner.md).
+
+IMU 가 없으면 시작 전에 멈춤 — 관찰 24칸 중 6칸이 IMU 값임 (각속도 3, 중력방향 3).
 
 ### IMU — 센서를 설정하고 확인
 
@@ -789,7 +907,7 @@ IMU 가 여럿이면 `--imu <이름>` 으로 고름.
 
 ```
 config/
-├── robot.yaml           -> robot_v0.5.yaml   심볼릭 링크. 지금 쓰는 쪽
+├── robot.yaml           -> robot_v1.0.yaml   심볼릭 링크. 지금 쓰는 쪽
 ├── robot_v0.5.yaml         RS02 x4 + RS00 x2
 ├── robot_v1.0.yaml         RS04 x3 + RS03 x3
 └── calibration/
@@ -907,7 +1025,7 @@ huphy-test       --config config/robot_v1.0.yaml --limb right_leg zero
 | **게인 미튜닝** (`kp = 20`, 시작값) [#9] | 너무 크면 튀고 작으면 처짐 | `bringup` 으로 튜닝 |
 | **영점 미실측** (`zero_reference` 비어 있음) [#9] | `cal` 이 `raw` 와 같음. 좌표계가 없는 것과 같음 | `commission zero` |
 | **발목 기하 출처 미확인** [#13] | 어느 다리 것인지 모름. 반대쪽은 계산으로 만든 거울상 | 발 각도를 재서 |
-| **왼다리 한계 없음** [#9] | 왼다리는 제어 진입이 막힘 | `commission sweep` |
+| **양다리 한계 없음** (1.0) [#9] | 제어 진입이 막힘. 모터를 갈아 0.5 값을 못 씀 | `commission sweep` |
 | **전제를 코드로 못 읽음** [#11] | `zero_sta` 와 프로토콜을 확인할 방법이 없음 | 외부 도구로 대체 중 |
 
 **전부 실물이 있어야 채워지는 것들임.** 코드로 할 수 있는 것은 다 되어 있고,
