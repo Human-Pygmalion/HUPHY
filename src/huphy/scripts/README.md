@@ -507,7 +507,8 @@ huphy-test --limb right_leg zero
 huphy-test --limb right_leg range --period 10 --margin 8
 huphy-test --limb right_leg pose 0 10 0 30 0 0
 huphy-test --robot pose 0 10 0 30 0 0  0 10 0 30 0 0
-huphy-test --robot pose left_leg/knee=30 right_leg/knee=-20
+huphy-test --robot pose left_leg/ankle_a=10 right_leg/knee=-20
+huphy-test --robot pose --ankle-space rp left_leg/ankle_pitch=10 left_leg/ankle_roll=0
 ```
 
 정해진 패턴으로 Ctrl-Q 를 누를 때까지 계속 움직임.
@@ -527,15 +528,25 @@ huphy-test --robot pose left_leg/knee=30 right_leg/knee=-20
 | 숫자만 | 다리 하나 6개, 로봇 전체 12개를 순서대로 | — (전부 줘야 함) |
 | `이름=값` | 준 관절만 | **0** |
 
-숫자 순서는 `hip_pitch hip_roll hip_yaw knee ankle_pitch ankle_roll` 이고, 로봇
-전체면 **왼다리 6개 다음 오른다리 6개**임. 양다리 모델의 출력 규격과 같은 순서라
-모델이 낼 자세를 그대로 옮겨 넣을 수 있음. `robot.yaml` 의 다리 순서와는 무관함.
+숫자 순서는 `hip_pitch hip_roll hip_yaw knee` 다음에 발목 두 개이고, 로봇 전체면
+**왼다리 6개 다음 오른다리 6개**임. 양다리 모델의 출력 규격과 같은 순서라 모델이 낼
+자세를 그대로 옮겨 넣을 수 있음. `robot.yaml` 의 다리 순서와는 무관함.
+
+발목 두 칸은 `--ankle-space` 가 정함. **기본은 모터 각도**임.
+
+| | 발목 두 칸 | 한계의 출처 |
+|---|---|---|
+| `ab` (기본) | `ankle_a` `ankle_b` — 모터각을 그대로 보냄 | 여섯 개 다 캘리브레이션 실측값 |
+| `rp` | `ankle_pitch` `ankle_roll` — 기구학을 거쳐 모터각으로 | 발목만 `AnkleEnvelope` 의 시험 범위 |
+
+`rp` 의 발목이 실측값을 못 쓰는 이유: 모터 두 개가 물려 있어 **한 모터의 최대각이
+다른 모터의 자세에 따라 달라짐.** 모터 한계를 관절 한계로 옮길 수 없음.
 
 안 준 관절을 지금 자세가 아니라 0 으로 두는 이유: 결과가 실행할 때마다 같아야 함.
 시작 전에 목표 전부를 표로 찍고, 한계 밖이면 표시함. 발목 외 관절은 가드가 한계
 안쪽으로 자르고, 발목은 기구학이 못 풀면 그 목표를 버림.
 
-발목은 관절 공간(pitch/roll)만 받음. 음수는 그냥 치면 됨 (`-10`).
+이름으로 줄 때는 그 공간의 이름만 받음. 음수는 그냥 치면 됨 (`-10`).
 
 ### 끝나면 실패 집계를 찍음
 

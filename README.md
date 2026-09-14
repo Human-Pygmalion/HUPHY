@@ -540,17 +540,28 @@ huphy-test --robot zero               # 양다리를 한 루프로
 각도를 두 방식 중 하나로 줌. 섞으면 거부함.
 
 ```bash
-huphy-test --limb right_leg pose 0 10 0 30 0 0              # 6개를 순서대로
-huphy-test --robot pose 0 10 0 30 0 0  0 10 0 30 0 0        # 12개. 왼다리 먼저
-huphy-test --robot pose left_leg/knee=30 right_leg/knee=-20 # 나머지는 0
+huphy-test --limb right_leg pose 0 10 0 30 0 0                 # 6개를 순서대로
+huphy-test --robot pose 0 10 0 30 0 0  0 10 0 30 0 0           # 12개. 왼다리 먼저
+huphy-test --robot pose left_leg/ankle_a=10 right_leg/knee=-20 # 나머지는 0
 ```
 
-숫자 순서는 `hip_pitch hip_roll hip_yaw knee ankle_pitch ankle_roll` 이고, 로봇
-전체면 **왼다리 6개 다음 오른다리 6개**임. 양다리 모델의 출력 순서와 같아서 모델이
-낼 자세를 그대로 옮겨 넣을 수 있음.
+숫자 순서는 `hip_pitch hip_roll hip_yaw knee` 다음 발목 두 개이고, 로봇 전체면
+**왼다리 6개 다음 오른다리 6개**임. 양다리 모델의 출력 순서와 같아서 모델이 낼
+자세를 그대로 옮겨 넣을 수 있음.
 
-시작 전에 목표 전부를 표로 찍고 한계 밖이면 표시함. 발목은 관절 공간(pitch/roll)만
-받고, 음수는 그냥 치면 됨 (`-10`).
+**발목 두 칸은 기본이 모터 각도**임 (`ankle_a`/`ankle_b`). 준 값이 그대로 모터로
+나감.
+
+```bash
+huphy-test --robot pose --ankle-space rp left_leg/ankle_pitch=10 left_leg/ankle_roll=0
+```
+
+`--ankle-space rp` 를 주면 발판 자세로 받아 기구학을 거쳐 모터각으로 바뀜. 그때만
+발목 한계가 실측값이 아니라 `AnkleEnvelope` 의 시험 범위임 — 모터 두 개가 물려 있어
+한 모터의 최대각이 다른 모터의 자세에 따라 달라져서, 모터 한계를 관절 한계로 옮길 수
+없기 때문임.
+
+시작 전에 목표 전부를 표로 찍고 한계 밖이면 표시함. 음수는 그냥 치면 됨 (`-10`).
 
 ### `--robot` — 양다리를 한 루프로
 

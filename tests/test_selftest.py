@@ -344,24 +344,33 @@ class TestTarget:
 # ===========================================================================
 # pose — 준 각도로
 # ===========================================================================
+LEG_MOTORS = ["hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_a", "ankle_b"]
 LEG_JOINTS = ["hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_pitch", "ankle_roll"]
 
 
 class TestPoseOrder:
-    def test_single_leg_is_bare_names(self):
-        assert selftest.pose_order(FakeLeg()) == LEG_JOINTS
+    def test_the_ankle_defaults_to_motor_angles(self):
+        """pose 는 모터각으로 줌. 발목만 공간이 갈림."""
+        assert selftest.pose_order(FakeLeg()) == LEG_MOTORS
+
+    def test_rp_gives_the_foot_pose(self):
+        assert selftest.pose_order(FakeLeg(), "rp") == LEG_JOINTS
+
+    def test_the_first_four_are_the_same_either_way(self):
+        """모터와 관절이 1:1 이라 갈릴 것이 없음."""
+        assert selftest.pose_joints("ab")[:4] == selftest.pose_joints("rp")[:4]
 
     def test_robot_puts_the_left_leg_first(self):
         """양다리 모델의 출력 규격과 같은 순서. robot.yaml 은 오른다리가 먼저여도."""
         biped = FakeBiped([leg_named("right_leg"), leg_named("left_leg")])
         order = selftest.pose_order(biped)
-        assert order[:6] == [f"left_leg/{j}" for j in LEG_JOINTS]
-        assert order[6:] == [f"right_leg/{j}" for j in LEG_JOINTS]
+        assert order[:6] == [f"left_leg/{j}" for j in LEG_MOTORS]
+        assert order[6:] == [f"right_leg/{j}" for j in LEG_MOTORS]
 
     def test_unknown_legs_go_last(self):
         biped = FakeBiped([leg_named("third_leg"), leg_named("left_leg")])
         assert selftest.pose_order(biped)[0] == "left_leg/hip_pitch"
-        assert selftest.pose_order(biped)[-1] == "third_leg/ankle_roll"
+        assert selftest.pose_order(biped)[-1] == "third_leg/ankle_b"
 
 
 class TestParsePose:
@@ -396,10 +405,12 @@ class TestParsePose:
         with pytest.raises(SystemExit, match="모르는 관절"):
             selftest.parse_pose(["elbow=10"], LEG_JOINTS)
 
-    def test_motor_names_are_not_taken(self):
-        """발목은 관절 공간만 받음. 모터 이름을 섞으면 Leg 이 두 공간 혼합으로 거부함."""
+    def test_the_other_space_is_not_taken(self):
+        """그 공간의 이름만 받음. 섞으면 Leg 이 어차피 두 공간 혼합으로 거부함."""
         with pytest.raises(SystemExit, match="모르는 관절"):
             selftest.parse_pose(["ankle_a=10"], LEG_JOINTS)
+        with pytest.raises(SystemExit, match="모르는 관절"):
+            selftest.parse_pose(["ankle_pitch=10"], LEG_MOTORS)
 
     def test_mixing_numbers_and_names_is_refused(self):
         """숫자가 어느 관절로 갈지 정할 근거가 없음."""
@@ -419,6 +430,23 @@ class TestParsePose:
             selftest.parse_pose([], LEG_JOINTS)
 
 
+class TestPoseLimits:
+    def test_motor_space_uses_the_calibration(self):
+        """여섯 개가 다 같은 출처임 -- 캘리브레이션 실측값."""
+        limits = selftest.pose_limits(FakeLeg({"knee": (-20.0, 70.0),
+                                               "ankle_a": (-79.0, 43.0)}), "ab")
+        assert limits["knee"] == (-20.0, 70.0)
+        assert limits["ankle_a"] == (-79.0, 43.0)
+
+    def test_unmeasured_motors_are_left_out(self):
+        assert "ankle_b" not in selftest.pose_limits(FakeLeg({}), "ab")
+
+    def test_joint_space_uses_the_envelope_for_the_ankle(self):
+        """모터 한계를 관절 한계로 옮길 수 없음."""
+        limits = selftest.pose_limits(FakeLeg(), "rp")
+        assert limits["ankle_pitch"] == (-40.0, 40.0)
+
+
 class TestPoseParser:
     def test_negative_numbers_are_values_not_options(self):
         args = selftest.build_parser().parse_args(["pose", "-10", "0", "5"])
@@ -435,6 +463,17 @@ class TestPoseParser:
     def test_values_are_required(self):
         with pytest.raises(SystemExit):
             selftest.build_parser().parse_args(["pose"])
+
+    def test_ankle_space_defaults_to_motor_angles(self):
+        assert selftest.build_parser().parse_args(["pose", "0"]).ankle_space == "ab"
+
+    def test_ankle_space_can_be_given(self):
+        args = selftest.build_parser().parse_args(["pose", "--ankle-space", "rp", "0"])
+        assert args.ankle_space == "rp"
+
+    def test_an_unknown_space_is_refused(self):
+        with pytest.raises(SystemExit):
+            selftest.build_parser().parse_args(["pose", "--ankle-space", "xy", "0"])
 
 
 class TestDrainOption:

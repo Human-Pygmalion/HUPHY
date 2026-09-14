@@ -9,7 +9,7 @@
 
     zero     관절 전부를 0도로 두고 붙잡음
     range    관절마다 최소~최대를 오감
-    pose     준 각도로 옮기고 붙잡음
+    pose     준 각도로 옮기고 붙잡음. 발목은 기본이 모터각(ankle_a/ankle_b)
 
 셋 다 **Ctrl-Q 를 누를 때까지** 계속함. 끝나면 자세를 붙잡은 채로 토크를 끊음.
 
@@ -72,7 +72,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..config import ConfigError, LimbConfig, load_robot
 from ..control import ControlLoop, Mode, motions, policy
 from ..robots.biped import join_name
-from ..robots.leg import ANKLE_JOINTS, SINGLE_JOINTS, Leg
+from ..robots.leg import (
+    ANKLE_JOINTS,
+    ANKLE_MOTORS,
+    ANKLE_SPACE_MOTOR,
+    SINGLE_JOINTS,
+    Leg,
+)
 from .bringup import build_biped, build_leg
 from . import failures, table
 from ..motors.canbus import DEFAULT_DRAIN_S
@@ -282,19 +288,23 @@ def _read_pose(robot, loop: ControlLoop, joints) -> Dict[str, float]:
     MIT 모드에는 읽기 전용 명령이 없어서, 힘이 나가지 않는 명령을 보내고 그 응답을
     받는 것임.
 
-    관찰은 **모터 공간**임 (`knee.pos`). 발목만 관절 각도가 관찰에 없어서 FK 를
-    따로 부름 -- 모터가 보고하는 값이 아니라 FK 로 푸는 값임.
+    관찰은 **모터 공간**임 (`knee.pos`, `ankle_a.pos`). 모터 이름은 관찰에서 그대로
+    읽음.
+
+    발판 자세(`ankle_pitch`/`ankle_roll`)만 FK 를 따로 부름. 관찰에도 있지만 그쪽은
+    **못 풀었을 때 마지막으로 알려진 자세를 냄** -- 읽은 값과 옛 값이 구분되지 않음.
+    `ankle_pose()` 는 못 풀면 `None` 을 내므로 "못 읽었다" 가 드러남.
     """
     loop.step(None, t=0.0)
     observation = robot.get_observation()
 
     out: Dict[str, float] = {}
     for part in parts(robot):
-        for name in SINGLE_JOINTS:
+        for name in list(SINGLE_JOINTS) + list(ANKLE_MOTORS):
             key = named(robot, part, name)
             if key not in joints:
                 continue
-            value = observation.get(f"{named(robot, part, name)}.pos")
+            value = observation.get(f"{key}.pos")
             if value is not None:
                 out[key] = float(value)
 
@@ -395,10 +405,24 @@ def cmd_range(args, robot, loop: ControlLoop) -> int:
     )
 
 
-def pose_order(robot) -> List[str]:
+def pose_joints(space: str) -> List[str]:
+    """다리 하나의 이름 여섯. 발목만 공간에 따라 갈림.
+
+        ab   hip_pitch hip_roll hip_yaw knee ankle_a     ankle_b      모터 각도
+        rp   hip_pitch hip_roll hip_yaw knee ankle_pitch ankle_roll   발판 자세
+
+    앞 네 개는 모터와 관절이 1:1 이라 어느 쪽이든 같음. 발목만 모터 두 개가 로드로
+    발판 하나를 밀어서, `ab` 는 모터각을 그대로 주고 `rp` 는 두 값을 기구학에 같이
+    넣어 모터각을 얻음.
+    """
+    ankle = ANKLE_MOTORS if space == ANKLE_SPACE_MOTOR else ANKLE_JOINTS
+    return list(SINGLE_JOINTS) + list(ankle)
+
+
+def pose_order(robot, space: str = ANKLE_SPACE_MOTOR) -> List[str]:
     """`pose` 에 숫자만 나열할 때의 순서.
 
-        다리 하나    hip_pitch hip_roll hip_yaw knee ankle_pitch ankle_roll
+        다리 하나    여섯 개 (`pose_joints`)
         로봇 전체    왼다리 6개 -> 오른다리 6개
 
     **양다리 모델의 출력 규격과 같은 순서임** (`policy.BIPED_LEGS`). 모델이 낼
@@ -415,8 +439,31 @@ def pose_order(robot) -> List[str]:
     return [
         named(robot, part, joint)
         for part in ordered
-        for joint in list(SINGLE_JOINTS) + list(ANKLE_JOINTS)
+        for joint in pose_joints(space)
     ]
+
+
+def pose_limits(robot, space: str) -> Dict[str, Tuple[float, float]]:
+    """`pose` 가 화면에 찍는 한계. **공간마다 출처가 다름.**
+
+        ab   캘리브레이션 실측값. 여섯 개 다 같은 출처임
+        rp   네 관절은 실측값, 발목 두 축은 AnkleEnvelope 의 시험 범위
+
+    발목을 `rp` 로 줄 때 실측값을 못 쓰는 이유: 모터 두 개가 물려 있어 **한 모터의
+    최대각이 다른 모터의 자세에 따라 달라짐.** 모터 한계를 관절 한계로 옮길 수 없음.
+
+    한계가 없는 것은 빠짐 -- 아직 안 잰 것임.
+    """
+    if space != ANKLE_SPACE_MOTOR:
+        return joint_limits(robot)
+
+    out: Dict[str, Tuple[float, float]] = {}
+    for part in parts(robot):
+        for name in pose_joints(space):
+            limits = part.config.motors[name].limits_deg
+            if limits is not None:
+                out[named(robot, part, name)] = (float(limits[0]), float(limits[1]))
+    return out
 
 
 def parse_pose(tokens, order) -> Dict[str, float]:
@@ -432,7 +479,8 @@ def parse_pose(tokens, order) -> Dict[str, float]:
     실행할 때마다 같아야 함. 지금 자세를 쓰면 로봇이 어디 있었느냐에 따라 목표가
     달라짐. 시작 전에 목표 전부를 표로 찍으므로 사람이 확인할 수 있음.
 
-    발목은 관절 공간(pitch/roll)만 받음.
+    이름은 그 공간의 것만 받음 -- `ab` 면 `ankle_a`/`ankle_b`, `rp` 면
+    `ankle_pitch`/`ankle_roll`. 섞으면 `Leg` 이 어차피 거부함.
     """
     tokens = list(tokens)
     if not tokens:
@@ -476,11 +524,13 @@ def parse_pose(tokens, order) -> Dict[str, float]:
 
 def cmd_pose(args, robot, loop: ControlLoop) -> int:
     """준 각도로 옮기고 붙잡음."""
-    order = pose_order(robot)
+    space = args.ankle_space
+    order = pose_order(robot, space)
     targets = parse_pose(args.values, order)
-    limits = joint_limits(robot)
+    limits = pose_limits(robot, space)
 
-    print(f"\n{robot.id} 자세 유지 -- {len(order)}개 관절")
+    where = "모터 각도" if space == ANKLE_SPACE_MOTOR else "발판 자세"
+    print(f"\n{robot.id} 자세 유지 -- {len(order)}개, 발목은 {where} ({space})")
     print("  " + table.header(
         ("관절", 22, "<"), ("목표", 9), ("최소", 9), ("최대", 9), ("", 8, "<")
     ))
@@ -499,10 +549,12 @@ def cmd_pose(args, robot, loop: ControlLoop) -> int:
         print(f"  {name:<22} {value:9.2f} {lo_text} {hi_text} {note}")
 
     if outside:
-        print(
-            f"\n  범위 밖 관절: {outside}.\n"
-            f"  발목 외 관절은 가드가 한계 안쪽으로 자름. 발목은 기구학이 못 풀면 버림."
+        note = (
+            "  가드가 한계 안쪽으로 자름."
+            if space == ANKLE_SPACE_MOTOR
+            else "  발목 외 관절은 가드가 한계 안쪽으로 자름. 발목은 기구학이 못 풀면 버림."
         )
+        print(f"\n  범위 밖: {outside}.\n{note}")
     print(f"\n  {args.approach:g}초에 걸쳐 옮긴 뒤 그대로 유지합니다.")
 
     return _run(robot, loop, targets, motions.hold(targets), approach_s=args.approach)
@@ -620,6 +672,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="준 각도로 옮기고 붙잡음. 숫자를 순서대로 나열하거나 이름=값",
     )
     _add_common(ps, suppress=True)
+    ps.add_argument(
+        "--ankle-space",
+        choices=sorted(policy.ORDERS),
+        default=ANKLE_SPACE_MOTOR,
+        help="발목을 무엇으로 줄지. ab=모터 각도 (기본), rp=발판 자세",
+    )
     ps.add_argument(
         "values",
         nargs="+",
