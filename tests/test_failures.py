@@ -50,10 +50,47 @@ class TestReport:
 
     def test_can_counters_per_channel(self):
         leg = fake_leg()
+        leg.bus.bus.counters.frames_sent = 100
+        leg.bus.bus.counters.frames_received = 98
         leg.bus.bus.counters.drain_timeouts = 7
         leg.bus.bus.counters.tx_errors = 2
         line = [l for l in failures.report(leg, stats()).splitlines() if "can1" in l][0]
-        assert line.split()[1:] == ["2", "0", "7", "0"]
+        #                보냄  받음  미수신 송신  수신  대기초과 버림
+        assert line.split()[1:] == ["100", "98", "2", "2", "0", "7", "0"]
+
+    def test_missing_frames_are_sent_minus_received(self):
+        """MIT 는 명령을 받으면 반드시 응답함. 차이가 곧 안 돌아온 수임."""
+        leg = fake_leg()
+        leg.bus.bus.counters.frames_sent = 1000
+        leg.bus.bus.counters.frames_received = 1000
+        assert "유실은 없고 늦게 온 것임" in failures.report(leg, stats())
+
+    def test_a_short_run_does_not_cry_wolf(self):
+        """정지 절차에서 수거 없이 나가는 몫이 있어 짧은 실행은 비율이 튐."""
+        leg = fake_leg()
+        leg.bus.bus.counters.frames_sent = 100
+        leg.bus.bus.counters.frames_received = 88
+        assert "유실은 없고" in failures.report(leg, stats())
+
+    def test_a_big_gap_is_called_out(self):
+        leg = fake_leg()
+        leg.bus.bus.counters.frames_sent = 1000
+        leg.bus.bus.counters.frames_received = 600
+        assert "응답이 실제로 안 돌아옴" in failures.report(leg, stats())
+
+    def test_a_few_left_in_the_queue_is_still_fine(self):
+        """끝날 때 큐에 남은 것은 안 세므로 모터 수 정도는 정상임."""
+        leg = fake_leg()
+        leg.bus.bus.counters.frames_sent = 1000
+        leg.bus.bus.counters.frames_received = 994
+        assert "유실은 없고" in failures.report(leg, stats())
+
+    def test_a_quarter_lost_is_called_out(self):
+        """실물에서 본 비율. 이건 늦은 것이 아니라 유실임."""
+        leg = fake_leg()
+        leg.bus.bus.counters.frames_sent = 191000
+        leg.bus.bus.counters.frames_received = 145000
+        assert "실제로 안 돌아옴" in failures.report(leg, stats())
 
     def test_only_motors_that_missed_are_listed(self):
         text = failures.report(fake_leg(missed={"knee": 3}), stats())

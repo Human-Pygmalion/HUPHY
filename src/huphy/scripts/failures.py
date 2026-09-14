@@ -33,6 +33,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import table
 
 CAN_FIELDS: Tuple[Tuple[str, str], ...] = (
+    ("frames_sent", "보냄"),
+    ("frames_received", "받음"),
     ("tx_errors", "송신실패"),
     ("rx_errors", "수신실패"),
     ("drain_timeouts", "대기초과"),
@@ -40,9 +42,32 @@ CAN_FIELDS: Tuple[Tuple[str, str], ...] = (
 )
 """`CanCounters` 필드 -> 화면 이름. 순서가 열 순서임.
 
+    보냄/받음  나간 프레임과 들어온 프레임. **둘을 비교하는 것이 요점임**
     대기초과   기다린 개수를 못 채우고 수거 대기 시간을 다 쓴 횟수
     버림       수신 스레드 큐가 차서 버린 프레임 (수신 스레드를 켰을 때만)
 """
+
+MISSING_LABEL = "미수신"
+"""보냄 - 받음. 표에 계산해서 넣는 칸.
+
+MIT 모드는 명령을 받으면 반드시 응답하므로 **정상이면 0 에 가까움.**
+
+    0 에 가까움   유실은 없음. 늦게 온 것이라 대기초과·무응답이 집계에 잡힌 것
+    크게 양수     실제로 안 돌아옴. 배선·전원·프로토콜 쪽
+
+끝날 때 큐에 남아 있던 것과 정지 절차에서 수거 없이 나간 것은 안 세므로, 실행
+길이와 무관하게 **몇 개는 늘 남음.** 그래서 개수가 아니라 비율로 판정함.
+"""
+
+LOST_WARN_RATIO = 0.01
+"""미수신이 보낸 것의 이 비율을 넘으면 유실로 봄.
+
+끝자락의 몇 개는 늘 남으므로 짧은 실행에서 비율이 튐 -- `LOST_WARN_FLOOR` 개는
+넘어야 판정함.
+"""
+
+LOST_WARN_FLOOR = 32
+"""이 개수 이하는 비율과 무관하게 정상으로 봄. 정지 절차에서 나가는 몫."""
 
 DRAIN_WARN_RATIO = 0.5
 """수거 대기가 주기의 이 비율을 넘으면 경고함.
@@ -101,18 +126,35 @@ def report(robot: Any, stats: Any, *, drain_s: Optional[float] = None) -> str:
 
     # ---- CAN ---------------------------------------------------------------
     lines.append("")
+    labels = [label for _, label in CAN_FIELDS]
+    labels.insert(2, MISSING_LABEL)          # 보냄·받음 바로 뒤
     lines.append(
-        "  "
-        + table.header(("채널", 10, "<"), *[(label, 9) for _, label in CAN_FIELDS])
+        "  " + table.header(("채널", 10, "<"), *[(label, 9) for label in labels])
     )
+    lost = 0
     for part in legs:
         counters = getattr(getattr(getattr(part, "bus", None), "bus", None), "counters", None)
         channel = getattr(getattr(part, "config", None), "channel", part.id)
         values = [getattr(counters, field, 0) for field, _ in CAN_FIELDS]
+        values.insert(2, values[0] - values[1])
+        lost += values[2]
         lines.append(
             "  " + table.cell(channel, 10, align="<")
             + "".join(f" {v:9d}" for v in values)
         )
+    sent = sum(
+        getattr(
+            getattr(getattr(getattr(p, "bus", None), "bus", None), "counters", None),
+            "frames_sent", 0,
+        )
+        for p in legs
+    )
+    heavy = lost > LOST_WARN_FLOOR and lost > sent * LOST_WARN_RATIO
+    lines.append(
+        "  ** 미수신이 큼. 응답이 실제로 안 돌아옴 -- 배선·전원·프로토콜 **"
+        if heavy
+        else "  미수신이 작으면 유실은 없고 늦게 온 것임 (대기초과를 볼 것)."
+    )
 
     # ---- 모터별 무응답 -----------------------------------------------------
     missed = []
