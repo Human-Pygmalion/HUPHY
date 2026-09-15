@@ -237,8 +237,15 @@ class QuitWatcher:
     별도 스레드에서 키를 봄 -- 루프는 주기를 지켜야 해서 입력을 기다릴 틈이 없음.
     `loop.stop()` 은 다음 주기에 빠져나오게만 하므로 스레드에서 불러도 됨.
 
-    **터미널을 raw 모드로 바꿈.** Ctrl-Q 는 원래 흐름 제어(XON)로 먹히는 문자라,
-    보통 모드에서는 프로그램까지 오지 않음. 빠져나올 때 원래 설정으로 되돌림.
+    **터미널 설정을 두 군데 바꿈.** 빠져나올 때 원래 설정으로 되돌림.
+
+    | 무엇을 | 어디를 | 왜 |
+    |---|---|---|
+    | `ICANON`·`ECHO` 끔 | `tty.setcbreak` 가 `LFLAG` 를 만짐 | 엔터 없이 한 글자씩 읽고, 누른 키가 화면에 안 찍히게 함 |
+    | `IXON` 끔 | 여기서 `IFLAG` 를 만짐 | Ctrl-Q 는 XON(흐름 제어)이라 켜져 있으면 tty 드라이버가 먹고 프로그램까지 안 옴 |
+
+    `tty.setcbreak` 는 `LFLAG` 만 건드리므로 `IXON` 을 따로 꺼야 함. 안 그러면
+    Ctrl-Q 를 눌러도 아무 일도 일어나지 않음.
 
     화면이 아니면 아무것도 하지 않음 -- 그때는 Ctrl-C 로 끊음.
     """
@@ -253,8 +260,14 @@ class QuitWatcher:
     def __enter__(self) -> "QuitWatcher":
         if not self.armed:
             return self
-        self._saved = termios.tcgetattr(sys.stdin.fileno())
-        tty.setcbreak(sys.stdin.fileno())
+        fd = sys.stdin.fileno()
+        self._saved = termios.tcgetattr(fd)
+        tty.setcbreak(fd)
+        # setcbreak 는 LFLAG 만 만짐. IXON 이 남아 있으면 Ctrl-Q(0x11) 를 tty
+        # 드라이버가 XON 으로 먹어 read 까지 오지 않음.
+        mode = termios.tcgetattr(fd)
+        mode[0] &= ~termios.IXON  # mode[0] 이 IFLAG
+        termios.tcsetattr(fd, termios.TCSANOW, mode)
         self._thread = threading.Thread(target=self._watch, daemon=True)
         self._thread.start()
         return self

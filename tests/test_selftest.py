@@ -490,3 +490,35 @@ class TestDrainOption:
     def test_negative_is_refused(self, two_legs):
         with pytest.raises(SystemExit, match="0 이상"):
             selftest.main(["--config", str(two_legs), "--robot", "--drain-ms", "-1", "zero"])
+
+
+class TestQuitWatcher:
+    """Ctrl-Q 가 프로그램까지 오는지.
+
+    진짜 터미널이 있어야 해서 pty 를 하나 열고 그 안에서 확인함. `tty.setcbreak`
+    는 `LFLAG` 만 만지므로 `IXON` 이 남고, 그러면 Ctrl-Q(0x11) 를 tty 드라이버가
+    XON(흐름 제어)으로 먹어 `read` 까지 오지 않음.
+    """
+
+    def test_ixon_is_cleared(self, monkeypatch):
+        import os
+        import pty
+        import sys
+        import termios
+
+        class FakeLoop:
+            def stop(self):
+                pass
+
+        master, slave = pty.openpty()
+        try:
+            monkeypatch.setattr(sys, "stdin", os.fdopen(slave, "r"))
+            watcher = selftest.QuitWatcher(FakeLoop())
+            assert watcher.armed
+            with watcher:
+                iflag = termios.tcgetattr(slave)[0]
+            assert not iflag & termios.IXON
+            # 빠져나오면서 되돌려 놓았는지.
+            assert termios.tcgetattr(slave)[0] & termios.IXON
+        finally:
+            os.close(master)
