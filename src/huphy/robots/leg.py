@@ -76,6 +76,13 @@ from .base import Action, Observation, Robot
 
 logger = logging.getLogger(__name__)
 
+DAMPING_KD = 100.0
+"""`damp()` 가 보내는 고정 `kd`. RS03/RS04 의 인코딩 상한 (`motors/robstride/tables.py:105-106`).
+
+`kp=0` 과 짝지어 보내므로 스프링 없이 이 값 단독으로 관절 관성을 죽임 -- 위치
+제어용 `motor.gains.kd` 와는 용도가 달라 그 값을 재사용하지 않음.
+"""
+
 SINGLE_JOINTS = ("hip_pitch", "hip_roll", "hip_yaw", "knee")
 ANKLE_JOINTS = ("ankle_pitch", "ankle_roll")
 ANKLE_MOTORS = ("ankle_a", "ankle_b")
@@ -822,5 +829,32 @@ class Leg(Robot):
                 position_deg=state.position_deg,
                 kp=motor.gains.kp,
                 kd=motor.gains.kd,
+            )
+        return commands
+
+    def damp(self) -> Dict[int, MitCommand]:
+        """위치를 붙잡지 않고 속도만 죽임. 정지 절차의 감쇠 단계에 씀.
+
+        `hold()` 와 달리 `kp=0` 으로 보냄 -- 목표 위치로 당기는 항이 사라지므로
+        관절이 그 자리에 고정되지 않고 중력·관성에 맡겨짐. `kd` 는 `motor.gains.kd`
+        (스프링 역할인 `kp` 를 임계감쇠로 누르는 값) 대신 **RS03/RS04 인코딩 상한인
+        100.0** 을 고정으로 씀 -- `kp=0` 이면 스프링이 없어 `motor.gains.kd` 가
+        기준으로 삼던 감쇠비 개념이 안 맞고, 그 값만으로는 관절 하나의 관성을 빨리
+        죽이기에 부족할 수 있음 (`motors/robstride/tables.py:105-106`).
+
+        `kd_max` 가 5.0 인 모델(RS00/RS02)에서는 `codec/mit.py` 의 `float_to_uint`
+        가 100 을 조용히 5.0 으로 클램프해서 보냄 -- 지금 로봇 구성(RS03/RS04)에는
+        해당 없음.
+        """
+        commands: Dict[int, MitCommand] = {}
+        for motor_name in self.motor_names:
+            motor = self.config.motors[motor_name]
+            state = self.bus.state(motor.id)
+            if not state.is_valid:
+                continue
+            commands[motor.id] = MitCommand(
+                position_deg=state.position_deg,
+                kp=0.0,
+                kd=DAMPING_KD,
             )
         return commands

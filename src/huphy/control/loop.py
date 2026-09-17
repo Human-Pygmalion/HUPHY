@@ -50,12 +50,13 @@ CPU 를 태우는 구간이라 짧게 둠. 100Hz 에서 마지막 1~2ms 정도�
 
 ## 멈출 때
 
-    1  게인을 유지한 채 현재 자세를 목표로 (`hold`)
+    1  `DAMPING_S` 초 동안 감쇠 (`damp`, kp=0, kd 만 남김)
     2  토크 차단
     3  텔레메트리 flush
 
 **바로 토크를 끊지 않음.** 서 있는 다리에서 힘이 갑자기 빠지면 주저앉음.
-`hold` 를 몇 주기 보내 자세를 붙잡은 뒤 끊음.
+`damp` 로 위치를 붙잡는 대신 속도만 죽이면서 몇 초에 걸쳐 늦춘 뒤 끊음 --
+목표 위치로 당기는 `kp` 항이 없어 그 자리에 고정되지 않고 중력·관성에 맡겨짐.
 
 예외로 빠져나가도 이 순서를 탐.
 
@@ -88,8 +89,9 @@ logger = logging.getLogger(__name__)
 OVERRUN_RATIO = 1.5
 """목표 주기의 이 배를 넘으면 밀린 것으로 셈. 100Hz 에서 15ms."""
 
-SETTLE_CYCLES = 5
-"""멈출 때 `hold` 를 보내는 주기 수. 힘이 갑자기 빠지지 않게 함."""
+DAMPING_S = 5.0
+"""멈출 때 `damp` 를 보내는 시간 (초). 힘이 갑자기 빠지지 않게, 위치를 붙잡지
+않고 속도만 죽여서 서서히 멈추게 함."""
 
 SPIN_THRESHOLD_S = 0.003
 """마감까지 이만큼 남으면 자지 않고 돌면서 기다림."""
@@ -395,12 +397,13 @@ class ControlLoop:
             self.telemetry.close()
 
     def _settle(self) -> None:
-        """현재 자세를 목표로 몇 주기 보냄. 게인은 그대로 둠."""
-        hold = getattr(self.robot, "hold", None)
-        if not callable(hold):
+        """`DAMPING_S` 초 동안 감쇠 명령을 보냄. 위치를 붙잡지 않고 속도만 죽임."""
+        damp = getattr(self.robot, "damp", None)
+        if not callable(damp):
             return
-        for _ in range(SETTLE_CYCLES):
-            self.robot.send(hold())
+        cycles = max(1, round(DAMPING_S * self.hz))
+        for _ in range(cycles):
+            self.robot.send(damp())
             self.robot.collect()
             time.sleep(self.period_s)
 

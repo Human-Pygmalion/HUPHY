@@ -431,6 +431,19 @@ class Biped(Robot):
             out[part.id] = hold() if callable(hold) else {}
         return out
 
+    def damp(self) -> Commands:
+        """위치를 붙잡지 않고 속도만 죽이는 명령. 팔다리별로 나뉜 꾸러미임.
+
+        정지 절차의 감쇠 단계가 이것을 씀. `hold()` 와 같은 구조로 각 팔다리의
+        `damp()` (`robots/leg.py`) 를 모음 -- **양다리가 같이 감쇠해야** 한쪽만
+        먼저 풀려 넘어지지 않음.
+        """
+        out: Dict[str, Any] = {}
+        for part in self.parts:
+            damp = getattr(part, "damp", None)
+            out[part.id] = damp() if callable(damp) else {}
+        return out
+
 
 def _motor_names(part: Robot) -> Tuple[str, ...]:
     return tuple(getattr(part, "motor_names", ()))
