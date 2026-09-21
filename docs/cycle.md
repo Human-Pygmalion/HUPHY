@@ -416,6 +416,40 @@ frames = bus.drain(expect=6, timeout_s=bus.drain_s, poll_s=0.0002)
 예산을 넘겨 늦게 온 프레임은 **큐에 남음.** 제어 경로에는 `flush_rx` 가 없어서
 다음 주기에 그것이 먼저 꺼내짐 (7-6).
 
+### 7-1-2. 왜 겹치는지 — 스레드 타임라인
+
+`Biped.collect()` 가 `for part in self.parts:` 로 다리를 순서대로 도는 것
+[biped.py:395-409](../src/huphy/robots/biped.py#L395) 은 **파이썬이 큐를 언제
+들여다보느냐**일 뿐이고, **소켓이 언제부터 받기 시작하느냐**와는 별개임. 후자는
+`connect()` 시점에 스레드 둘이 이미 같이 시작함 [canbus.py:230-231](../src/huphy/motors/canbus.py#L230).
+
+```
+                    connect       send(can1) send(can0)   collect(can1)        collect(can0)
+메인 스레드(제어루프)    │              │──────│──────│      │←── 큐 채워지길 대기 ──→│즉시 리턴
+                       │                                  │                      │
+can1-리더 스레드        ├─ recv() 반복, 도착하는 대로 큐에 쌓음 ───────────────────────────→
+can0-리더 스레드        ├─ recv() 반복, 도착하는 대로 큐에 쌓음 ───────────────────────────→
+```
+
+`collect(can1)` 이 큐가 찰 때까지 `_drain_queue` 안에서 `time.sleep(poll_s)` 를
+반복하는 동안([canbus.py:453-456](../src/huphy/motors/canbus.py#L453)), **can0-리더
+스레드는 그것과 무관하게 계속 돎.** `time.sleep` 과 `bus.recv` 둘 다 블로킹하는
+동안 CPython 이 GIL 을 놓으므로, 두 스레드가 실제 OS 레벨에서 동시에 진행됨 —
+파이썬 하나가 다른 하나를 막지 않음.
+
+그래서 `collect(can1)` 이 끝나고 `collect(can0)` 을 부르는 시점엔, can0 의 응답이
+**그 대기 시간 동안 이미 큐에 다 들어와 있을 가능성이 높음.** `_take(expect)`
+([canbus.py:328-336](../src/huphy/motors/canbus.py#L328))가 그 자리에서 바로
+`expect` 개를 다 꺼내 즉시 리턴하고, 두 번째 sleep 은 필요 없음.
+
+**요약**: 두 다리의 실제 대기는 더해지지 않고 **겹침(overlap)**. 전체 소요는
+`max(can1 응답 시간, can0 응답 시간)` 에 가깝고, 스레드 없이 순차로 `recv` 를
+불렀을 때의 `can1 대기 + can0 대기` 와는 다름 (7-1-1, 이슈 #10).
+
+**여기서 실측이 안 된 부분**: 이 논리는 `_drain_queue`/`_read_loop` 코드가
+어떻게 짜여 있는지에서 나온 것이고, 실물 두 버스에서 정말 이 정도로 겹치는지는
+`candump`로 두 채널을 같이 찍어서 확인해야 함 — 아직 이 문서에 실측값은 없음.
+
 ### 7-2. 응답 프레임 배치
 
 **명령과 배치가 다름** — 응답은 앞에 모터 id 가 붙어 한 칸씩 밀림.
