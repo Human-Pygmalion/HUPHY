@@ -76,17 +76,16 @@ limbs:
     # 조립 결과라 무효임. limits_deg 가 null 이면 Motor.is_configured 가 False 라
     # 제어 진입이 막힘. commission 절차를 처음부터 다시 밟을 것 (루트 README 5번).
     #
-    # kp/kd 는 튜닝 전 시작값임. 0.5 는 20/1 로 시작했는데 RS04 는 토크가 7배라
-    # 절반에서 시작함. 여기서 올리거나 내림 -- 목표를 지나쳤다 돌아오면 kd 가
-    # 부족하고, 못 미치면 kp 가 부족하고, 부르르 떨면 kp 가 과함.
-    # 처음 만질 때는 huphy-bringup --gain-scale 0.1 로 더 낮춰 시작할 것 (이슈 #9).
+    # kp/kd 는 관절 묶음별 사양값임. hip_pitch/hip_roll/knee 가 RS04, hip_yaw 와
+    # 발목(ankle_a/ankle_b, 실물의 crank_A/crank_B)이 RS03. knee 만 kp 가 따로 높음.
+    # 처음 만질 때는 huphy-bringup --gain-scale 0.1 로 낮춰 시작할 것 (이슈 #9).
     motors:
-      hip_pitch: {id: 7,  model: RS04, kp: 10.0, kd: 1.0}
-      hip_roll:  {id: 8,  model: RS04, kp: 10.0, kd: 1.0}
-      hip_yaw:   {id: 9,  model: RS03, kp: 10.0, kd: 1.0}
-      knee:      {id: 10, model: RS04, kp: 10.0, kd: 1.0}
-      ankle_a:   {id: 11, model: RS03, kp: 10.0, kd: 1.0}
-      ankle_b:   {id: 12, model: RS03, kp: 10.0, kd: 1.0}
+      hip_pitch: {id: 7,  model: RS04, kp: 150.0,   kd: 6.0}
+      hip_roll:  {id: 8,  model: RS04, kp: 150.0,   kd: 6.0}
+      hip_yaw:   {id: 9,  model: RS03, kp: 150.0,   kd: 6.0}
+      knee:      {id: 10, model: RS04, kp: 220.0,   kd: 6.0}
+      ankle_a:   {id: 11, model: RS03, kp: 22.266,  kd: 1.414}
+      ankle_b:   {id: 12, model: RS03, kp: 22.266,  kd: 1.414}
 
   left_leg:
     kind: leg
@@ -97,9 +96,9 @@ limbs:
     calibration: calibration/left_leg_v1.0.json
 
     motors:
-      hip_pitch: {id: 1,  model: RS04, kp: 10.0, kd: 1.0}
-      hip_roll:  {id: 2,  model: RS04, kp: 10.0, kd: 1.0}
-      hip_yaw:   {id: 3,  model: RS03, kp: 10.0, kd: 1.0}
-      knee:      {id: 4,  model: RS04, kp: 10.0, kd: 1.0}
-      ankle_a:   {id: 5,  model: RS03, kp: 10.0, kd: 1.0}
-      ankle_b:   {id: 6,  model: RS03, kp: 10.0, kd: 1.0}
+      hip_pitch: {id: 1,  model: RS04, kp: 150.0,   kd: 6.0}
+      hip_roll:  {id: 2,  model: RS04, kp: 150.0,   kd: 6.0}
+      hip_yaw:   {id: 3,  model: RS03, kp: 150.0,   kd: 6.0}
+      knee:      {id: 4,  model: RS04, kp: 220.0,   kd: 6.0}
+      ankle_a:   {id: 5,  model: RS03, kp: 22.266,  kd: 1.414}
+      ankle_b:   {id: 6,  model: RS03, kp: 22.266,  kd: 1.414}
