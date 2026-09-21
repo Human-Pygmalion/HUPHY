@@ -89,7 +89,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from ..config import ConfigError, load_robot
-from ..control import ControlLoop, Mode, policy, rsl_rl
+from ..control import ControlLoop, Mode, held, policy, rsl_rl
 from ..motors.base import Gains
 from ..motors.canbus import DEFAULT_DRAIN_S
 from . import failures
@@ -109,11 +109,13 @@ WEIGHTS_DIR = Path("config/policies")
 """이름으로 찾을 때 보는 곳. `--weights` 로 덮어쓸 수 있음."""
 
 POLICY_HZ = 50.0
-"""제어 주기. 시뮬이 0.005초 x 4 = 50Hz 로 학습했으므로 같아야 함.
+"""정책이 불리는 주기. 시뮬이 0.005초 x 4 = 50Hz 로 학습했으므로 같아야 함.
 
-더 빠르게 돌리면 모델이 학습 때보다 자주 불려서, 같은 행동이 더 오래 유지되는 것과
-같은 효과가 남 -- 시뮬과 다르게 움직임.
-"""
+더 빠르게 부르면 모델이 학습 때보다 자주 불려서, 같은 행동이 더 오래 유지되는 것과
+같은 효과가 남 -- 시뮬과 다르게 움직임. **그래서 상수로 고정하고 CLI 인자로 안 뺌.**
+
+모터 전송 주기(`--hz`)는 이것과 다를 수 있음 -- 전송은 `control.held()` 가 이 값
+그대로 가둬 두고, 그 사이 주기는 직전 목표를 반복해 보냄."""
 
 POLICY_KP = 20.0
 POLICY_KD = 0.502
@@ -254,7 +256,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--hz", type=float, default=POLICY_HZ,
-        help=f"제어 주기. 기본 {POLICY_HZ:.0f} (학습 주기와 같아야 함)",
+        help=(
+            f"모터 전송 주기. 기본 {POLICY_HZ:.0f}. 정책은 항상 {POLICY_HZ:.0f}Hz 로만 "
+            f"불리고, 이 값을 그보다 높이면 그 사이 주기는 직전 목표를 반복 전송함. "
+            f"{POLICY_HZ:.0f} 의 정수 배여야 함"
+        ),
     )
     p.add_argument(
         "--drain-ms", type=float, default=DEFAULT_DRAIN_S * 1000.0,
@@ -296,6 +302,11 @@ def main(argv=None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s %(message)s",
     )
+
+    if args.hz < POLICY_HZ or (args.hz / POLICY_HZ) % 1.0 > 1e-6:
+        raise SystemExit(
+            f"--hz 는 {POLICY_HZ:.0f} 의 정수 배여야 함 (받은 값 {args.hz})"
+        )
 
     path = args.config or _find_config()
     if path is None:
@@ -394,7 +405,9 @@ def main(argv=None) -> int:
     signal.signal(signal.SIGINT, lambda *_: loop.stop())
 
     print(
-        f"\n  {leg.id}  {' '.join(channels)}  {args.hz:.0f}Hz\n"
+        f"\n  {leg.id}  {' '.join(channels)}  전송 {args.hz:.0f}Hz"
+        + (f" (정책 {POLICY_HZ:.0f}Hz)" if args.hz != POLICY_HZ else "")
+        + "\n"
         f"  정책     {args.policy}  (입력 {spec.obs_dim}, x{spec.action_scale})\n"
         f"  가중치   {weights}\n"
         f"  게인     kp={POLICY_KP} kd={POLICY_KD}\n"
@@ -418,6 +431,8 @@ def main(argv=None) -> int:
         policy.policy_motion(model, leg.imus[0], spec=spec, order=order),
         hold_pose=target_pose,
     )
+    if args.hz != POLICY_HZ:
+        motion = held(motion, inner_hz=POLICY_HZ, outer_hz=args.hz)
 
     try:
         with EnterWatcher(motion):

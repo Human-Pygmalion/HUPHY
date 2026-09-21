@@ -12,6 +12,6 @@
 """
 
 from . import motions, policy, rsl_rl
-from .loop import ControlLoop, LoopStats, Mode, Motion, precise_sleep
+from .loop import ControlLoop, LoopStats, Mode, Motion, held, precise_sleep
 
-__all__ = ["motions", "policy", "rsl_rl", "ControlLoop", "LoopStats", "Mode", "Motion", "precise_sleep"]
+__all__ = ["motions", "policy", "rsl_rl", "ControlLoop", "LoopStats", "Mode", "Motion", "held", "precise_sleep"]

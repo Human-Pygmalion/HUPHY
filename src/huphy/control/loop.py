@@ -163,6 +163,42 @@ Motion = Callable[[float, Dict[str, Any]], Optional[Action]]
 """
 
 
+def held(motion: Motion, *, inner_hz: float, outer_hz: float) -> Motion:
+    """`motion` 을 `inner_hz` 로만 부르고, 그 사이 주기는 직전 값을 그대로 냄.
+
+    루프는 `outer_hz` 로 돌면서 매 주기 전송하되, `motion` 계산(정책 추론 등)은
+    그보다 느린 `inner_hz` 로만 하고 싶을 때 씀 -- 정책은 학습 때 주기로 불러야
+    하는데, 모터로는 더 자주 명령을 보내고 싶은 경우임.
+
+    **보간하지 않음.** 건너뛴 주기는 직전 목표를 그대로 반복해 보냄.
+
+    `outer_hz` 가 `inner_hz` 의 정수 배가 아니면 멈춤 -- 아니면 실제 호출이 어느
+    주기에 도는지 매번 달라져 재현이 안 됨.
+    """
+    ratio = outer_hz / inner_hz
+    if abs(ratio - round(ratio)) > 1e-6:
+        raise ValueError(
+            f"outer_hz({outer_hz})가 inner_hz({inner_hz})의 정수 배가 아님"
+        )
+    ratio = round(ratio)
+
+    state: Dict[str, Any] = {"count": 0, "action": None}
+
+    def wrapped(t: float, observation: Dict[str, Any]) -> Optional[Action]:
+        if state["count"] % ratio == 0:
+            state["action"] = motion(t, observation)
+        state["count"] += 1
+        return state["action"]
+
+    # `staged()` 처럼 `.start()`/`.is_started()` 를 붙여 쓰는 motion 이 있어서,
+    # 감싼 뒤에도 그대로 통하도록 넘겨 둠.
+    for attr in ("start", "is_started"):
+        if hasattr(motion, attr):
+            setattr(wrapped, attr, getattr(motion, attr))
+
+    return wrapped
+
+
 @dataclass
 class LoopStats:
     """돌린 결과. 끝나고 사람이 보는 값임."""
