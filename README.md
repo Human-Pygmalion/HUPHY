@@ -857,14 +857,31 @@ Ctrl-Q 까지 계속함. 끝나면 실패 집계를 찍음. 자세한 것은 [6�
 huphy-run --limb right_leg --policy balance                        # 다리 하나
 huphy-run --limb right_leg --policy balance --ankle-output torque  # 발목을 토크로
 huphy-run --robot --policy balance --weights runs/biped.pt         # 양다리 12칸
+
+# 1.0 서기 — 양다리 12관절, 발목은 크랭크 직접
+huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt
 ```
 
 `.pt` 에는 신경망만 들어 있고 `action_scale` 이나 관찰 구성은 안 들어 있음. 그건
-`--policy` 이름이 정함 (`balance`, `hopping`). **파일의 입력·출력 개수가 그 규격과
-다르면 모터를 켜기 전에 멈춤.**
+`--policy` 이름이 정함. **파일의 입력·출력 개수가 그 규격과 다르면 모터를 켜기 전에
+멈춤.**
 
-영자세로 `--approach` 초에 걸쳐 옮긴 뒤 **Enter 를 눌러야** 정책이 시작됨. Ctrl-C
-로 멈추고, 멈출 때 자세를 붙잡은 뒤 토크를 끊음.
+| `--policy` | 입력 | 출력 | 어디에 |
+|---|---|---|---|
+| `balance` | 24 | 6 | 0.5 한다리 |
+| `hopping` | 26 | 6 | 0.5 한다리. 위상 2칸 |
+| `stand` | 45 | 12 | 1.0 양다리 |
+
+**`stand` 만 관찰을 만드는 코드가 다름** (`control/stand.py`). 관절 속도를 안 받고
+위치를 두 프레임 받으며, 기준 자세가 0 이 아님. 그래서 `--robot --ankle-space ab`
+로 고정이고 다른 조합은 시작 전에 거부함.
+
+접근 자세도 갈림 — `balance`/`hopping` 은 영자세이고 `stand` 는 **기준 자세**임
+(엉덩이 10도, 무릎 20도로 살짝 웅크린 자세). 0 에서 시작하면 정책이 켜지는 순간
+그 차이를 한 번에 메우려 함.
+
+`--approach` 초에 걸쳐 그 자세로 옮긴 뒤 **Enter 를 눌러야** 정책이 시작됨. Ctrl-C
+로 멈추고, 멈출 때 `kp=0` 으로 속도를 죽인 뒤 토크를 끊음 (붙잡지 않음).
 
 | | 무엇 |
 |---|---|
@@ -880,7 +897,9 @@ huphy-run --robot --policy balance --weights runs/biped.pt         # 양다리 1
 개수도 같아서 가중치 검사를 그냥 통과함. 시작 화면에 어느 쪽인지 찍으므로 눈으로
 확인할 것. 설정 파일로 옮기는 설계는 [`docs/policy_runner.md`](docs/policy_runner.md).
 
-IMU 가 없으면 시작 전에 멈춤 — 관찰 24칸 중 6칸이 IMU 값임 (각속도 3, 중력방향 3).
+IMU 가 없으면 시작 전에 멈춤 — 관찰의 6칸이 IMU 값임 (각속도 3, 중력방향 3).
+각속도는 rad/s 로, 중력방향은 서 있을 때 z 가 −1 이 되게 들어감. **부착 방향은
+`huphy-imu check` 로 확인할 것** — 축이 틀려도 길이 검사로는 안 잡힘.
 
 ### IMU — 센서를 설정하고 확인
 

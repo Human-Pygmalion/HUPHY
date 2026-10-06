@@ -18,15 +18,23 @@
 
 ```bash
 huphy-run --limb right_leg --policy balance
+huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt
 ```
 
-`balance` / `hopping` 둘 중 하나. 그 이름이 `src/huphy/control/policy.py` 의
-`BALANCE` / `HOPPING`(입력 개수, `action_scale`)을 고르고, 가중치는
+그 이름이 규격(입력 개수, `action_scale`)과 **관찰을 만드는 코드**를 고름. 가중치는
 `config/policies/<이름>.pt` 를 씀. 다른 파일은 `--weights` 로.
+
+| `--policy` | 입력 | 출력 | 규격 | 관찰을 만드는 곳 |
+|---|---|---|---|---|
+| `balance` | 24 | 6 | `policy.BALANCE` | `policy.observation_vector` |
+| `hopping` | 26 | 6 | `policy.HOPPING` | 같음 (위상 2칸 더) |
+| `stand` | 45 | 12 | `stand.SPEC` | `stand.observation_vector` |
+
+**`stand` 는 2장의 구성과 다름** -- 8장 참조.
 
 | 옵션 | 기본값 | 무엇 |
 |---|---|---|
-| `--policy` | 없으면 오류 | `balance` 또는 `hopping` |
+| `--policy` | 없으면 오류 | `balance` / `hopping` / `stand` |
 | `--weights` | `config/policies/<정책>.pt` | 더 학습한 모델을 시험할 때 |
 | `--hz` | `50` | 학습 주기와 같아야 함 |
 | `--approach` | `3` | 영점 자세까지 옮기는 시간(초) |
@@ -121,7 +129,7 @@ CAN 프레임
 
 ---
 
-## 2. 관찰 24개 / 26개의 구성
+## 2. 관찰 24개 / 26개의 구성 — `balance` / `hopping`
 
 학습 쪽(mjlab)이 이 순서로 이어 붙임. 가중치 파일의 입력 차원과 맞음.
 
@@ -163,6 +171,8 @@ hip_pitch(7)  hip_roll(8)  hip_yaw(9)  knee(10)  ankle_pitch  ankle_roll
 **이 값은 `.pt` 안에 없음.** 학습 설정에만 있어서 코드에 적어 뒀음
 (`src/huphy/control/policy.py` 의 `BALANCE` / `HOPPING`). 틀리면 로봇이 두 배로
 움직이는데 에러는 안 남.
+
+`stand` 는 기본 자세가 0 이 아니라 첫 번째 항이 남고, 그 뒤 관절마다 자름 (8장).
 
 ---
 
@@ -287,3 +297,87 @@ stance/flight 시간이 바뀌므로 최종 값을 받아야 함.
 3. 토크 가드              5.4
 4. 상태 기계              6.1~6.3 을 같이 손봄
 ```
+
+---
+
+## 8. `stand` — 1.0 서기 정책
+
+`legonly_ab_v9_caps`. 2장~4장이 `balance`/`hopping` 기준이고, 이 정책은 **관찰
+레이아웃이 겹치지 않아** `src/huphy/control/stand.py` 에 따로 있음.
+
+```bash
+huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt
+```
+
+`--robot --ankle-space ab --ankle-output position` 고정임. 다른 조합은 CAN 을 열기
+전에 거부함.
+
+### 8.1 관찰 45칸
+
+| 칸 | 무엇 | 단위 |
+|---|---|---|
+| 0–2 | 각속도 | rad/s |
+| 3–5 | 중력방향. 서 있으면 z 가 −1 | 단위벡터 |
+| 6–17 | `q(t-1) − 기본자세` | rad |
+| 18–29 | `q(t) − 기본자세` | rad |
+| 30–41 | 직전 행동. 배율·기본자세를 입히기 전 날것 | — |
+| 42–44 | 속도 명령 `(vx, vy, wz)`. 서기는 전부 0 | m/s, rad/s |
+
+**관절 속도가 없음.** 대신 위치를 두 프레임 받아 모델이 스스로 추정함.
+
+이력은 `[q(t-1) 전체 12][q(t) 전체 12]` 로 **오래된 것이 먼저**이고 관절별로 묶이지
+않음. 첫 주기는 지금 위치로 앞을 메움 (학습 쪽 순환버퍼와 같음).
+
+### 8.2 관절 순서 — 오른다리가 먼저
+
+```
+0-5    right_leg/hip_pitch  hip_roll  hip_yaw  knee  ankle_a  ankle_b
+6-11   left_leg/hip_pitch   hip_roll  hip_yaw  knee  ankle_a  ankle_b
+```
+
+0.5 양다리(`policy.BIPED_LEGS`)는 **왼다리가 먼저**임. 서로 다른 학습에서 나온
+규격이라 같은 상수를 공유하지 않음.
+
+발목은 크랭크 두 개를 직접 냄. `Leg` 이 이름을 보고 기구학을 건너뜀.
+
+### 8.3 기본 자세가 0 이 아님
+
+살짝 웅크린 자세임 — 엉덩이 10도, 무릎 20도, 크랭크 8.3도. 왼쪽과 오른쪽의 부호가
+반대이고 뒤집으면 로봇이 뒤로 감.
+
+**세 곳에 같이 걸림.**
+
+```
+관찰   q - 기본자세 를 넣음            stand.observation_vector
+행동   기본자세 + 0.25 x 행동          stand.joint_targets, 그 뒤 관절마다 자름
+시작   기본자세로 데려다 놓음           run.py
+```
+
+0 에서 시작하면 정책이 켜지는 순간 무릎 20도를 한 번에 메우려 함.
+
+자르는 범위(`stand.LIMITS_DEG`)는 **학습 모형의 범위**이지 실물 한계가 아님. 실물
+한계는 캘리브레이션의 `limits_deg` 이고 `safety/guards.py` 가 따로 봄 — 둘 중 좁은
+쪽이 걸림.
+
+### 8.4 확인한 것
+
+학습 쪽 배포 꾸러미가 참조 입출력 16쌍을 같이 줌.
+
+| | 결과 |
+|---|---|
+| 모델 (`policy.pt`) | 최대차 4.554e−07 (허용 1e−4) |
+| 명세 ↔ 상수 (순서·기본자세·한계·배율·`obs_dim`·Hz) | 전부 일치 |
+| 관찰 빌더 왕복 (0–41칸) | 최대차 0.0 |
+
+**이 대조가 정규화 오류를 잡았음** — `(v−mean)/std` 가 2.5e−01 어긋났고
+`(v−mean)/(std+1e-2)` 가 맞았음. 5.1 의 "torch 와 대조값 받기" 가 이것으로 일부
+해결됨. 절차는 `docs/policy_runner.md` 13.3.
+
+### 8.5 아직 안 된 것
+
+| | |
+|---|---|
+| 가중치 파일 | `config/policies/stand_bi.pt` 가 참조 입출력과 7.3 어긋남. 꾸러미의 `policy.pt` 가 맞는 파일임 |
+| 캘리브레이션 | 12모터 전부 `limits_deg: null` 이라 제어 진입이 막힘 |
+| IMU 부착 | `robot.yaml` 의 `mount: right_leg` 가 실제 위치와 맞는지. 몸통이면 `torso`. 축 방향은 `huphy-imu check` |
+| 0.5 모델 | 정규화 식이 바뀌었으므로 `balance`/`hopping` 을 실물에서 다시 확인해야 함 |

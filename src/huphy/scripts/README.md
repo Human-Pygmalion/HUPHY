@@ -4,7 +4,11 @@
 scripts/
 ├── commission.py   조립할 때 한 번 하는 조작
 ├── bringup.py      다리를 실제로 움직여 보는 대화형 메뉴
-└── selftest.py     정해진 패턴으로 계속 움직여 봄
+├── selftest.py     정해진 패턴으로 계속 움직여 봄
+├── run.py          학습한 정책으로 움직임
+├── imu.py          센서를 설정하고 확인
+├── failures.py     실행이 끝난 뒤 실패 집계 (진입점 아님)
+└── table.py        표 그리기 (진입점 아님)
 ```
 
 설정 파일에서 모터 목록을 읽으므로 모터 id 를 손으로 적지 않음.
@@ -613,14 +617,54 @@ Ctrl-Q 는 `QuitWatcher` 가 별도 스레드에서 봄. 터미널을 cbreak 로
 
 ---
 
-## 셋의 차이
+## `run.py`
 
-| | `commission.py` | `bringup.py` | `selftest.py` |
+학습한 정책으로 움직임. `selftest` 와 **같은 다리·같은 루프**를 쓰고, 매 주기 관절
+목표를 내는 것만 다름.
+
+```bash
+huphy-run --limb right_leg --policy balance
+huphy-run --robot --policy balance --weights runs/biped.pt
+huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt
+```
+
+| `--policy` | 입력 | 출력 | 관찰을 만드는 곳 |
 |---|---|---|---|
-| 무엇 | 조립할 때 한 번 | 하나씩 골라 움직여 봄 | 정해진 패턴을 계속 |
-| 주기 | 없음 | 제어 루프 | 제어 루프 |
-| 되돌리기 | 어려움 | 쉬움 | 쉬움 |
-| 사람이 하는 일 | 관절을 손으로 잡음 | 메뉴를 고름 | 보고만 있음 |
+| `balance` | 24 | 6 | `control/policy.py` |
+| `hopping` | 26 | 6 | `control/policy.py` |
+| `stand` | 45 | 12 | `control/stand.py` |
+
+`.pt` 에는 신경망만 들어 있음. `action_scale` 과 관찰 구성은 `--policy` 이름이
+정하고, **파일의 입력·출력 개수가 그 규격과 다르면 모터를 켜기 전에 멈춤**
+(`rsl_rl.load`).
+
+`stand` 만 경로가 갈림 — 관찰 레이아웃이 0.5 모델들과 겹치지 않아 모듈이 따로임.
+`main()` 의 `standing` 이 갈림길이고 세 군데에서 갈림.
+
+| | `balance` / `hopping` | `stand` |
+|---|---|---|
+| 관절 순서 | `policy.BIPED_ORDERS` (왼다리 먼저) | `stand.ORDER` (오른다리 먼저) |
+| 접근 자세 | 영자세 | `stand.DEFAULT_POSE_DEG` (살짝 웅크림) |
+| 관찰 | `policy.observation_vector` | `stand.observation_vector` |
+
+`stand` 는 `--robot --ankle-space ab --ankle-output position` 고정임. 다른 조합은
+`_check_standing` 이 **CAN 을 열기 전에** 거부함 -- `Leg` 에 맡기면 첫 주기에
+걸리는데 그때는 이미 토크가 들어간 뒤임.
+
+시작은 세 단계임 (`staged`). `--approach` 초에 걸쳐 시작 자세로 옮김 → 그 자세로
+대기 → **Enter** 를 누르면 정책. 끝나면 실패 집계를 찍음.
+
+---
+
+## 넷의 차이
+
+| | `commission.py` | `bringup.py` | `selftest.py` | `run.py` |
+|---|---|---|---|---|
+| 무엇 | 조립할 때 한 번 | 하나씩 골라 움직여 봄 | 정해진 패턴을 계속 | 학습한 정책 |
+| 주기 | 없음 | 제어 루프 | 제어 루프 | 제어 루프 |
+| 되돌리기 | 어려움 | 쉬움 | 쉬움 | 쉬움 |
+| 사람이 하는 일 | 관절을 손으로 잡음 | 메뉴를 고름 | 보고만 있음 | 보고만 있음 |
+| 목표를 정하는 것 | 사람 | 사람 | 코드의 패턴 | 신경망 |
 
 ---
 
