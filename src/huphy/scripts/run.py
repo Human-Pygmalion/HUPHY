@@ -63,12 +63,18 @@ IMU 는 다리가 아니라 로봇에 붙음 (`build_biped`). 설정의 `mount` 
 다리든 로봇 전체의 센서로 읽힘.
 
 
-## 게인이 설정 파일 값이 아님
+## 게인을 어디서 가져오나 -- 정책마다 다름
 
-`robot.yaml` 의 `kp`/`kd` 는 사람이 브링업에서 튜닝하는 값임. 정책은 **학습에 쓴
-게인**으로 돌아야 함 -- 시뮬에서 그 값으로 움직이는 것을 보고 배웠기 때문임.
+정책은 **학습에 쓴 게인**으로 돌아야 함. 시뮬에서 그 값으로 움직이는 것을 보고
+배웠기 때문임. 그 값이 어디 있느냐가 0.5 와 1.0 에서 반대임.
 
-    kp = 20.0,  kd = 0.502     mjlab 의 half_huphy.xml
+    balance / hopping   robot.yaml 의 게인을 덮어씀    kp 20, kd 0.502
+    stand               robot.yaml 의 게인을 그대로 씀
+
+0.5 때는 `robot.yaml` 의 `kp`/`kd` 가 사람이 브링업에서 튜닝하던 값이고 학습 게인은
+`POLICY_KP`/`POLICY_KD` 에만 있었음. 1.0 은 `robot.yaml` 이 곧 학습이 가정한
+사양값이고 **관절 묶음마다 다름**(150 / 220 / 22.266). `Gains` 하나로 덮으면 표현도
+안 되고 무릎이 11배 낮아짐.
 
 `--ankle-output torque` 면 발목은 모터가 아니라 **관절**에 이 게인을 걺. 모터 두
 개가 로드로 두 축을 같이 만들어서 지렛대 비가 자세마다 달라지므로, 관절 토크를
@@ -134,9 +140,23 @@ POLICY_HZ = 50.0
 
 POLICY_KP = 20.0
 POLICY_KD = 0.502
-"""학습에 쓴 게인. mjlab 의 `half_huphy.xml` 액추에이터 값임.
+"""**0.5 모델이** 학습에 쓴 게인. mjlab 의 `half_huphy.xml` 액추에이터 값임.
 
     <position kp="20.0" kv="0.502" .../>
+
+`balance`/`hopping` 에만 씀. 그때는 `robot.yaml` 의 게인이 사람이 브링업에서
+튜닝한 값이고 학습 게인은 여기에만 있어서, 설정 값을 덮어쓰는 것이 맞았음.
+
+**`stand` 는 안 씀.** 1.0 은 `robot.yaml` 의 게인이 곧 학습이 가정한 사양값임.
+
+    hip_pitch/hip_roll   RS04  kp 150     kd 6
+    hip_yaw              RS03  kp 150     kd 6
+    knee                 RS04  kp 220     kd 6
+    ankle_a/ankle_b      RS03  kp 22.266  kd 1.414
+
+관절 묶음마다 다르므로 `Gains` 하나로 덮으면 표현도 안 되고, 덮으면 무릎이 11배
+낮아짐. 발목 크랭크는 링키지를 거쳐 축에서 본 값이 작은 것이라 다른 관절과 같은
+값을 넣으면 발이 떪.
 """
 
 
@@ -302,6 +322,26 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _gain_line(robot, standing: bool) -> str:
+    """시작 화면의 게인 줄. **실제로 모터에 걸리는 값을 읽어서** 찍음.
+
+    상수를 찍으면 덮어쓰기를 안 하는 경로(`stand`)에서 화면과 실제가 어긋남.
+    """
+    parts = getattr(robot, "parts", None) or (robot,)
+    config = getattr(parts[0], "config", None)
+    motors = getattr(config, "motors", {}) or {}
+    pairs = {(m.gains.kp, m.gains.kd) for m in motors.values()}
+    if len(pairs) == 1:
+        kp, kd = pairs.pop()
+        body = f"kp={kp:g} kd={kd:g}"
+    else:
+        body = "  ".join(
+            f"{name} {m.gains.kp:g}/{m.gains.kd:g}" for name, m in motors.items()
+        )
+    source = "robot.yaml" if standing else "학습값으로 덮어씀"
+    return f"  게인     {body}  ({source})"
+
+
 def _check_standing(args) -> None:
     """서기 정책이 받을 수 없는 조합을 **모터를 켜기 전에** 막음.
 
@@ -413,11 +453,16 @@ def main(argv=None) -> int:
     options = dict(
         allow_uncalibrated=args.allow_uncalibrated,
         drain_s=args.drain_ms / 1000.0,
-        gains=Gains(kp=POLICY_KP, kd=POLICY_KD),
         ankle_output=args.ankle_output,
-        ankle_kp=(POLICY_KP, POLICY_KP),
-        ankle_kd=(POLICY_KD, POLICY_KD),
     )
+    if not standing:
+        # 0.5 모델은 robot.yaml 의 게인이 사람이 튜닝한 값이고 학습 게인은 코드에만
+        # 있어서 덮어씀. stand 는 반대라 안 덮음 -- 아래 설명.
+        options.update(
+            gains=Gains(kp=POLICY_KP, kd=POLICY_KD),
+            ankle_kp=(POLICY_KP, POLICY_KP),
+            ankle_kd=(POLICY_KD, POLICY_KD),
+        )
     if args.robot:
         leg = build_biped(robot, limbs, **options)
     else:
@@ -458,24 +503,35 @@ def main(argv=None) -> int:
     # **화면에 찍기 전에 정해야 함** -- 시작 화면이 이 값을 보여줌.
     target_pose = stand.default_pose() if standing else zero_pose(order)
 
-    print(
-        f"\n  {leg.id}  {' '.join(channels)}  전송 {args.hz:.0f}Hz"
-        + (f" (정책 {POLICY_HZ:.0f}Hz)" if args.hz != POLICY_HZ else "")
-        + "\n"
-        f"  정책     {args.policy}  (입력 {spec.obs_dim}, x{spec.action_scale})\n"
-        f"  가중치   {weights}\n"
-        f"  게인     kp={POLICY_KP} kd={POLICY_KD}\n"
-        f"  발목     {args.ankle_space} ({order[-2]}, {order[-1]})"
-        f"  {args.ankle_output}\n"
-        f"  IMU      {', '.join(i.name for i in leg.imus)}\n\n"
-        + (f"  기준자세 무릎 {target_pose['right_leg/knee']:+.1f}도\n" if standing else "")
-        + f"  {args.approach:.0f}초에 걸쳐 "
+    # 줄 단위로 모음. 더하기와 암묵 이어붙이기를 섞으면 한 줄만 고쳐도 조용히
+    # 엉뚱한 곳에 붙음.
+    hz_note = f" (정책 {POLICY_HZ:.0f}Hz)" if args.hz != POLICY_HZ else ""
+    lines = [
+        "",
+        f"  {leg.id}  {' '.join(channels)}  전송 {args.hz:.0f}Hz{hz_note}",
+        f"  정책     {args.policy}  (입력 {spec.obs_dim}, x{spec.action_scale})",
+        f"  가중치   {weights}",
+        _gain_line(leg, standing),
+        f"  발목     {args.ankle_space} ({order[-2]}, {order[-1]})  {args.ankle_output}",
+        f"  IMU      {', '.join(i.name for i in leg.imus)}",
+        "",
+    ]
+    if standing:
+        lines.append(
+            f"  기준자세 무릎 {target_pose['right_leg/knee']:+.1f}도"
+            f"  엉덩이 {target_pose['right_leg/hip_pitch']:+.1f}도"
+        )
+    lines += [
+        f"  {args.approach:.0f}초에 걸쳐 "
         + ("기준 자세" if standing else "영점 자세")
-        + "로 옮긴 뒤 그 자세로 기다립니다.\n"
-        f"  Enter 를 누르면 정책이 시작됩니다.\n\n"
-        f"  ** 상태 기계와 토크 가드가 없음. 넘어져도 멈추지 않음 **\n"
-        f"  Ctrl-C 로 멈춤. 멈출 때 kp=0 으로 속도를 죽인 뒤 토크를 끊음.\n"
-    )
+        + "로 옮긴 뒤 그 자세로 기다립니다.",
+        "  Enter 를 누르면 정책이 시작됩니다.",
+        "",
+        "  ** 상태 기계와 토크 가드가 없음. 넘어져도 멈추지 않음 **",
+        "  Ctrl-C 로 멈춤. 멈출 때 kp=0 으로 속도를 죽인 뒤 토크를 끊음.",
+        "",
+    ]
+    print("\n".join(lines))
 
     start_pose = {
         joint: float(leg.get_observation().get(f"{joint}.pos", 0.0))
