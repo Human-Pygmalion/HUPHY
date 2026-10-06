@@ -2,6 +2,7 @@
 
     huphy-run --limb right_leg --policy balance
     huphy-run --robot --policy balance --weights runs/biped.pt
+    huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt
 
 브링업과 **같은 다리·같은 루프**를 씀. 다르게 들어가는 것은 매 주기 관절 목표를
 내는 것 하나뿐임 -- 브링업은 사인파 같은 것을 넣고, 여기는 모델을 넣음.
@@ -15,8 +16,13 @@
 
     balance   입력 24, x0.25
     hopping   입력 26, x0.5, 위상 2칸
+    stand     입력 45, x0.25, 양다리 12관절
 
 파일의 입력 개수가 그 값과 다르면 **모터를 켜기 전에** 멈춤.
+
+`stand` 만 **관찰을 만드는 코드가 다름** (`control/stand.py`). 속도 칸이 없고 위치
+이력이 둘이고 기준 자세가 0 이 아니라, 0.5 모델들과 레이아웃이 겹치지 않음. 그래서
+`--robot --ankle-space ab` 로 고정이고 다른 조합은 시작 전에 거부함.
 
 
 ## 발목 공간은 이름이 아니라 인자로 고름
@@ -89,7 +95,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from ..config import ConfigError, load_robot
-from ..control import ControlLoop, Mode, held, policy, rsl_rl
+from ..control import ControlLoop, Mode, held, policy, rsl_rl, stand
 from ..motors.base import Gains
 from ..motors.canbus import DEFAULT_DRAIN_S
 from . import failures
@@ -99,11 +105,20 @@ from .selftest import approach
 
 logger = logging.getLogger("huphy.run")
 
+STAND = "stand"
+"""`--policy` 에서 서기 정책을 가리키는 이름.
+
+이것만 **경로가 다름** -- 관찰 구성이 0.5 모델들과 겹치지 않아 `control/stand.py`
+가 따로 만듦. `main()` 의 `standing` 이 갈림길이고 세 군데에서 갈림: 관절 순서,
+접근 자세, 관찰을 만드는 함수.
+"""
+
 SPECS = {
     "balance": policy.BALANCE,
     "hopping": policy.HOPPING,
+    STAND: stand.SPEC,
 }
-"""이름 -> 규격. `control/policy.py` 에 적힌 것을 고름."""
+"""이름 -> 규격. `control/policy.py` 와 `control/stand.py` 에 적힌 것을 고름."""
 
 WEIGHTS_DIR = Path("config/policies")
 """이름으로 찾을 때 보는 곳. `--weights` 로 덮어쓸 수 있음."""
@@ -228,7 +243,9 @@ def build_parser() -> argparse.ArgumentParser:
             "  --limb right_leg --policy hopping --weights runs/model_49999.pt\n"
             "  --limb right_leg --policy balance --ankle-output torque\n"
             "  --limb right_leg --policy balance --ankle-space ab\n"
-            "  --robot --policy balance --weights runs/biped.pt   양다리 12칸\n\n"
+            "  --robot --policy balance --weights runs/biped.pt   양다리 12칸\n"
+            "  --robot --policy stand --ankle-space ab"
+            " --weights config/policies/stand_bi.pt   서기\n\n"
             "상태 기계와 토크 가드가 아직 없음. 사람이 지켜보며 돌릴 것.\n"
         ),
     )
@@ -285,6 +302,29 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _check_standing(args) -> None:
+    """서기 정책이 받을 수 없는 조합을 **모터를 켜기 전에** 막음.
+
+    셋 다 `Leg` 이나 `rsl_rl` 이 나중에 걸러 주기는 하는데, `--robot` 이 아닌 경우만
+    `rsl_rl.load` 에서 걸리고 나머지 둘은 첫 주기까지 감 -- 그때는 이미 토크가
+    들어간 뒤임.
+    """
+    if not args.robot:
+        raise SystemExit(
+            f"--policy {STAND} 는 양다리 12관절 모델임. --robot 으로 돌릴 것"
+        )
+    if args.ankle_space != "ab":
+        raise SystemExit(
+            f"--policy {STAND} 는 발목을 크랭크 두 개로 직접 냄. "
+            f"--ankle-space ab 로 돌릴 것 (받은 값 {args.ankle_space})"
+        )
+    if args.ankle_output != "position":
+        raise SystemExit(
+            f"--policy {STAND} 는 관절 목표각을 냄. "
+            f"--ankle-output position 으로 돌릴 것 (받은 값 {args.ankle_output})"
+        )
+
+
 def _weights_path(args) -> Path:
     """쓸 가중치 파일. 없으면 멈춤."""
     path = args.weights if args.weights else WEIGHTS_DIR / f"{args.policy}.pt"
@@ -324,6 +364,9 @@ def main(argv=None) -> int:
             "--limb 은 그중 하나를 고르는 것임"
         )
     spec = SPECS[args.policy]
+    standing = args.policy == STAND
+    if standing:
+        _check_standing(args)
 
     # 토크 경로는 관절 공간 PD 라 pitch/roll 이 있어야 함. 여기서 막지 않으면
     # Leg 이 첫 주기에 거부하는데, 그때는 이미 토크가 들어간 뒤임.
@@ -345,8 +388,14 @@ def main(argv=None) -> int:
                 f"(있는 것: {sorted(names)}). robot.yaml 의 limbs 이름이 "
                 f"{list(policy.BIPED_LEGS)} 여야 함"
             )
-        order = policy.BIPED_ORDERS[args.ankle_space]
-        spec = policy.for_joints(spec, len(order))
+        # stand 는 자기 순서를 들고 있고 관찰 길이도 자기가 정함. for_joints 는
+        # 3+3+3n 으로 다시 계산해서 42 를 내는데, 이 정책은 속도 칸이 없고 위치
+        # 이력이 둘이라 45 임.
+        if standing:
+            order = stand.ORDER
+        else:
+            order = policy.BIPED_ORDERS[args.ankle_space]
+            spec = policy.for_joints(spec, len(order))
     else:
         limbs = [_pick_limb(robot, args.limb)]
         order = policy.ORDERS[args.ankle_space]
@@ -414,21 +463,31 @@ def main(argv=None) -> int:
         f"  발목     {args.ankle_space} ({order[-2]}, {order[-1]})"
         f"  {args.ankle_output}\n"
         f"  IMU      {', '.join(i.name for i in leg.imus)}\n\n"
-        f"  {args.approach:.0f}초에 걸쳐 영점 자세로 옮긴 뒤 그 자세로 기다립니다.\n"
+        + (f"  기준자세 무릎 {target_pose['right_leg/knee']:+.1f}도\n" if standing else "")
+        + f"  {args.approach:.0f}초에 걸쳐 "
+        + ("기준 자세" if standing else "영점 자세")
+        + "로 옮긴 뒤 그 자세로 기다립니다.\n"
         f"  Enter 를 누르면 정책이 시작됩니다.\n\n"
         f"  ** 상태 기계와 토크 가드가 없음. 넘어져도 멈추지 않음 **\n"
         f"  Ctrl-C 로 멈춤. 멈출 때 자세를 붙잡은 뒤 토크를 끊음.\n"
     )
 
-    target_pose = zero_pose(order)
+    # stand 의 기준 자세는 0 이 아님 (엉덩이 10도, 무릎 20도). 0 으로 데려다 놓으면
+    # 정책이 켜지는 순간 그 차이를 한 번에 메우려 함.
+    target_pose = stand.default_pose() if standing else zero_pose(order)
     start_pose = {
         joint: float(leg.get_observation().get(f"{joint}.pos", 0.0))
         for joint in order
     }
+    policy_motion = (
+        stand.motion(model, leg.imus[0])
+        if standing
+        else policy.policy_motion(model, leg.imus[0], spec=spec, order=order)
+    )
     motion = staged(
         approach(target_pose, start_pose, args.approach),
         args.approach,
-        policy.policy_motion(model, leg.imus[0], spec=spec, order=order),
+        policy_motion,
         hold_pose=target_pose,
     )
     if args.hz != POLICY_HZ:
