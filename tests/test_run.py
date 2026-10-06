@@ -277,14 +277,27 @@ class TestRun:
         assert any(abs(v) > 0.01 for v in torques)
 
     def test_the_other_joints_use_the_training_gain(self, go):
-        """설정 파일의 30 이 아니라 학습에 쓴 20 이 나가야 함."""
+        """설정 파일의 30 이 아니라 학습에 쓴 20 이 나가야 함.
+
+        **마지막 프레임을 보면 안 됨.** 정지 절차의 감쇠가 `kp=0` 으로 끝내므로
+        (`Leg.damp`), 실행 길이보다 감쇠 구간이 길면 뒤쪽이 전부 0 임. 제어 중에
+        나간 프레임만 봄.
+        """
         go(*REAL)
         raw = FakeBus.instances[-1]
-        knee = [m for m in raw.sent if m.arbitration_id == 10 and m.data[0] != 0xFF]
         enc = T.encoding_for(T.Model.RS02)
-        d = knee[-1].data
-        kp = mit.uint_to_float(((d[3] & 0x0F) << 8) | d[4], 0.0, enc.kp_max, 12)
-        assert kp == pytest.approx(run.POLICY_KP, abs=0.5)
+        gains = []
+        for msg in raw.sent:
+            if msg.arbitration_id != 10 or msg.data[0] == 0xFF:
+                continue
+            d = msg.data
+            gains.append(
+                mit.uint_to_float(((d[3] & 0x0F) << 8) | d[4], 0.0, enc.kp_max, 12)
+            )
+        driving = [kp for kp in gains if kp > 0.2]
+        assert driving, f"게인이 실린 프레임이 없음: {gains[:8]}"
+        for kp in driving:
+            assert kp == pytest.approx(run.POLICY_KP, abs=0.5)
 
 
 # ===========================================================================

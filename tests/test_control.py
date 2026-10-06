@@ -81,6 +81,10 @@ class FakeRobot:
         self.log.append("hold")
         return {10: "hold"}
 
+    def damp(self):
+        self.log.append("damp")
+        return {10: "damp"}
+
 
 class FakeTelemetry:
     def __init__(self):
@@ -242,12 +246,12 @@ class TestMode:
     def test_none_action_sends_nothing(self, robot):
         """궤적이 끝났거나 아직 시작 전일 때 명령을 멈춤.
 
-        종료할 때의 `hold` 는 별개임 — 실행 구간만 봄.
+        종료할 때의 감쇠는 별개임 — 실행 구간만 봄.
         """
         ControlLoop(robot, hz=1000.0, mode=Mode.CONTROL).run(
             lambda t, obs: None, max_cycles=3
         )
-        during_run = robot.log[: robot.log.index("hold")]
+        during_run = robot.log[: robot.log.index("damp")]
         assert "send" not in during_run
         assert during_run.count("collect") == 3
 
@@ -256,13 +260,17 @@ class TestMode:
 # 멈출 때
 # ===========================================================================
 class TestShutdown:
-    def test_holds_before_cutting_torque(self, robot):
-        """서 있는 다리에서 힘이 갑자기 빠지면 주저앉음."""
+    def test_it_damps_before_cutting_torque(self, robot):
+        """서 있는 다리에서 힘이 갑자기 빠지면 주저앉음.
+
+        붙잡는 것이 아니라 `kp=0` 으로 속도만 죽임 -- 위치로 당기지 않으므로
+        중력·관성에 맡겨져 급정지보다 완만하게 멈춤 (`Leg.damp`).
+        """
         ControlLoop(robot, hz=1000.0, mode=Mode.CONTROL).run(
             motions.hold({"knee": 1.0}), max_cycles=2
         )
-        assert "hold" in robot.log
-        assert robot.log.index("hold") < len(robot.log) - robot.log[::-1].index("disable") - 1
+        assert "damp" in robot.log
+        assert robot.log.index("damp") < len(robot.log) - robot.log[::-1].index("disable") - 1
 
     def test_torque_is_cut_last(self, robot):
         ControlLoop(robot, hz=1000.0, mode=Mode.CONTROL).run(
@@ -480,13 +488,16 @@ class TestLinkLoss:
         assert stats.link_loss.motors == ("knee",)
 
     def test_it_settles_before_cutting_torque(self):
-        """바로 끊으면 서 있는 다리가 주저앉음."""
+        """바로 끊으면 서 있는 다리가 주저앉음.
+
+        통신 두절은 예외로 빠져나가는데, 그래도 `finally` 가 감쇠 단계를 지남.
+        """
         robot = SilentRobot()
         ControlLoop(robot, hz=1000.0, mode=Mode.CONTROL).run(
             motions.hold({"knee": 0.0}), max_cycles=50
         )
-        assert "hold" in robot.log
-        assert robot.log.index("hold") < robot.log.index("disable")
+        assert "damp" in robot.log
+        assert robot.log.index("damp") < robot.log.index("disable")
 
     def test_a_healthy_robot_runs_to_the_end(self):
         robot = SilentRobot(silent_from=10_000)

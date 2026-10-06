@@ -687,7 +687,7 @@ UDP 는 JSON 한 줄이고 소수점 둘째 자리로 반올림함
 | 전송 | `build_commands` → `send` | `refresh()` 가 `kp=kd=tau=0` 명령을 보냄 |
 | 수거 | `collect(expect=명령한 수)` | `collect(expect=전체)` |
 | 통신 두절 판정 | `LinkWatch` 가 봄 [loop.py:280](../src/huphy/control/loop.py#L280) | 안 봄 |
-| 종료 | `hold` 5주기 → 토크 차단 | 토크 차단 |
+| 종료 | `damp` 로 `DAMPING_S` 초 감쇠 → 토크 차단 | 토크 차단 |
 
 **관찰 모드도 통신함.** MIT 에는 읽기 전용 명령이 없어서 아무것도 안 보내면
 아무것도 안 옴.
@@ -697,8 +697,12 @@ UDP 는 JSON 한 줄이고 소수점 둘째 자리로 반올림함
 있으면 이번 것으로 오해함. **제어 경로에는 이것이 없음** — §7-6.
 
 종료는 **경로가 하나임** [loop.py:307](../src/huphy/control/loop.py#L307). 정상
-종료든 예외든 `finally` 를 지나며 `hold` → 토크 차단 → 텔레메트리 flush 를 탐. 바로
+종료든 예외든 `finally` 를 지나며 `damp` → 토크 차단 → 텔레메트리 flush 를 탐. 바로
 끊으면 서 있는 다리가 주저앉음.
+
+`damp` 는 자세를 **붙잡지 않음** ([leg.py:837](../src/huphy/robots/leg.py#L837)).
+`kp=0` 이라 목표 위치로 당기는 항이 없고 `kd` 만 남아 속도를 죽임. 붙잡으면 급정지가
+되어 그 순간 큰 토크가 한 번 나감.
 
 ---
 
@@ -740,7 +744,7 @@ UDP 는 JSON 한 줄이고 소수점 둘째 자리로 반올림함
 (야믈, 기본 5) 에 닿은 모터가 있으면 `LinkLoss` 를 던짐. **제어 모드에서만** 봄
 [loop.py:280](../src/huphy/control/loop.py#L280) — 관찰 모드는 세기만 함.
 
-급정지가 아님. 예외가 `run()` 의 `finally` 를 지나므로 `hold` → 토크 차단 순서를
+급정지가 아님. 예외가 `run()` 의 `finally` 를 지나므로 `damp` → 토크 차단 순서를
 그대로 탐.
 
 **주의 — 두 경로가 안 이어져 있음.** 연속 무응답을 세는 곳은 `Leg._note_link`

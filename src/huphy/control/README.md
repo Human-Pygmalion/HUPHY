@@ -172,12 +172,16 @@ ControlLoop(leg, hz=100.0, precise=False)   # 그냥 잠만 잠
 ### 멈출 때
 
 ```
-1  게인을 유지한 채 현재 자세를 목표로 (hold) — 5주기
+1  kp=0, kd=DAMPING_KD 로 감쇠 (damp) — DAMPING_S 초
 2  토크 차단
 3  텔레메트리 flush
 ```
 
 **바로 토크를 끊지 않음.** 서 있는 다리에서 힘이 갑자기 빠지면 주저앉음.
+
+**붙잡는 것이 아니라 속도만 죽임.** `kp=0` 이라 목표 위치로 당기는 항이 없고, 관절은
+중력·관성에 맡겨져 내려옴. 게인을 유지한 채 현재 자세를 붙잡으면 급정지가 되어
+그 순간 큰 토크가 한 번 나감.
 
 **끝나는 경로가 하나임.** 정상 종료든 예외든 `finally` 를 지나며 이 순서를 탐.
 자세 유지가 실패해도 토크는 반드시 끊음.
@@ -329,7 +333,7 @@ PYTHONPATH=src python3 -m pytest tests/test_control.py -q
 OBSERVE 가 토크를 끊고 시작함
 OBSERVE 도 refresh 로 읽음
 CONTROL 이 send 다음에 collect
-멈출 때 hold 후 토크 차단
+멈출 때 damp 후 토크 차단
 예외로 빠져나가도 토크가 끊김
 자세 유지가 실패해도 토크는 끊김
 텔레메트리 실패가 루프를 멈추지 않음
