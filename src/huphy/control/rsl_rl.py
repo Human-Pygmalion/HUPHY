@@ -27,11 +27,12 @@ pickle 을 풀 때 torch 클래스를 만나므로, **텐서를 만드는 자리
 
 ## 정규화를 빼먹으면 안 됨
 
-    정규화된 입력 = (관찰 - mean) / std
+    정규화된 입력 = (관찰 - mean) / (std + 1e-2)
 
 `mean`/`std` 는 학습 중 관찰의 통계임. 예를 들어 중력 z 성분의 평균이 -1.74 이고
-표준편차가 8.8 같은 식임. 빼먹으면 신경망이 전혀 다른 크기의 값을 받아 **에러 없이
-엉뚱한 행동을 냄.**
+표준편차가 8.8 같은 식임. `1e-2` 는 학습이 쓴 값이고 자리 채우기가 아님 (`NORM_EPS`).
+
+빼먹거나 식이 다르면 신경망이 다른 크기의 값을 받아 **에러 없이 엉뚱한 행동을 냄.**
 """
 
 from __future__ import annotations
@@ -48,6 +49,23 @@ from .policy import PolicySpec
 
 ACTOR_KEY = "actor_state_dict"
 LAYER_PREFIX = "mlp."
+
+NORM_EPS = 1e-2
+"""정규화에서 표준편차에 더하는 값.
+
+    정규화된 입력 = (관찰 - mean) / (std + NORM_EPS)
+
+`rsl_rl` 의 `EmpiricalNormalization` 이 쓰는 식임. **0 으로 나누는 것을 막는 장치가
+아니라 학습에 실제로 들어간 값**이라, 빼면 모델이 다른 입력을 받음.
+
+`pyg_stand_v9_caps` 꾸러미가 참조 입출력 16쌍을 같이 주어 어느 쪽이 맞는지 확인됨.
+
+    (v - mean) / std              최대차 2.5e-01
+    (v - mean) / (std + 1e-2)     최대차 4.6e-07     <- 이쪽
+
+std 가 작은 칸일수록 차이가 큼. `balance` 는 std 최소가 0.0546 이라 그 칸의 입력이
+18% 어긋나 있었음 -- 0.5 모델도 이 값으로 다시 확인할 것.
+"""
 
 
 def _rebuild_tensor(storage, offset, size, stride, *rest) -> Dict[str, Any]:
@@ -165,8 +183,7 @@ def load(path: "str | Path", *, spec: PolicySpec, action_dim: Optional[int] = No
         raise ValueError(
             f"{path}: 정규화 값이 {mean.size}개인데 입력은 {obs_dim}개임"
         )
-    # 0으로 나누는 것을 막음. 학습 중 한 번도 안 변한 항목이 여기 해당함.
-    std = np.where(std > 1e-6, std, 1.0)
+    std = std + NORM_EPS
 
     def model(vector: np.ndarray) -> np.ndarray:
         x = (np.asarray(vector, dtype=np.float32) - mean) / std
