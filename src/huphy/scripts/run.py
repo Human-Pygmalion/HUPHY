@@ -453,6 +453,11 @@ def main(argv=None) -> int:
     loop = ControlLoop(leg, hz=args.hz, mode=Mode.CONTROL)
     signal.signal(signal.SIGINT, lambda *_: loop.stop())
 
+    # stand 의 기준 자세는 0 이 아님 (엉덩이 10도, 무릎 20도). 0 으로 데려다 놓으면
+    # 정책이 켜지는 순간 그 차이를 한 번에 메우려 함.
+    # **화면에 찍기 전에 정해야 함** -- 시작 화면이 이 값을 보여줌.
+    target_pose = stand.default_pose() if standing else zero_pose(order)
+
     print(
         f"\n  {leg.id}  {' '.join(channels)}  전송 {args.hz:.0f}Hz"
         + (f" (정책 {POLICY_HZ:.0f}Hz)" if args.hz != POLICY_HZ else "")
@@ -469,12 +474,9 @@ def main(argv=None) -> int:
         + "로 옮긴 뒤 그 자세로 기다립니다.\n"
         f"  Enter 를 누르면 정책이 시작됩니다.\n\n"
         f"  ** 상태 기계와 토크 가드가 없음. 넘어져도 멈추지 않음 **\n"
-        f"  Ctrl-C 로 멈춤. 멈출 때 자세를 붙잡은 뒤 토크를 끊음.\n"
+        f"  Ctrl-C 로 멈춤. 멈출 때 kp=0 으로 속도를 죽인 뒤 토크를 끊음.\n"
     )
 
-    # stand 의 기준 자세는 0 이 아님 (엉덩이 10도, 무릎 20도). 0 으로 데려다 놓으면
-    # 정책이 켜지는 순간 그 차이를 한 번에 메우려 함.
-    target_pose = stand.default_pose() if standing else zero_pose(order)
     start_pose = {
         joint: float(leg.get_observation().get(f"{joint}.pos", 0.0))
         for joint in order

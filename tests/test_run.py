@@ -15,18 +15,22 @@ import sys
 import time
 import types
 from collections import deque
+from pathlib import Path
 
 import pytest
 
 from huphy.motors.robstride import tables as T
 from huphy.motors.robstride.codec import mit
-from huphy.control import policy
+from huphy.control import policy, stand
 from huphy.scripts import run
 from huphy.scripts.run import main
 from huphy.sensors.base import ImuState
 
 MODELS = {7: T.Model.RS02, 8: T.Model.RS02, 9: T.Model.RS02,
-          10: T.Model.RS02, 11: T.Model.RS00, 12: T.Model.RS00}
+          10: T.Model.RS02, 11: T.Model.RS00, 12: T.Model.RS00,
+          # 양다리 설정의 왼다리. 오른다리와 같은 구성임.
+          1: T.Model.RS02, 2: T.Model.RS02, 3: T.Model.RS02,
+          4: T.Model.RS02, 5: T.Model.RS00, 6: T.Model.RS00}
 
 ROBOT_YAML = """
 name: t
@@ -187,6 +191,159 @@ def go(fake_can, cfg, monkeypatch, capsys):
 
 REAL = ["--policy", "balance", "--approach", "0.05", "--duration", "0.3",
         "--hz", "50", "--allow-uncalibrated"]
+
+
+# ===========================================================================
+# 양다리 — stand 정책
+# ===========================================================================
+LEFT_LEG_YAML = """  left_leg:
+    kind: leg
+    side: left
+    channel: can0
+    calibration: calibration/left_leg.json
+    motors:
+      hip_pitch: {id: 1, model: RS02, kp: 30.0, kd: 1.0}
+      hip_roll:  {id: 2, model: RS02, kp: 30.0, kd: 1.0}
+      hip_yaw:   {id: 3, model: RS02, kp: 30.0, kd: 1.0}
+      knee:      {id: 4, model: RS02, kp: 30.0, kd: 1.0}
+      ankle_a:   {id: 5, model: RS00, kp: 30.0, kd: 1.0}
+      ankle_b:   {id: 6, model: RS00, kp: 30.0, kd: 1.0}
+"""
+
+ROBOT_YAML_BOTH = ROBOT_YAML.replace(
+    "    mount: right_leg", "    mount: torso"
+).replace("imus:", LEFT_LEG_YAML + "imus:", 1)
+"""오른다리 설정에 왼다리를 덧붙인 것.
+
+**`imus:` 앞에 끼워 넣음.** `ROBOT_YAML` 은 `imus` 가 마지막이라 그냥 붙이면 왼다리가
+`limbs` 가 아니라 `imus` 밑으로 들어감 -- 그러면 로더가 "imus.left_leg: 모르는 키"
+로 멈춤.
+
+`mount` 를 `torso` 로 바꾼 이유: 양다리 경로는 `mount` 를 안 보고 전부 로봇에 붙이는데
+(`build_biped`), 설정이 사실과 맞아야 읽는 사람이 헷갈리지 않음.
+"""
+
+STAND_WEIGHTS = (
+    Path(__file__).resolve().parent.parent / "config" / "policies" / "stand_bi.pt"
+)
+"""진짜 가중치. 입력 45 / 출력 12 를 확인하는 데만 씀.
+
+`rsl_rl.load` 가 차원만 대조하므로 이 파일로 경로 전체가 돌아감. 값이 학습 쪽
+참조 입출력과 맞는지는 별개 문제임 (`docs/policy_runner.md` 13.3).
+"""
+
+
+@pytest.fixture
+def cfg_both(tmp_path):
+    (tmp_path / "config" / "calibration").mkdir(parents=True)
+    robot = tmp_path / "config" / "robot.yaml"
+    robot.write_text(ROBOT_YAML_BOTH, encoding="utf-8")
+    for limb in ("right_leg", "left_leg"):
+        data = dict(CALIBRATION, limb=limb)
+        (tmp_path / "config" / "calibration" / f"{limb}.json").write_text(
+            json.dumps(data, ensure_ascii=False), encoding="utf-8"
+        )
+    return robot
+
+
+@pytest.fixture
+def go_robot(fake_can, cfg_both, monkeypatch, capsys):
+    """`--robot` 으로 명령줄을 그대로 돌림."""
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    def _go(*argv):
+        code = main(["--config", str(cfg_both), "--robot", *argv])
+        return code, capsys.readouterr().out
+    return _go
+
+
+STAND = ["--policy", "stand", "--ankle-space", "ab",
+         "--weights", str(STAND_WEIGHTS),
+         "--approach", "0.05", "--duration", "0.3", "--hz", "50",
+         "--allow-uncalibrated"]
+
+STAND_APPROACH_ONLY = ["--policy", "stand", "--ankle-space", "ab",
+                       "--weights", str(STAND_WEIGHTS),
+                       "--approach", "1.0", "--duration", "0.2", "--hz", "50",
+                       "--allow-uncalibrated"]
+"""접근 구간만 돌고 끝남. 정책 출력이 섞이지 않아 접근 목표를 볼 수 있음."""
+
+
+class TestStand:
+    """서기 정책 경로. **끝까지 돌려 봄** -- 시작 화면에서 터진 적이 있음."""
+
+    @pytest.mark.skipif(not STAND_WEIGHTS.is_file(), reason="가중치 파일 없음")
+    def test_it_runs_to_the_end(self, go_robot):
+        code, out = go_robot(*STAND)
+        assert code == 0, out
+
+    @pytest.mark.skipif(not STAND_WEIGHTS.is_file(), reason="가중치 파일 없음")
+    def test_the_start_screen_shows_the_default_pose(self, go_robot):
+        """0 이 아닌 기준 자세로 간다는 것이 화면에 보여야 함."""
+        _, out = go_robot(*STAND)
+        assert "기준 자세" in out
+        assert "기준자세 무릎 +20.1도" in out
+
+    @pytest.mark.skipif(not STAND_WEIGHTS.is_file(), reason="가중치 파일 없음")
+    def test_it_approaches_the_default_pose_not_zero(self, go_robot):
+        """영자세로 가면 정책이 켜지는 순간 무릎 20도를 한 번에 메우려 함.
+
+        **접근 구간만 돌림** (`--duration` < `--approach`). 정책이 시작하면 그
+        출력이 섞여 들어와 접근 목표를 구분할 수 없음 -- 화면이 아니라고 두어
+        Enter 없이 바로 시작하기 때문임.
+
+        무릎 기준 자세는 좌우 부호가 반대라(+20.05 / -20.05), **부호만 봐도**
+        영자세로 가는 것과 구분됨.
+        """
+        go_robot(*STAND_APPROACH_ONLY)
+        enc = T.encoding_for(T.Model.RS02)
+        # **버스가 둘임.** instances[-1] 은 나중에 만들어진 왼다리 것이라 오른
+        # 무릎(id 10)이 거기 없음. 둘 다 훑음.
+        #
+        # 마지막 프레임을 보면 안 됨 -- 정지 절차의 감쇠가 현재 위치(가짜 모터는
+        # 0 에서 안 움직임)를 kp=0 으로 보내므로 뒤쪽이 전부 0 임.
+        def targets_of(motor_id):
+            out = []
+            for bus in FakeBus.instances:
+                for msg in bus.sent:
+                    if msg.arbitration_id != motor_id or msg.data[0] == 0xFF:
+                        continue
+                    d = msg.data
+                    kp = mit.uint_to_float(
+                        ((d[3] & 0x0F) << 8) | d[4], 0.0, enc.kp_max, 12)
+                    if kp < 0.2:
+                        continue
+                    out.append(math.degrees(mit.uint_to_float(
+                        (d[0] << 8) | d[1], -enc.pmax_rad, enc.pmax_rad, 16)))
+            return out
+
+        for motor_id, joint in ((10, "right_leg/knee"), (4, "left_leg/knee")):
+            targets = targets_of(motor_id)
+            assert targets, f"{joint} 에 게인이 실린 명령이 안 나감"
+            goal = stand.DEFAULT_POSE_DEG[joint]
+            last = targets[-1]
+            assert last * goal > 0, f"{joint} 이 기준 자세 쪽이 아님: {last:.1f}도"
+            assert abs(last) > 0.5, f"{joint} 이 영자세에 머묾: {last:.1f}도"
+            assert abs(last) <= abs(goal) + 1.0, f"{joint} 이 기준 자세를 넘김: {last:.1f}도"
+
+    def test_a_single_leg_is_refused(self, go):
+        """12관절 모델임. --limb 으로는 못 돌림."""
+        with pytest.raises(SystemExit) as e:
+            go("--policy", "stand", "--weights", str(STAND_WEIGHTS))
+        assert "--robot" in str(e.value)
+
+    def test_the_joint_ankle_space_is_refused(self, go_robot):
+        """발목을 크랭크로 직접 냄. rp 로 주면 기구학을 한 번 더 거침."""
+        with pytest.raises(SystemExit) as e:
+            go_robot("--policy", "stand", "--ankle-space", "rp",
+                     "--weights", str(STAND_WEIGHTS))
+        assert "ab" in str(e.value)
+
+    def test_torque_output_is_refused(self, go_robot):
+        with pytest.raises(SystemExit) as e:
+            go_robot("--policy", "stand", "--ankle-space", "ab",
+                     "--ankle-output", "torque", "--weights", str(STAND_WEIGHTS))
+        assert "position" in str(e.value)
 
 
 # ===========================================================================
