@@ -6,7 +6,7 @@
     "hip_pitch": {
       "sign": 1.0,
       "offset_deg": 0.0,
-      "zero_reference": "",
+      "zero_reference": "0",
       "limits_deg": [
         -17.75,
         112.75
@@ -15,7 +15,7 @@
     "hip_roll": {
       "sign": 1.0,
       "offset_deg": 0.0,
-      "zero_reference": "",
+      "zero_reference": "0",
       "limits_deg": [
         -79.5,
         19.5
@@ -24,7 +24,7 @@
     "hip_yaw": {
       "sign": 1.0,
       "offset_deg": 0.0,
-      "zero_reference": "",
+      "zero_reference": "0",
       "limits_deg": [
         -40.5,
         40.5
@@ -33,7 +33,7 @@
     "knee": {
       "sign": 1.0,
       "offset_deg": 0.0,
-      "zero_reference": "",
+      "zero_reference": "0",
       "limits_deg": [
         -114.0,
         -6.0
@@ -42,7 +42,7 @@
     "ankle_a": {
       "sign": 1.0,
       "offset_deg": 0.0,
-      "zero_reference": "",
+      "zero_reference": "0",
       "limits_deg": [
         -61.88,
         61.88
@@ -51,7 +51,7 @@
     "ankle_b": {
       "sign": 1.0,
       "offset_deg": 0.0,
-      "zero_reference": "",
+      "zero_reference": "0",
       "limits_deg": [
         -61.88,
         61.88
