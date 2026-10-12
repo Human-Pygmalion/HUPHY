@@ -103,6 +103,7 @@ from ..config import ConfigError, load_robot
 from ..control import ControlLoop, Mode, held, policy, rsl_rl, stand
 from ..motors.base import Gains
 from ..motors.canbus import DEFAULT_DRAIN_S
+from ..telemetry import policy_log
 from . import failures
 from .bringup import build_biped, build_leg
 from .commission import CONFIG_NAME, _find_config, _pick_limb, all_legs
@@ -320,6 +321,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--log", nargs="?", const=Path("logs"), type=Path, metavar="DIR",
+        help=(
+            "정책 입출력을 CSV 로 남김. 폴더를 안 주면 logs/. "
+            "tools/policy_viewer.html 로 열어 볼 수 있음"
+        ),
+    )
+    p.add_argument(
         "--allow-uncalibrated", action="store_true",
         help="실측 전에도 토크를 넣음",
     )
@@ -372,6 +380,20 @@ def _check_standing(args) -> None:
             f"--policy {STAND} 는 관절 목표각을 냄. "
             f"--ankle-output position 으로 돌릴 것 (받은 값 {args.ankle_output})"
         )
+
+
+def _save_log(log: "policy_log.PolicyLog", args) -> None:
+    """정책 기록을 씀. **실패해도 올리지 않음** -- 토크는 이미 끊긴 뒤임."""
+    if not len(log):
+        print("  정책 기록: 정책이 한 번도 안 불려서 남길 것이 없음")
+        return
+    try:
+        path = log.save(policy_log.default_path(args.log, args.policy))
+    except OSError as e:
+        print(f"  정책 기록 저장 실패: {e}")
+        return
+    note = f", 기록 실패 {log.errors}회" if log.errors else ""
+    print(f"  정책 기록: {path}  ({len(log)}줄{note})")
 
 
 def _weights_path(args) -> Path:
@@ -559,11 +581,20 @@ def main(argv=None) -> int:
         joint: float(leg.get_observation().get(f"{joint}.pos", 0.0))
         for joint in order
     }
+    log = None
+    if args.log is not None:
+        obs_names = (
+            stand.OBS_NAMES if standing else policy.observation_names(spec, order)
+        )
+        log = policy_log.PolicyLog(obs_names, order)
+        model = log.wrap_model(model)
     policy_motion = (
         stand.motion(model, leg.imus[0])
         if standing
         else policy.policy_motion(model, leg.imus[0], spec=spec, order=order)
     )
+    if log is not None:
+        policy_motion = log.wrap_motion(policy_motion)
     motion = staged(
         approach(target_pose, start_pose, args.approach),
         args.approach,
@@ -586,6 +617,8 @@ def main(argv=None) -> int:
     finally:
         leg.disconnect()
         print("\n  종료. 토크가 끊겼음")
+        if log is not None:
+            _save_log(log, args)
     return 0
 
 

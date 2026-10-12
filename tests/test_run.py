@@ -360,6 +360,15 @@ class TestStand:
             go_robot(*STAND, "--gain-scale", scale)
         assert FakeBus.instances == []
 
+    @pytest.mark.skipif(not STAND_WEIGHTS.is_file(), reason="가중치 파일 없음")
+    def test_log_writes_one_row_per_policy_call(self, go_robot, tmp_path):
+        """100Hz 전송이어도 정책은 50Hz 라 줄 수는 정책 호출 수임."""
+        _, out = go_robot(*STAND, "--log", str(tmp_path / "lg"))
+        files = list((tmp_path / "lg").glob("policy_stand_*.csv"))
+        assert len(files) == 1, out
+        header = files[0].read_text().splitlines()[0].split(",")
+        assert len(header) == 1 + stand.OBS_DIM + 12 * 3
+
     def test_a_single_leg_is_refused(self, go):
         """12관절 모델임. --limb 으로는 못 돌림."""
         with pytest.raises(SystemExit) as e:

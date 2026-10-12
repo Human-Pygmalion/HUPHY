@@ -169,6 +169,19 @@ SPEC = PolicySpec(name="stand", action_scale=ACTION_SCALE, obs_dim=OBS_DIM)
 """
 
 
+OBS_NAMES: Tuple[str, ...] = (
+    ("obs/gyro/x", "obs/gyro/y", "obs/gyro/z", "obs/grav/x", "obs/grav/y", "obs/grav/z")
+    + tuple(f"obs/q_prev/{j}" for j in ORDER)
+    + tuple(f"obs/q/{j}" for j in ORDER)
+    + tuple(f"obs/last_act/{j}" for j in ORDER)
+    + ("obs/cmd/vx", "obs/cmd/vy", "obs/cmd/wz")
+)
+"""관찰 45칸의 이름. `observation_vector` 와 **같은 순서**임. 기록과 뷰어가 씀.
+
+`q_prev`/`q` 는 기본자세를 뺀 라디안 값 그대로임 -- 모델이 본 숫자를 남기려는 것.
+"""
+
+
 def default_pose() -> Dict[str, float]:
     """기준 자세 사본. 접근 단계와 대기 자세가 이것을 씀."""
     return dict(DEFAULT_POSE_DEG)

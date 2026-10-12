@@ -864,7 +864,14 @@ huphy-run --robot --policy balance --weights runs/biped.pt         # 양다리 1
 
 # 1.0 서기 — 양다리 12관절, 발목은 크랭크 직접
 huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt
+
+# 정책 입출력을 logs/policy_<이름>_<시각>.csv 로 남김 (폴더 지정: --log 경로)
+huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt --log
 ```
+
+`--log` 파일은 모델이 본 관찰(정규화 전), 모델 출력, 관절 목표각·실측각을 정책
+호출마다 한 줄씩 담음. `tools/policy_viewer.html` 을 브라우저로 열고 파일을 끌어다
+놓으면 재생하듯 볼 수 있음 (인터넷 없이 열림).
 
 `.pt` 에는 신경망만 들어 있고 `action_scale` 이나 관찰 구성은 안 들어 있음. 그건
 `--policy` 이름이 정함. **파일의 입력·출력 개수가 그 규격과 다르면 모터를 켜기 전에

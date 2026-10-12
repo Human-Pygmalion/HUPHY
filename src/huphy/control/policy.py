@@ -252,6 +252,21 @@ def observation_vector(
     return vector
 
 
+def observation_names(spec: PolicySpec, order: Tuple[str, ...] = JOINT_ORDER) -> Tuple[str, ...]:
+    """관찰 벡터의 칸 이름. `observation_vector` 와 **같은 순서**임.
+
+    기록과 뷰어가 씀. 모델은 이름을 모름 -- 칸을 늘리거나 옮기면 여기도 같이 고칠 것.
+    길이가 어긋나면 `telemetry.policy_log` 가 첫 기록에서 멈춤.
+    """
+    names = ["obs/gyro/x", "obs/gyro/y", "obs/gyro/z", "obs/grav/x", "obs/grav/y", "obs/grav/z"]
+    names += [f"obs/pos/{j}" for j in order]
+    names += [f"obs/vel/{j}" for j in order]
+    names += [f"obs/last_act/{j}" for j in order]
+    if spec.uses_hop_phase:
+        names += ["obs/phase/sin", "obs/phase/cos"]
+    return tuple(names)
+
+
 def joint_targets(
     action: Sequence[float],
     *,

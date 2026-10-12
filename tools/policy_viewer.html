@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Policy Log Viewer</title>
+<!--
+  huphy-run --log 이 남긴 CSV 를 재생하듯 봄. 외부 라이브러리 없음 -- 로봇에서
+  인터넷 없이 열려야 해서임. 파일을 끌어다 놓거나 "파일 열기" 로 고름.
+
+  단축키   Space 재생/정지   ← → 한 줄   Shift+← → 1초   Home/End 처음/끝
+-->
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1d2330; --muted: #6b7385; --line: #e2e5eb;
+  --grid: #eef0f4; --accent: #2f6fed; --head: #d6336c; --chip: #eef2fb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --panel: #1a1e26; --fg: #e4e7ee; --muted: #8a93a6; --line: #2a303c;
+    --grid: #232833; --accent: #6b9bff; --head: #ff6b9a; --chip: #232a38;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151b; --panel: #1a1e26; --fg: #e4e7ee; --muted: #8a93a6; --line: #2a303c;
+  --grid: #232833; --accent: #6b9bff; --head: #ff6b9a; --chip: #232a38;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 13px/1.4 system-ui, -apple-system, "Noto Sans KR", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+  position: sticky; top: 0; z-index: 2; }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+.meta { color: var(--muted); }
+button, select { font: inherit; color: var(--fg); background: var(--chip);
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); min-width: 64px; }
+input[type=range] { flex: 1; min-width: 160px; accent-color: var(--accent); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 16px;
+  background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 49px; z-index: 2; }
+.time { font-variant-numeric: tabular-nums; min-width: 120px; }
+main { display: grid; grid-template-columns: 270px 1fr; gap: 12px; padding: 12px 16px; }
+@media (max-width: 760px) { main { grid-template-columns: 1fr; } .controls { top: 0; position: static; } }
+aside { display: flex; flex-direction: column; gap: 12px; }
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.box h2 { font-size: 12px; margin: 0 0 6px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px;
+  background: var(--chip); border: 1px solid var(--line); cursor: pointer; user-select: none; font-size: 12px; }
+.chip.off { opacity: .4; }
+.chip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+label.row { display: flex; gap: 6px; align-items: center; padding: 2px 0; cursor: pointer; }
+.charts { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.chart { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px 4px; }
+.chart .title { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 0 2px 2px; }
+.chart .title b { color: var(--fg); font-weight: 600; }
+canvas { width: 100%; height: 190px; display: block; cursor: crosshair; }
+.each { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+.each .chart .title span { font-variant-numeric: tabular-nums; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 12px; }
+th, td { padding: 2px 4px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 500; }
+#drop { margin: 40px auto; max-width: 560px; text-align: center; padding: 48px 24px;
+  border: 2px dashed var(--line); border-radius: 12px; color: var(--muted); }
+#drop.hover { border-color: var(--accent); color: var(--fg); }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>정책 기록 뷰어</h1>
+  <button id="open">파일 열기</button>
+  <input id="file" type="file" accept=".csv" class="hidden">
+  <span class="meta" id="meta">huphy-run --log 이 남긴 CSV</span>
+</header>
+
+<div class="controls hidden" id="controls">
+  <button class="primary" id="play">재생</button>
+  <select id="speed" title="재생 속도">
+    <option value="0.25">0.25x</option><option value="0.5">0.5x</option>
+    <option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option>
+  </select>
+  <input type="range" id="seek" min="0" max="0" value="0" step="1">
+  <span class="time" id="time">0.00 / 0.00 s</span>
+  <select id="win" title="보이는 시간 폭">
+    <option value="2">창 2 s</option><option value="5" selected>창 5 s</option>
+    <option value="10">창 10 s</option><option value="30">창 30 s</option><option value="0">전체</option>
+  </select>
+  <label class="row"><input type="checkbox" id="yfit"> y 창 기준</label>
+</div>
+
+<div id="drop">CSV 파일을 여기로 끌어다 놓거나 <b>파일 열기</b>를 누르세요.</div>
+
+<main class="hidden" id="main">
+  <aside>
+    <div class="box"><h2>관절</h2><div class="chips" id="joints"></div>
+      <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">
+        <button data-pick="all">전체</button><button data-pick="right_leg">오른</button>
+        <button data-pick="left_leg">왼</button><button data-pick="none">없음</button>
+      </div></div>
+    <div class="box"><h2>그래프</h2><div id="panels"></div></div>
+    <div class="box"><h2>재생 위치 값</h2><div id="values"></div></div>
+  </aside>
+  <section class="charts" id="charts"></section>
+</main>
+
+<script>
+"use strict";
+const PALETTE = ["#2f6fed", "#e8590c", "#2b8a3e", "#c2255c", "#7048e8", "#0c8599",
+                 "#e67700", "#5c940d", "#d6336c", "#1971c2", "#9c36b5", "#087f5b"];
+const UNITS = { gyro: "rad/s", grav: "", q: "rad (기본자세 기준)", q_prev: "rad (기본자세 기준)",
+  pos: "rad", vel: "rad/s", last_act: "모델 출력", cmd: "", phase: "" };
+
+const S = { cols: [], data: null, n: 0, t: null, idx: 0, playing: false, joints: [], on: new Set(),
+  panels: [], shown: new Set(), last: 0 };
+const $ = (id) => document.getElementById(id);
+
+// ---- 읽기 ---------------------------------------------------------------
+function parseCsv(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.length);
+  const cols = lines[0].split(",");
+  const n = lines.length - 1;
+  const data = cols.map(() => new Float64Array(n));
+  for (let r = 0; r < n; r++) {
+    const cells = lines[r + 1].split(",");
+    for (let c = 0; c < cols.length; c++) data[c][r] = cells[c] === undefined ? NaN : parseFloat(cells[c]);
+  }
+  return { cols, data, n };
+}
+
+function jointOf(col) {            // "obs/q/right_leg/knee" -> "right_leg/knee", "act/knee" -> "knee"
+  const p = col.split("/");
+  return p[0] === "obs" ? p.slice(2).join("/") : p.slice(1).join("/");
+}
+
+function load(name, text) {
+  const { cols, data, n } = parseCsv(text);
+  if (cols[0] !== "t" || n < 2) { alert("huphy-run --log 형식이 아님 (첫 칸이 t 여야 함)"); return; }
+  const joints = cols.filter((c) => c.startsWith("act/")).map((c) => c.slice(4));
+
+  // 오차 = 목표 - 실측. 파일에는 없고 여기서 계산해 열로 덧붙임.
+  joints.forEach((j) => {
+    const tg = data[cols.indexOf("tgt/" + j)], ps = data[cols.indexOf("pos/" + j)];
+    if (!tg || !ps) return;
+    const e = new Float64Array(n); for (let i = 0; i < n; i++) e[i] = tg[i] - ps[i];
+    cols.push("err/" + j); data.push(e);
+  });
+  Object.assign(S, { cols, data, n, t: data[0], idx: 0, playing: false, joints });
+  S.on = new Set(joints);
+
+  // 그래프 묶음. 관절 12칸짜리는 관절 칩으로 거름.
+  const groups = new Map();
+  const add = (key, title, unit, perJoint) => {
+    if (!groups.has(key)) groups.set(key, { key, title, unit, perJoint, cols: [] });
+    return groups.get(key);
+  };
+  add("each", "관절별 추종 — 목표(점선) · 실측(실선) · 오차(색칠)", "deg", true);
+  add("err", "오차 — 목표 − 실측", "deg", true);
+  add("track", "추종 겹쳐 보기 — 목표(점선) vs 실측(실선)", "deg", true);
+  cols.forEach((c, i) => {
+    if (i === 0) return;
+    const p = c.split("/");
+    if (p[0] === "obs") {
+      const g = p[1];
+      const perJoint = !["gyro", "grav", "cmd", "phase"].includes(g);
+      add("obs/" + g, "관찰 · " + g, UNITS[g] ?? "", perJoint).cols.push(i);
+    } else if (p[0] === "act") add("act", "행동 (모델 출력)", "", true).cols.push(i);
+    else if (p[0] === "err") groups.get("err").cols.push(i);
+  });
+  S.panels = [...groups.values()];
+  const defaults = ["each", "err", "obs/gyro", "obs/grav"];
+  S.shown = new Set(S.panels.map((p) => p.key).filter((k) => defaults.includes(k)));
+
+  const dur = S.t[n - 1] - S.t[0];
+  $("meta").textContent = `${name} · ${n}줄 · ${dur.toFixed(1)} s · 평균 ${((n - 1) / dur).toFixed(1)} Hz`;
+  $("seek").max = n - 1; $("seek").value = 0;
+  ["controls", "main"].forEach((id) => $(id).classList.remove("hidden"));
+  $("drop").classList.add("hidden");
+  buildSide(); buildCharts(); render();
+}
+
+// ---- 옆 패널 --------------------------------------------------------------
+function colorOf(j) { return PALETTE[S.joints.indexOf(j) % PALETTE.length]; }
+function short(j) { return j.replace("_leg/", " "); }
+function col(name) { return S.cols.indexOf(name); }
+
+function buildSide() {
+  const box = $("joints"); box.innerHTML = "";
+  S.joints.forEach((j) => {
+    const el = document.createElement("span");
+    el.className = "chip" + (S.on.has(j) ? "" : " off");
+    el.innerHTML = `<i style="background:${colorOf(j)}"></i>${short(j)}`;
+    el.onclick = () => { S.on.has(j) ? S.on.delete(j) : S.on.add(j); buildSide(); buildCharts(); render(); };
+    box.appendChild(el);
+  });
+  const pbox = $("panels"); pbox.innerHTML = "";
+  S.panels.forEach((p) => {
+    const el = document.createElement("label"); el.className = "row";
+    el.innerHTML = `<input type="checkbox" ${S.shown.has(p.key) ? "checked" : ""}> ${p.title.split(" — ")[0]}`;
+    el.querySelector("input").onchange = (e) => {
+      e.target.checked ? S.shown.add(p.key) : S.shown.delete(p.key); buildCharts(); render();
+    };
+    pbox.appendChild(el);
+  });
+}
+document.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => {
+  const k = b.dataset.pick;
+  S.on = new Set(k === "all" ? S.joints : k === "none" ? [] : S.joints.filter((j) => j.startsWith(k)));
+  buildSide(); buildCharts(); render();
+});
+
+function chartBox(parent, title, unit, height) {
+  const div = document.createElement("div"); div.className = "chart";
+  div.innerHTML = `<div class="title"><b>${title}</b><span>${unit}</span></div><canvas></canvas>`;
+  const cv = div.querySelector("canvas");
+  if (height) cv.style.height = height + "px";
+  cv.onmousedown = (e) => { seekFromCanvas(cv, e); const mv = (ev) => seekFromCanvas(cv, ev);
+    window.addEventListener("mousemove", mv);
+    window.addEventListener("mouseup", () => window.removeEventListener("mousemove", mv), { once: true }); };
+  parent.appendChild(div);
+  return { canvas: cv, info: div.querySelector(".title span") };
+}
+
+function buildCharts() {
+  const root = $("charts"); root.innerHTML = ""; S.charts = [];
+  S.panels.filter((p) => S.shown.has(p.key)).forEach((p) => {
+    if (p.key !== "each") {
+      const box = chartBox(root, p.title, p.unit);
+      S.charts.push({ ...box, panel: p, series: () => series(p), legend: !p.perJoint, zero: p.key === "err" });
+      return;
+    }
+    // 관절마다 한 칸. 목표와 실측을 겹치고 그 사이를 칠해 오차를 보임.
+    const grid = document.createElement("div"); grid.className = "each";
+    const js = S.joints.filter((j) => S.on.has(j));
+    if (!js.length) { grid.innerHTML = `<div class="chart meta">관절을 하나 이상 고르세요</div>`; root.appendChild(grid); return; }
+    js.forEach((j) => {
+      const box = chartBox(grid, short(j), "", 150);
+      box.canvas.closest(".chart").querySelector("b").style.color = colorOf(j);
+      const tg = col("tgt/" + j), ps = col("pos/" + j), er = col("err/" + j);
+      S.charts.push({ ...box, joint: j, fill: [tg, ps], errCol: er,
+        series: () => [{ col: tg, color: colorOf(j), dash: true }, { col: ps, color: colorOf(j) }] });
+    });
+    root.appendChild(grid);
+  });
+}
+
+// ---- 그리기 ---------------------------------------------------------------
+const PAD = { l: 64, r: 8, t: 6, b: 32 };
+
+function lowerBound(arr, x) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; arr[m] < x ? lo = m + 1 : hi = m; } return lo; }
+
+function view() {
+  const t = S.t, now = t[S.idx], w = +$("win").value;
+  if (!w) return [t[0], t[S.n - 1]];
+  let a = now - w * 0.75, b = now + w * 0.25;
+  if (a < t[0]) { b += t[0] - a; a = t[0]; }
+  if (b > t[S.n - 1]) { a -= b - t[S.n - 1]; b = t[S.n - 1]; a = Math.max(a, t[0]); }
+  return [a, b];
+}
+
+function series(p) {             // [{col, color, dash, label}]
+  if (p.key === "track") return S.joints.filter((j) => S.on.has(j)).flatMap((j) =>
+    [{ col: col("tgt/" + j), color: colorOf(j), dash: true }, { col: col("pos/" + j), color: colorOf(j) }]);
+  return p.cols.map((c, k) => {
+    if (p.perJoint) { const j = jointOf(S.cols[c]); return S.on.has(j) ? { col: c, color: colorOf(j) } : null; }
+    return { col: c, color: PALETTE[k % PALETTE.length], label: S.cols[c].split("/").pop() };
+  }).filter(Boolean);
+}
+
+function render() {
+  if (!S.data) return;
+  const [a, b] = view();
+  const i0 = Math.max(0, lowerBound(S.t, a) - 1), i1 = Math.min(S.n, lowerBound(S.t, b) + 1);
+  const css = getComputedStyle(document.documentElement);
+  const C = (v) => css.getPropertyValue(v).trim();
+  const fit = $("yfit").checked;
+  (S.charts || []).forEach((ch) => drawChart(ch, a, b, i0, i1, C, fit));
+
+  const now = S.t[S.idx] - S.t[0];
+  $("time").textContent = `${now.toFixed(2)} / ${(S.t[S.n - 1] - S.t[0]).toFixed(2)} s`;
+  $("seek").value = S.idx;
+  renderValues();
+}
+
+function drawChart(ch, a, b, i0, i1, C, fit) {
+  const cv = ch.canvas, dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (!W || !H) return;
+  if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const ser = ch.series();
+  const pw = W - PAD.l - PAD.r, ph = H - PAD.t - PAD.b;
+
+  let lo = Infinity, hi = -Infinity;
+  const r0 = fit ? i0 : 0, r1 = fit ? i1 : S.n;
+  ser.forEach((s) => { const d = S.data[s.col]; for (let i = r0; i < r1; i++) { const v = d[i]; if (v < lo) lo = v; if (v > hi) hi = v; } });
+  if (ch.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+  if (!isFinite(lo)) { lo = -1; hi = 1; }
+  if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
+  const padY = (hi - lo) * 0.08; lo -= padY; hi += padY;
+  const X = (t) => PAD.l + ((t - a) / (b - a || 1)) * pw;
+  const Y = (v) => PAD.t + (1 - (v - lo) / (hi - lo)) * ph;
+
+  // 격자와 눈금
+  g.font = "11px system-ui, sans-serif"; g.fillStyle = C("--muted"); g.strokeStyle = C("--grid"); g.lineWidth = 1;
+  const ystep = niceStep((hi - lo) / (H < 150 ? 3 : 4));
+  for (let v = Math.ceil(lo / ystep) * ystep; v <= hi; v += ystep) {
+    const y = Math.round(Y(v)) + 0.5; g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(W - PAD.r, y); g.stroke();
+    g.textAlign = "right"; g.fillText(fmt(v), PAD.l - 6, y + 4);
+  }
+  const xstep = niceStep((b - a) / Math.max(2, Math.floor(pw / 110)));
+  for (let t = Math.ceil(a / xstep) * xstep; t <= b; t += xstep) {
+    const x = Math.round(X(t)) + 0.5; g.beginPath(); g.moveTo(x, PAD.t); g.lineTo(x, PAD.t + ph); g.stroke();
+    g.textAlign = "center"; g.fillText(fmt(t), x, PAD.t + ph + 13);
+  }
+
+  // 축 이름. 관절별 칸은 목표·실측이라 도 단위임.
+  g.fillStyle = C("--fg"); g.textAlign = "center";
+  g.fillText("시간 (s)", PAD.l + pw / 2, H - 3);
+  g.save(); g.translate(12, PAD.t + ph / 2); g.rotate(-Math.PI / 2);
+  g.fillText(ch.joint ? "각도 (deg)" : (ch.panel && ch.panel.unit) || "값", 0, 0);
+  g.restore(); g.fillStyle = C("--muted");
+  if (ch.zero && lo < 0 && hi > 0) {
+    const y = Math.round(Y(0)) + 0.5; g.strokeStyle = C("--muted"); g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(W - PAD.r, y); g.stroke();
+  }
+
+  g.save(); g.beginPath(); g.rect(PAD.l, PAD.t, pw, ph); g.clip();
+
+  // 목표와 실측 사이를 칠함 -- 오차가 면적으로 보임.
+  if (ch.fill) {
+    const [tc, pc] = ch.fill, tg = S.data[tc], ps = S.data[pc];
+    const step = Math.max(1, Math.floor((i1 - i0) / (pw * 2)));
+    g.fillStyle = ch.series()[0].color; g.globalAlpha = 0.22; g.beginPath();
+    let started = false;
+    for (let i = i0; i < i1; i += step) { const x = X(S.t[i]), y = Y(tg[i]); if (!isFinite(y)) continue; started ? g.lineTo(x, y) : g.moveTo(x, y); started = true; }
+    for (let i = i1 - 1; i >= i0; i -= step) { const v = ps[i]; if (isFinite(v)) g.lineTo(X(S.t[i]), Y(v)); }
+    g.closePath(); g.fill(); g.globalAlpha = 1;
+  }
+
+  // 선. 점이 픽셀보다 많으면 열마다 최소/최대만 그림.
+  ser.forEach((s) => {
+    const d = S.data[s.col]; g.strokeStyle = s.color; g.lineWidth = s.dash ? 1.2 : 1.5;
+    g.setLineDash(s.dash ? [5, 3] : []); g.beginPath();
+    const dense = (i1 - i0) > pw * 2;
+    if (!dense) { let first = true; for (let i = i0; i < i1; i++) { const v = d[i]; if (!isFinite(v)) { first = true; continue; }
+        const x = X(S.t[i]), y = Y(v); first ? g.moveTo(x, y) : g.lineTo(x, y); first = false; } }
+    else { let c = -1, mn = 0, mx = 0, started = false;
+      const flush = () => { if (c < 0) return; const x = PAD.l + c + 0.5;
+        started ? g.lineTo(x, Y(mx)) : g.moveTo(x, Y(mx)); g.lineTo(x, Y(mn)); started = true; };
+      for (let i = i0; i < i1; i++) { const v = d[i]; if (!isFinite(v)) continue; const cc = Math.floor(X(S.t[i]) - PAD.l);
+        if (cc !== c) { flush(); c = cc; mn = mx = v; } else { if (v < mn) mn = v; if (v > mx) mx = v; } }
+      flush(); }
+    g.stroke();
+  });
+  g.restore(); g.setLineDash([]);
+
+  // 범례 (관절별이 아닌 묶음만)
+  if (ch.legend) { let x = PAD.l + 6; ser.forEach((s) => { g.fillStyle = s.color; g.fillRect(x, PAD.t + 4, 10, 3);
+    g.fillStyle = C("--fg"); g.textAlign = "left"; g.fillText(s.label, x + 13, PAD.t + 9); x += 18 + g.measureText(s.label).width + 8; }); }
+
+  // 관절 칸 머리에 지금 오차와 창 안의 RMS·최대
+  if (ch.errCol !== undefined) {
+    const e = S.data[ch.errCol]; let ss = 0, mx = 0, k = 0;
+    for (let i = i0; i < i1; i++) { const v = e[i]; if (!isFinite(v)) continue; ss += v * v; mx = Math.max(mx, Math.abs(v)); k++; }
+    ch.info.textContent = `오차 ${num(e[S.idx], 2)}°  ·  창 RMS ${num(k ? Math.sqrt(ss / k) : NaN, 2)}°  최대 ${num(mx, 2)}°`;
+  }
+
+  // 재생 위치
+  const hx = Math.round(X(S.t[S.idx])) + 0.5;
+  g.strokeStyle = C("--head"); g.lineWidth = 1.5; g.beginPath(); g.moveTo(hx, PAD.t); g.lineTo(hx, PAD.t + ph); g.stroke();
+}
+
+function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw || 1))); const f = raw / p;
+  return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p; }
+function fmt(v) { if (Math.abs(v) < 1e-9) return "0"; const a = Math.abs(v); return a >= 100 ? v.toFixed(0) : a >= 1 ? v.toFixed(2).replace(/\.?0+$/, "") : v.toFixed(3).replace(/\.?0+$/, "") || "0"; }
+function val(name) { const c = S.cols.indexOf(name); return c < 0 ? NaN : S.data[c][S.idx]; }
+function num(v, d = 2) { return isFinite(v) ? v.toFixed(d) : "–"; }
+
+function renderValues() {
+  const js = S.joints.filter((j) => S.on.has(j));
+  let h = "<table><tr><th>관절</th><th>목표°</th><th>실측°</th><th>오차°</th><th>행동</th></tr>";
+  js.forEach((j) => { const tg = val("tgt/" + j), ps = val("pos/" + j);
+    h += `<tr><td style="color:${colorOf(j)}">${j.replace("_leg/", " ")}</td><td>${num(tg, 1)}</td><td>${num(ps, 1)}</td><td>${num(tg - ps, 1)}</td><td>${num(val("act/" + j))}</td></tr>`; });
+  h += "</table><table style='margin-top:8px'>";
+  [["gyro", "rad/s"], ["grav", ""]].forEach(([g, u]) => {
+    h += `<tr><td>${g} ${u}</td>${["x", "y", "z"].map((a) => `<td>${num(val(`obs/${g}/${a}`), 3)}</td>`).join("")}</tr>`; });
+  $("values").innerHTML = h + "</table>";
+}
+
+// ---- 재생 -----------------------------------------------------------------
+function seekTo(i) { S.idx = Math.max(0, Math.min(S.n - 1, i)); render(); }
+function seekTime(t) { seekTo(Math.min(S.n - 1, lowerBound(S.t, t))); }
+function seekFromCanvas(cv, e) { const r = cv.getBoundingClientRect(); const [a, b] = view();
+  seekTime(a + ((e.clientX - r.left - PAD.l) / (r.width - PAD.l - PAD.r)) * (b - a)); }
+
+function setPlaying(on) {
+  S.playing = on; $("play").textContent = on ? "정지" : "재생";
+  if (on) { if (S.idx >= S.n - 1) S.idx = 0; S.last = performance.now(); S.clock = S.t[S.idx]; requestAnimationFrame(tick); }
+}
+function tick(ts) {
+  if (!S.playing) return;
+  S.clock += ((ts - S.last) / 1000) * +$("speed").value; S.last = ts;
+  if (S.clock >= S.t[S.n - 1]) { seekTo(S.n - 1); setPlaying(false); return; }
+  S.idx = Math.max(0, lowerBound(S.t, S.clock) - 1); render(); requestAnimationFrame(tick);
+}
+
+$("play").onclick = () => setPlaying(!S.playing);
+$("seek").oninput = (e) => { setPlaying(false); seekTo(+e.target.value); };
+$("win").onchange = render; $("yfit").onchange = render;
+window.addEventListener("resize", render);
+window.addEventListener("keydown", (e) => {
+  if (!S.data || e.target.tagName === "SELECT") return;
+  if (e.code === "Space") { e.preventDefault(); setPlaying(!S.playing); }
+  else if (e.key === "ArrowRight") { setPlaying(false); e.shiftKey ? seekTime(S.t[S.idx] + 1) : seekTo(S.idx + 1); }
+  else if (e.key === "ArrowLeft") { setPlaying(false); e.shiftKey ? seekTime(S.t[S.idx] - 1) : seekTo(S.idx - 1); }
+  else if (e.key === "Home") { setPlaying(false); seekTo(0); }
+  else if (e.key === "End") { setPlaying(false); seekTo(S.n - 1); }
+});
+
+// ---- 파일 -----------------------------------------------------------------
+function openFile(f) { if (!f) return; const r = new FileReader(); r.onload = () => load(f.name, r.result); r.readAsText(f); }
+$("open").onclick = () => $("file").click();
+$("file").onchange = (e) => openFile(e.target.files[0]);
+["dragover", "dragenter"].forEach((ev) => document.addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.add("hover"); }));
+document.addEventListener("dragleave", () => $("drop").classList.remove("hover"));
+document.addEventListener("drop", (e) => { e.preventDefault(); $("drop").classList.remove("hover"); openFile(e.dataTransfer.files[0]); });
+</script>
+</body>
+</html>
