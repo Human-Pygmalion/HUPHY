@@ -884,8 +884,8 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 (엉덩이 10도, 무릎 20도로 살짝 웅크린 자세). 0 에서 시작하면 정책이 켜지는 순간
 그 차이를 한 번에 메우려 함.
 
-`--approach` 초에 걸쳐 그 자세로 옮긴 뒤 **Enter 를 눌러야** 정책이 시작됨. Ctrl-C
-로 멈추고, 멈출 때 `kp=0` 으로 속도를 죽인 뒤 토크를 끊음 (붙잡지 않음).
+`--approach` 초에 걸쳐 그 자세로 옮긴 뒤 **Enter 를 눌러야** 정책이 시작됨. Ctrl-Q
+로 멈추고 (`huphy-test` 와 같은 키. Ctrl-C 도 됨), 멈출 때 `kp=0` 으로 속도를 죽인 뒤 토크를 끊음 (붙잡지 않음).
 
 | | 무엇 |
 |---|---|

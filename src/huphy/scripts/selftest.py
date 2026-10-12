@@ -290,6 +290,10 @@ class QuitWatcher:
                 logger.info("Ctrl-Q -- 멈춤")
                 self.loop.stop()
                 return
+            self.on_key(key)
+
+    def on_key(self, key: str) -> None:
+        """Ctrl-Q 말고 다른 키. 여기서는 버림 -- 이어받는 쪽(`run.EnterWatcher`)이 씀."""
 
 
 # ===========================================================================

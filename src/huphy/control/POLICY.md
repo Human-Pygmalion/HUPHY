@@ -38,7 +38,7 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 | `--weights` | `config/policies/<정책>.pt` | 더 학습한 모델을 시험할 때 |
 | `--hz` | `50` | 학습 주기와 같아야 함 |
 | `--approach` | `3` | 영점 자세까지 옮기는 시간(초) |
-| `--duration` | 없음 | 이 초만큼만. 생략하면 Ctrl-C 까지 |
+| `--duration` | 없음 | 이 초만큼만. 생략하면 Ctrl-Q 까지 |
 
 ### 0.1 바로 움직이지 않음
 

@@ -496,20 +496,51 @@ class TestStaged:
 
 
 class TestEnterWatcher:
+    """Enter 로 시작, Ctrl-Q 로 멈춤. 진짜 터미널이 있어야 해서 pty 안에서 확인함."""
+
+    class FakeLoop:
+        def __init__(self):
+            self.stopped = False
+
+        def stop(self):
+            self.stopped = True
+
     def test_it_starts_at_once_off_screen(self, monkeypatch):
         """누를 사람이 없는데 영원히 기다리면 안 됨."""
         monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
         motion = run.staged(lambda t, o: {}, 0.0, lambda t, o: {})
-        with run.EnterWatcher(motion):
+        with run.EnterWatcher(motion, self.FakeLoop()):
             pass
         assert motion.is_started()
 
-    def test_it_waits_on_screen(self, monkeypatch):
-        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
-        monkeypatch.setattr("builtins.input", lambda *a: (_ for _ in ()).throw(EOFError))
-        motion = run.staged(lambda t, o: {}, 0.0, lambda t, o: {})
-        with run.EnterWatcher(motion):
-            pass
+    def _press(self, monkeypatch, keys: bytes, until):
+        import os
+        import pty
+        import time
+
+        master, slave = pty.openpty()
+        try:
+            monkeypatch.setattr(sys, "stdin", os.fdopen(slave, "r"))
+            loop = self.FakeLoop()
+            motion = run.staged(lambda t, o: {}, 0.0, lambda t, o: {})
+            with run.EnterWatcher(motion, loop):
+                assert not motion.is_started()
+                os.write(master, keys)
+                deadline = time.monotonic() + 2.0
+                while not until(motion, loop) and time.monotonic() < deadline:
+                    time.sleep(0.01)
+            return motion, loop
+        finally:
+            os.close(master)
+
+    def test_enter_starts(self, monkeypatch):
+        motion, loop = self._press(monkeypatch, b"\r", lambda m, l: m.is_started())
+        assert motion.is_started()
+        assert not loop.stopped
+
+    def test_ctrl_q_stops(self, monkeypatch):
+        motion, loop = self._press(monkeypatch, b"\x11", lambda m, l: l.stopped)
+        assert loop.stopped
         assert not motion.is_started()
 
 

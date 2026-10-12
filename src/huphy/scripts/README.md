@@ -652,7 +652,8 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 걸리는데 그때는 이미 토크가 들어간 뒤임.
 
 시작은 세 단계임 (`staged`). `--approach` 초에 걸쳐 시작 자세로 옮김 → 그 자세로
-대기 → **Enter** 를 누르면 정책. 끝나면 실패 집계를 찍음.
+대기 → **Enter** 를 누르면 정책. **Ctrl-Q** 로 멈춤 (`huphy-test` 와 같은 키). 끝나면
+실패 집계를 찍음.
 
 ---
 

@@ -96,9 +96,8 @@ import argparse
 import logging
 import signal
 import sys
-import threading
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 from ..config import ConfigError, load_robot
 from ..control import ControlLoop, Mode, held, policy, rsl_rl, stand
@@ -107,7 +106,7 @@ from ..motors.canbus import DEFAULT_DRAIN_S
 from . import failures
 from .bringup import build_biped, build_leg
 from .commission import CONFIG_NAME, _find_config, _pick_limb, all_legs
-from .selftest import approach
+from .selftest import QuitWatcher, approach
 
 logger = logging.getLogger("huphy.run")
 
@@ -218,38 +217,33 @@ def staged(approach_motion, approach_s: float, policy_motion, hold_pose=None):
     return motion
 
 
-class EnterWatcher:
-    """Enter 를 기다렸다가 정책을 시작시킴.
+class EnterWatcher(QuitWatcher):
+    """Enter 를 누르면 정책을 시작시키고, Ctrl-Q 를 누르면 루프를 멈춤.
 
-    **별도 스레드에서 봄.** 제어 루프는 주기를 지켜야 해서 입력을 기다릴 틈이 없음.
+    `huphy-test` 와 같은 키로 멈추려고 `QuitWatcher` 를 이어받음. 터미널을 한 글자씩
+    읽는 모드로 두므로 `input()` 으로 Enter 를 기다릴 수 없음 -- 둘을 한 스레드가
+    같이 봄.
 
     화면이 아니면(파이프, 서비스) 바로 시작함 -- 누를 사람이 없는데 영원히 기다리면
-    안 됨.
+    안 됨. 그때는 Ctrl-C 로 끊음.
     """
 
-    def __init__(self, motion) -> None:
+    def __init__(self, motion, loop: ControlLoop) -> None:
+        super().__init__(loop)
         self.motion = motion
-        self.armed = sys.stdin.isatty()
-        self._thread: Optional[threading.Thread] = None
 
     def __enter__(self) -> "EnterWatcher":
         if not self.armed:
             self.motion.start()
             return self
-        self._thread = threading.Thread(target=self._wait, daemon=True)
-        self._thread.start()
+        super().__enter__()
         return self
 
-    def __exit__(self, *exc) -> None:
-        return None
-
-    def _wait(self) -> None:
-        try:
-            input()
-        except (EOFError, KeyboardInterrupt):
-            return
-        print("  시작함")
-        self.motion.start()
+    def on_key(self, key: str) -> None:
+        # 한 글자 모드라도 ICRNL 이 살아 있어 Enter 는 보통 "\n" 으로 옴.
+        if key in ("\n", "\r") and not self.motion.is_started():
+            print("  시작함")
+            self.motion.start()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -312,7 +306,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--duration", type=float,
-        help="이 초만큼만 돌고 나옴. 생략하면 Ctrl-C 까지",
+        help="이 초만큼만 돌고 나옴. 생략하면 Ctrl-Q 까지",
     )
     p.add_argument(
         "--allow-uncalibrated", action="store_true",
@@ -528,7 +522,7 @@ def main(argv=None) -> int:
         "  Enter 를 누르면 정책이 시작됩니다.",
         "",
         "  ** 상태 기계와 토크 가드가 없음. 넘어져도 멈추지 않음 **",
-        "  Ctrl-C 로 멈춤. 멈출 때 kp=0 으로 속도를 죽인 뒤 토크를 끊음.",
+        "  Ctrl-Q 로 멈춤. 멈출 때 kp=0 으로 속도를 죽인 뒤 토크를 끊음.",
         "",
     ]
     print("\n".join(lines))
@@ -552,7 +546,7 @@ def main(argv=None) -> int:
         motion = held(motion, inner_hz=POLICY_HZ, outer_hz=args.hz)
 
     try:
-        with EnterWatcher(motion):
+        with EnterWatcher(motion, loop):
             stats = loop.run(motion, duration_s=args.duration)
         print("\n" + failures.report(leg, stats))
         if stats.link_loss is not None:
