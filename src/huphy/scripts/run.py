@@ -103,7 +103,7 @@ from ..config import ConfigError, load_robot
 from ..control import ControlLoop, Mode, held, policy, rsl_rl, stand
 from ..motors.base import Gains
 from ..motors.canbus import DEFAULT_DRAIN_S
-from ..telemetry import policy_log
+from ..telemetry import latency_log, policy_log
 from . import failures
 from .bringup import build_biped, build_leg
 from .commission import CONFIG_NAME, _find_config, _pick_limb, all_legs
@@ -323,8 +323,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--log", nargs="?", const=Path("logs"), type=Path, metavar="DIR",
         help=(
-            "정책 입출력을 CSV 로 남김. 폴더를 안 주면 logs/. "
-            "tools/policy_viewer.html 로 열어 볼 수 있음"
+            "정책 입출력과 관절별 응답 지연을 CSV 로 남김. 폴더를 안 주면 logs/. "
+            "tools/policy_viewer.html, tools/latency_viewer.html 로 열어 볼 수 있음"
         ),
     )
     p.add_argument(
@@ -394,6 +394,19 @@ def _save_log(log: "policy_log.PolicyLog", args) -> None:
         return
     note = f", 기록 실패 {log.errors}회" if log.errors else ""
     print(f"  정책 기록: {path}  ({len(log)}줄{note})")
+
+
+def _save_latency(latency: "latency_log.LatencyLog", args) -> None:
+    """지연 요약을 찍고 CSV 로 씀. 실패해도 올리지 않음."""
+    if not len(latency):
+        return
+    print("\n" + latency.summary())
+    try:
+        path = latency.save(latency_log.default_path(args.log, args.policy))
+    except OSError as e:
+        print(f"  지연 기록 저장 실패: {e}")
+        return
+    print(f"  지연 기록: {path}")
 
 
 def _weights_path(args) -> Path:
@@ -595,6 +608,10 @@ def main(argv=None) -> int:
     )
     if log is not None:
         policy_motion = log.wrap_motion(policy_motion)
+    # 접근 구간부터 잼 -- 통신은 정책이 켜졌는지와 무관함.
+    latency = None
+    if args.log is not None:
+        latency = latency_log.LatencyLog(drain_ms=args.drain_ms, hz=args.hz).attach(leg)
     motion = staged(
         approach(target_pose, start_pose, args.approach),
         args.approach,
@@ -619,6 +636,8 @@ def main(argv=None) -> int:
         print("\n  종료. 토크가 끊겼음")
         if log is not None:
             _save_log(log, args)
+        if latency is not None:
+            _save_latency(latency, args)
     return 0
 
 

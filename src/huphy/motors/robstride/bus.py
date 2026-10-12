@@ -138,6 +138,14 @@ class RobStrideBus(MotorsBus):
         self._states: Dict[int, MotorState] = {mid: MotorState() for mid in self.motors}
         self._torque_on: Dict[int, bool] = {mid: False for mid in self.motors}
 
+        self.latency = None
+        """지연 기록기. 붙이면 `sent(mid)` 와 `received(mid, 초, late)` 를 부름.
+
+        기본은 없음 -- 없으면 시각을 재지도 않음. `telemetry.latency_log` 가 붙임.
+        """
+        self._sent_at: Dict[int, float] = {}
+        self._prev_sent_at: Dict[int, float] = {}
+
     def __repr__(self) -> str:
         return f"RobStrideBus({self.bus.channel}, 모터 {len(self.motors)}개)"
 
@@ -225,7 +233,42 @@ class RobStrideBus(MotorsBus):
             )
             for mid, c in commands.items()
         ]
+        if self.latency is not None:
+            self._note_sent(commands)
         return self.bus.send_many(frames)
+
+    def _note_sent(self, commands: Mapping[int, MitCommand]) -> None:
+        """보낸 시각을 모터별로 남김. **묶음을 보내기 직전 한 시각**을 씀.
+
+        프레임별 시각이 아닌 이유: 제어 루프가 겪는 지연은 "명령을 내기로 한 때부터
+        응답이 손에 들어온 때까지" 임. slcan 에서 앞 프레임이 직렬로 나가는 동안 뒤
+        프레임이 기다리는 시간도 그 안에 들어가야 함.
+
+        직전 시각도 들고 있음 -- 다음 주기에 늦게 들어온 응답을 그 명령에 맞추려고.
+        """
+        now = time.monotonic()
+        for mid in commands:
+            if mid in self._sent_at:
+                self._prev_sent_at[mid] = self._sent_at[mid]
+            self._sent_at[mid] = now
+            self.latency.sent(mid)
+
+    def _note_received(self, mid: int, stamp: float) -> None:
+        """응답 하나의 지연을 남김.
+
+        MIT 응답에는 순번이 없음. 그래서 **도착 시각이 이번 송신보다 앞이면** 직전
+        명령의 응답이 늦게 온 것으로 봄 (`late`). 수신 스레드가 도착할 때 시각을
+        찍으므로 이 구분이 성립함.
+        """
+        sent = self._sent_at.get(mid)
+        if sent is None or not stamp:
+            return
+        if stamp >= sent:
+            self.latency.received(mid, stamp - sent, False)
+            return
+        prev = self._prev_sent_at.get(mid)
+        if prev is not None and stamp >= prev:
+            self.latency.received(mid, stamp - prev, True)
 
     # ---- 상태 -------------------------------------------------------------
     def collect(
@@ -261,6 +304,8 @@ class RobStrideBus(MotorsBus):
                 stamp=now,
             )
             seen.add(mid)
+            if self.latency is not None:
+                self._note_received(mid, f.stamp)
 
         return [mid for mid in self.motor_ids if mid not in seen]
 

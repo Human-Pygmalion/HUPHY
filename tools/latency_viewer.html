@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Latency Histogram</title>
+<!--
+  huphy-run --log 이 남긴 latency_*.csv 를 관절별·전체 히스토그램으로 봄.
+  외부 라이브러리 없음 -- 로봇에서 인터넷 없이 열려야 해서임.
+
+  x  지연 (ms, 명령을 보낸 때부터 응답이 도착한 때까지)
+  y  정규화된 빈도 (구간 개수 / 기준 개수). 기준은 "받은 것" 또는 "보낸 것"
+  파랑 제때 받음   주황 늦게 받음(다음 주기)   빨간 점선 수거 대기 한계(drain_ms)
+-->
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1d2330; --muted: #6b7385; --line: #e2e5eb;
+  --grid: #eef0f4; --ontime: #2f6fed; --late: #e8590c; --limit: #d6336c; --chip: #eef2fb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --panel: #1a1e26; --fg: #e4e7ee; --muted: #8a93a6; --line: #2a303c;
+    --grid: #232833; --ontime: #6b9bff; --late: #ff922b; --limit: #ff6b9a; --chip: #232a38;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151b; --panel: #1a1e26; --fg: #e4e7ee; --muted: #8a93a6; --line: #2a303c;
+  --grid: #232833; --ontime: #6b9bff; --late: #ff922b; --limit: #ff6b9a; --chip: #232a38;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 13px/1.4 system-ui, -apple-system, "Noto Sans KR", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px;
+  border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+.meta { color: var(--muted); }
+button, select { font: inherit; color: var(--fg); background: var(--chip);
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 16px;
+  background: var(--panel); border-bottom: 1px solid var(--line); }
+.controls label { display: inline-flex; gap: 6px; align-items: center; }
+.legend { display: inline-flex; gap: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+main { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.chart { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px 4px; }
+.chart .title { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); padding: 0 2px 2px; flex-wrap: wrap; }
+.chart .title b { color: var(--fg); font-weight: 600; }
+.chart .title .bad { color: var(--limit); font-weight: 600; }
+canvas { width: 100%; height: 170px; display: block; }
+.big canvas { height: 260px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 12px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+th, td { padding: 4px 8px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 500; }
+.tablewrap { overflow-x: auto; }
+#drop { margin: 40px auto; max-width: 560px; text-align: center; padding: 48px 24px;
+  border: 2px dashed var(--line); border-radius: 12px; color: var(--muted); }
+#drop.hover { border-color: var(--ontime); color: var(--fg); }
+.nw { white-space: nowrap; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>응답 지연 히스토그램</h1>
+  <button id="open">파일 열기</button>
+  <input id="file" type="file" accept=".csv" class="hidden">
+  <span class="meta" id="meta">huphy-run --log 이 남긴 latency_*.csv</span>
+</header>
+
+<div class="controls hidden" id="controls">
+  <label>구간 폭 <select id="bin">
+    <option value="0.05">0.05 ms</option><option value="0.1">0.1 ms</option>
+    <option value="0.25" selected>0.25 ms</option><option value="0.5">0.5 ms</option><option value="1">1 ms</option>
+  </select></label>
+  <label>x 끝 <select id="xmax">
+    <option value="auto" selected>자동 (p99.5)</option><option value="5">5 ms</option>
+    <option value="10">10 ms</option><option value="20">20 ms</option><option value="50">50 ms</option>
+  </select></label>
+  <label>정규화 <select id="norm">
+    <option value="recv" selected>받은 것 기준</option><option value="sent">보낸 것 기준 (유실 포함)</option>
+  </select></label>
+  <label><input type="checkbox" id="late" checked> 늦음 포함</label>
+  <label><input type="checkbox" id="ysame"> 관절 y축 통일</label>
+  <span class="legend"><span><i style="background:var(--ontime)"></i>제때</span><span><i style="background:var(--late)"></i>늦음</span>
+    <span><i style="background:var(--limit)"></i>수거 한계</span></span>
+</div>
+
+<div id="drop">CSV 파일을 여기로 끌어다 놓거나 <b>파일 열기</b>를 누르세요.</div>
+
+<main class="hidden" id="main">
+  <div class="chart big" id="all"></div>
+  <div class="grid" id="joints"></div>
+  <div class="tablewrap"><table id="table"></table></div>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const S = { joints: [], data: new Map(), meta: {}, name: "" };   // joint -> {ontime:[], late:[], lost:n}
+
+// ---- 읽기 ---------------------------------------------------------------
+function load(name, text) {
+  const meta = {}, data = new Map(), order = [];
+  let header = null;
+  for (const raw of text.split(/\r?\n/)) {
+    if (!raw) continue;
+    if (raw.startsWith("#")) {
+      raw.slice(1).trim().split(/\s+/).forEach((kv) => { const [k, v] = kv.split("="); if (v !== undefined) meta[k] = parseFloat(v); });
+      continue;
+    }
+    const c = raw.split(",");
+    if (!header) { header = c; continue; }
+    const joint = c[1], status = c[3];
+    if (!data.has(joint)) { data.set(joint, { ontime: [], late: [], lost: 0 }); order.push(joint); }
+    const d = data.get(joint);
+    if (status === "lost") d.lost++;
+    else d[status === "late" ? "late" : "ontime"].push(parseFloat(c[2]));
+  }
+  if (!header || header[1] !== "joint") { alert("latency_*.csv 형식이 아님"); return; }
+  const all = { ontime: [], late: [], lost: 0 };
+  data.forEach((d) => { all.ontime.push(...d.ontime); all.late.push(...d.late); all.lost += d.lost; });
+  data.forEach((d) => { d.ontime.sort((a, b) => a - b); d.late.sort((a, b) => a - b); });
+  all.ontime.sort((a, b) => a - b); all.late.sort((a, b) => a - b);
+  Object.assign(S, { joints: order, data, meta, all, name });
+
+  const n = all.ontime.length + all.late.length + all.lost;
+  $("meta").textContent = `${name} · 응답 ${n.toLocaleString()}개 · 관절 ${order.length}개`
+    + (meta.hz ? ` · ${meta.hz} Hz` : "") + (meta.drain_ms ? ` · 수거 대기 ${meta.drain_ms} ms` : "");
+  ["controls", "main"].forEach((id) => $(id).classList.remove("hidden"));
+  $("drop").classList.add("hidden");
+  build(); render();
+}
+
+// ---- 통계 ---------------------------------------------------------------
+function q(sorted, p) { if (!sorted.length) return NaN; const i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo); }
+function merged(d) { return d.late.length ? [...d.ontime, ...d.late].sort((a, b) => a - b) : d.ontime; }
+function stats(d) {
+  const recv = d.ontime.length + d.late.length, sent = recv + d.lost, m = merged(d);
+  return { recv, sent, p50: q(m, .5), p95: q(m, .95), p99: q(m, .99), max: m[m.length - 1],
+    lateP: sent ? d.late.length / sent : 0, lostP: sent ? d.lost / sent : 0 };
+}
+const f2 = (v) => isFinite(v) ? v.toFixed(2) : "–";
+const pct = (v) => (100 * v).toFixed(1) + "%";
+
+// ---- 틀 -----------------------------------------------------------------
+function chartBox(el, title) {
+  el.innerHTML = `<div class="title"><b>${title}</b><span class="info"></span></div><canvas></canvas>`;
+  return { canvas: el.querySelector("canvas"), info: el.querySelector(".info") };
+}
+function build() {
+  S.boxes = new Map();
+  S.boxes.set("__all", chartBox($("all"), "전체"));
+  const grid = $("joints"); grid.innerHTML = "";
+  S.joints.forEach((j) => { const el = document.createElement("div"); el.className = "chart"; grid.appendChild(el);
+    S.boxes.set(j, chartBox(el, j.replace("_leg/", " "))); });
+}
+
+// ---- 그리기 -------------------------------------------------------------
+function histogram(d, bin, xmax, withLate, denom) {
+  const nb = Math.max(1, Math.ceil(xmax / bin)), on = new Float64Array(nb), lt = new Float64Array(nb);
+  let over = 0;
+  const put = (arr, v) => { const i = Math.floor(v / bin); if (i >= nb) over++; else if (i >= 0) arr[i]++; };
+  d.ontime.forEach((v) => put(on, v));
+  if (withLate) d.late.forEach((v) => put(lt, v));
+  const recv = d.ontime.length + (withLate ? d.late.length : 0);
+  const n = denom === "sent" ? d.ontime.length + d.late.length + d.lost : recv;
+  for (let i = 0; i < nb; i++) { on[i] /= n || 1; lt[i] /= n || 1; }
+  let ymax = 0; for (let i = 0; i < nb; i++) ymax = Math.max(ymax, on[i] + lt[i]);
+  return { on, lt, nb, over, overP: over / (n || 1), ymax };
+}
+
+function render() {
+  if (!S.all) return;
+  const bin = +$("bin").value, withLate = $("late").checked, denom = $("norm").value;
+  let xmax = $("xmax").value === "auto" ? q(merged(S.all), 0.995) * 1.1 : +$("xmax").value;
+  if (S.meta.drain_ms && $("xmax").value === "auto") xmax = Math.max(xmax, S.meta.drain_ms * 1.15);
+  xmax = Math.max(xmax, bin * 4);
+
+  const hists = new Map([["__all", histogram(S.all, bin, xmax, withLate, denom)]]);
+  S.joints.forEach((j) => hists.set(j, histogram(S.data.get(j), bin, xmax, withLate, denom)));
+  const ysame = $("ysame").checked ? Math.max(...S.joints.map((j) => hists.get(j).ymax)) : null;
+
+  hists.forEach((h, key) => {
+    const box = S.boxes.get(key), d = key === "__all" ? S.all : S.data.get(key), st = stats(d);
+    const bad = st.lostP > 0.01 ? " class='bad'" : "";
+    const items = [`p50 ${f2(st.p50)}`, `p95 ${f2(st.p95)}`, `최대 ${f2(st.max)} ms`, `늦음 ${pct(st.lateP)}`,
+      `<span${bad}>유실 ${pct(st.lostP)}</span>`].concat(h.over ? [`범위 밖 ${pct(h.overP)}`] : []);
+    box.info.innerHTML = items.map((t) => `<span class="nw">${t}</span>`).join(" · ");
+    draw(box.canvas, h, bin, xmax, key === "__all" ? h.ymax : (ysame ?? h.ymax));
+  });
+  table();
+}
+
+function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw || 1))); const f = raw / p;
+  return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p; }
+function fmt(v) { return Math.abs(v) < 1e-9 ? "0" : +v.toPrecision(3) + ""; }
+
+function draw(cv, h, bin, xmax, ymax) {
+  const css = getComputedStyle(document.documentElement), C = (v) => css.getPropertyValue(v).trim();
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const P = { l: 58, r: 8, t: 6, b: 34 }, pw = W - P.l - P.r, ph = H - P.t - P.b;
+  ymax = (ymax || 1e-9) * 1.08;
+  const X = (v) => P.l + (v / xmax) * pw, Y = (v) => P.t + (1 - v / ymax) * ph;
+
+  g.font = "11px system-ui, sans-serif"; g.fillStyle = C("--muted"); g.strokeStyle = C("--grid"); g.lineWidth = 1;
+  const ys = niceStep(ymax / 4);
+  for (let v = 0; v <= ymax; v += ys) { const y = Math.round(Y(v)) + .5;
+    g.beginPath(); g.moveTo(P.l, y); g.lineTo(W - P.r, y); g.stroke(); g.textAlign = "right"; g.fillText(fmt(v), P.l - 5, y + 4); }
+  const xs = niceStep(xmax / 6);
+  for (let v = 0; v <= xmax + 1e-9; v += xs) { const x = Math.round(X(v)) + .5;
+    g.beginPath(); g.moveTo(x, P.t); g.lineTo(x, P.t + ph); g.stroke(); g.textAlign = "center"; g.fillText(fmt(v), x, P.t + ph + 13); }
+
+  // 축 이름
+  g.fillStyle = C("--fg"); g.textAlign = "center";
+  g.fillText("지연 (ms) — 명령 송신 → 응답 도착", P.l + pw / 2, H - 3);
+  g.save(); g.translate(12, P.t + ph / 2); g.rotate(-Math.PI / 2);
+  g.fillText($("norm").value === "sent" ? "빈도 (보낸 것 대비)" : "빈도 (받은 것 대비)", 0, 0);
+  g.restore();
+
+  const bw = Math.max(1, (bin / xmax) * pw - (pw / h.nb > 4 ? 1 : 0));
+  for (let i = 0; i < h.nb; i++) {
+    const x = X(i * bin);
+    if (h.on[i]) { g.fillStyle = C("--ontime"); g.fillRect(x, Y(h.on[i]), bw, Y(0) - Y(h.on[i])); }
+    if (h.lt[i]) { g.fillStyle = C("--late"); g.fillRect(x, Y(h.on[i] + h.lt[i]), bw, Y(h.on[i]) - Y(h.on[i] + h.lt[i])); }
+  }
+  if (S.meta.drain_ms && S.meta.drain_ms <= xmax) {
+    const x = Math.round(X(S.meta.drain_ms)) + .5;
+    g.strokeStyle = C("--limit"); g.setLineDash([4, 3]); g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(x, P.t); g.lineTo(x, P.t + ph); g.stroke(); g.setLineDash([]);
+  }
+}
+
+function table() {
+  let h = "<tr><th>관절</th><th>보냄</th><th>받음</th><th>p50</th><th>p95</th><th>p99</th><th>최대 ms</th><th>늦음</th><th>유실</th></tr>";
+  const row = (name, d) => { const s = stats(d);
+    return `<tr><td>${name}</td><td>${s.sent}</td><td>${s.recv}</td><td>${f2(s.p50)}</td><td>${f2(s.p95)}</td><td>${f2(s.p99)}</td>`
+      + `<td>${f2(s.max)}</td><td>${pct(s.lateP)}</td><td>${pct(s.lostP)}</td></tr>`; };
+  S.joints.forEach((j) => h += row(j, S.data.get(j)));
+  $("table").innerHTML = h + row("<b>전체</b>", S.all);
+}
+
+["bin", "xmax", "norm", "late", "ysame"].forEach((id) => $(id).onchange = render);
+window.addEventListener("resize", render);
+
+// ---- 파일 ---------------------------------------------------------------
+function openFile(f) { if (!f) return; const r = new FileReader(); r.onload = () => load(f.name, r.result); r.readAsText(f); }
+$("open").onclick = () => $("file").click();
+$("file").onchange = (e) => openFile(e.target.files[0]);
+["dragover", "dragenter"].forEach((ev) => document.addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.add("hover"); }));
+document.addEventListener("dragleave", () => $("drop").classList.remove("hover"));
+document.addEventListener("drop", (e) => { e.preventDefault(); $("drop").classList.remove("hover"); openFile(e.dataTransfer.files[0]); });
+</script>
+</body>
+</html>

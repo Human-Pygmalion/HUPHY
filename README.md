@@ -873,6 +873,12 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 호출마다 한 줄씩 담음. `tools/policy_viewer.html` 을 브라우저로 열고 파일을 끌어다
 놓으면 재생하듯 볼 수 있음 (인터넷 없이 열림).
 
+같은 폴더에 `latency_<이름>_<시각>.csv` 도 남음. 관절마다 **명령을 보낸 때부터
+응답이 도착한 때까지**의 지연이고, 끝날 때 관절별 p50/p95/p99·늦음·유실 표를 찍음.
+`tools/latency_viewer.html` 로 열면 관절별·전체 히스토그램이 나옴 (빨간 점선이
+`--drain-ms`). 늦음이 많으면 `--drain-ms` 를 늘릴 자리이고, 유실이 많으면 어댑터·배선
+쪽임.
+
 `.pt` 에는 신경망만 들어 있고 `action_scale` 이나 관찰 구성은 안 들어 있음. 그건
 `--policy` 이름이 정함. **파일의 입력·출력 개수가 그 규격과 다르면 모터를 켜기 전에
 멈춤.**
