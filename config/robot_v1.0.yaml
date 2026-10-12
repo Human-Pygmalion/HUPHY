@@ -67,7 +67,7 @@ limbs:
   right_leg:
     kind: leg
     side: right
-    channel: can1
+    channel: slcan1
     interface: socketcan
     control_hz: 100.0
     calibration: calibration/right_leg_v1.0.json
@@ -90,7 +90,7 @@ limbs:
   left_leg:
     kind: leg
     side: left
-    channel: can0
+    channel: slcan0
     interface: socketcan
     control_hz: 100.0
     calibration: calibration/left_leg_v1.0.json

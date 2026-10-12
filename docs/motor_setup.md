@@ -59,6 +59,9 @@ USB 쪽은 `can1` 이 **찾는 이름이 아니라 짓는 이름**임 -- `slcand
 만들어낼 장치 이름이고, `config/robot.yaml` 의 `channel` 과 같아야 함. 네이티브
 쪽은 부팅할 때 드라이버가 이미 만들어 두므로 골라 쓸 수 없음.
 
+이 문서의 명령은 모두 `can1` 로 씀. 1.0 다리는 `slcan1`(오른다리) / `slcan0`(왼다리)
+이므로 그 이름으로 바꿔 넣을 것.
+
 ```bash
 ip -br link show type can        # 지금 뭐가 있나
 ip -details link show can1       # state UP 이 보여야 함

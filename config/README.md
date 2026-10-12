@@ -363,7 +363,9 @@ RobotConfig
 
 ## 전제조건
 
-CAN 채널은 이 파일들이 아니라 시스템에서 먼저 올림.
+CAN 채널은 이 파일들이 아니라 시스템에서 먼저 올림. 이름은 `channel` 과 같아야 함 —
+0.5 는 `can1` / `can0`, 1.0 은 `slcan1` / `slcan0` (USB 어댑터, `slcand` 로 올림.
+루트 [README](../README.md) 4번).
 
 ```bash
 sudo ip link set can1 up type can bitrate 1000000

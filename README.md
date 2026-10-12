@@ -82,13 +82,14 @@ N·m 이고, **RS03·RS04 는 게인 범위가 나머지의 10배**임 (`0~5000`
 [120Ω]                                  [120Ω]
 ```
 
-오른다리는 `can1`, 왼다리는 `can0` 을 씀. **두 다리를 한 버스에 묶지 않음** —
+오른다리는 `can1`, 왼다리는 `can0` 을 씀 (0.5). 1.0 은 USB 어댑터라 `slcan1` / `slcan0`
+임 (4번). **두 다리를 한 버스에 묶지 않음** —
 12개 모터가 같은 선을 나눠 쓰면 주기 예산이 두 배가 됨.
 
 ### CAN id 와 모델
 
 ```
-오른다리 (can1)                  왼다리 (can0)
+오른다리 (can1 / slcan1)         왼다리 (can0 / slcan0)
  7   hip_pitch    RS02          1   hip_pitch    RS02
  8   hip_roll     RS02          2   hip_roll     RS02
  9   hip_yaw      RS02          3   hip_yaw      RS02
@@ -250,6 +251,9 @@ PYTHONPATH=src python3 -m pytest tests -q
 **속도는 커널이 정함.** 파이썬이 바꿀 수 없으므로 채널을 올릴 때 넣어야 함.
 
 **어댑터 종류에 따라 방법이 다름.** 어디서 속도를 정하느냐가 갈림길임.
+
+아래 예시는 채널 이름을 `can1` 로 씀. 실제 이름은 `config/robot.yaml` 의 `channel` 을
+따를 것 — 0.5 는 `can1` / `can0`, 1.0 은 `slcan1` / `slcan0` 임.
 
 ### USB 어댑터 (CANable 등)
 
@@ -1005,7 +1009,7 @@ huphy-test       --config config/robot_v1.0.yaml --limb right_leg zero
 | `kp` / `kd` | 튜닝할 때 | 0.5 오른다리 20 / 1, 1.0 양다리 10 / 1 (둘 다 튜닝 전) |
 | `command_margin_deg` | 게인을 바꾸면 다시 봄 | 3.0 |
 | `max_delta_deg` | 주기를 바꾸면 다시 봄 | 50.0 |
-| `channel` | 배선이 바뀌면 | `can1` / `can0` |
+| `channel` | 배선이 바뀌면 | 0.5 `can1` / `can0`, 1.0 `slcan1` / `slcan0` |
 | `control_hz` | — | 100.0 |
 | `telemetry.host` | 그래프를 볼 때 | 비어 있음 (UDP 꺼짐) |
 
