@@ -326,6 +326,40 @@ class TestStand:
             assert abs(last) > 0.5, f"{joint} 이 영자세에 머묾: {last:.1f}도"
             assert abs(last) <= abs(goal) + 1.0, f"{joint} 이 기준 자세를 넘김: {last:.1f}도"
 
+    @pytest.mark.skipif(not STAND_WEIGHTS.is_file(), reason="가중치 파일 없음")
+    def test_gain_scale_lowers_the_yaml_gains(self, go_robot):
+        """설정은 kp 30 / kd 1. 화면에 찍히는 값은 모터에 실제로 걸린 것임."""
+        code, out = go_robot(*STAND, "--gain-scale", "0.5")
+        assert code == 0, out
+        assert "kp=15 kd=0.5" in out
+        assert "x0.5 로 낮춤" in out
+
+    @pytest.mark.skipif(not STAND_WEIGHTS.is_file(), reason="가중치 파일 없음")
+    def test_ankle_gain_scale_is_separate(self, go_robot):
+        """설정은 전부 30/1. 발목은 0.8배, 나머지는 0.5배."""
+        code, out = go_robot(*STAND, "--gain-scale", "0.5", "0.8")
+        assert code == 0, out
+        assert "knee 15/0.5" in out
+        assert "ankle_a 24/0.8" in out and "ankle_b 24/0.8" in out
+        assert "발목 x0.8 / 나머지 x0.5" in out
+
+    @pytest.mark.skipif(not STAND_WEIGHTS.is_file(), reason="가중치 파일 없음")
+    def test_ankle_gain_scale_follows_gain_scale_by_default(self, go_robot):
+        _, out = go_robot(*STAND, "--gain-scale", "0.5")
+        assert "kp=15 kd=0.5" in out
+
+    @pytest.mark.parametrize("scales", [["0.5", "0"], ["0.5", "1.5"], ["0.5", "0.5", "0.5"]])
+    def test_bad_ankle_gain_scale_is_refused(self, go_robot, scales):
+        with pytest.raises(SystemExit, match="--gain-scale"):
+            go_robot(*STAND, "--gain-scale", *scales)
+        assert FakeBus.instances == []
+
+    @pytest.mark.parametrize("scale", ["0", "-0.5", "1.5"])
+    def test_gain_scale_out_of_range_is_refused(self, go_robot, scale):
+        with pytest.raises(SystemExit, match="--gain-scale"):
+            go_robot(*STAND, "--gain-scale", scale)
+        assert FakeBus.instances == []
+
     def test_a_single_leg_is_refused(self, go):
         """12관절 모델임. --limb 으로는 못 돌림."""
         with pytest.raises(SystemExit) as e:

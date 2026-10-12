@@ -125,6 +125,9 @@ SPECS = {
 }
 """이름 -> 규격. `control/policy.py` 와 `control/stand.py` 에 적힌 것을 고름."""
 
+ANKLE_MOTORS = ("ankle_a", "ankle_b")
+"""`--gain-scale` 의 두 번째 숫자가 걸리는 모터. `robot.yaml` 의 모터 이름임."""
+
 WEIGHTS_DIR = Path("config/policies")
 """이름으로 찾을 때 보는 곳. `--weights` 로 덮어쓸 수 있음."""
 
@@ -309,6 +312,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="이 초만큼만 돌고 나옴. 생략하면 Ctrl-Q 까지",
     )
     p.add_argument(
+        "--gain-scale", type=float, nargs="+", default=[1.0], metavar="SCALE",
+        help=(
+            "kp/kd 배율. 숫자 하나면 전체, 둘이면 '나머지 발목' 순서 "
+            "(예: --gain-scale 0.5 0.8). 기본 1.0. 정책은 학습 게인을 전제로 하므로 "
+            "낮추면 시뮬과 다르게 움직임 -- 첫 통전 확인용"
+        ),
+    )
+    p.add_argument(
         "--allow-uncalibrated", action="store_true",
         help="실측 전에도 토크를 넣음",
     )
@@ -316,7 +327,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _gain_line(robot, standing: bool) -> str:
+def _gain_line(robot, standing: bool, scale: float = 1.0, ankle_scale: float = 1.0) -> str:
     """시작 화면의 게인 줄. **실제로 모터에 걸리는 값을 읽어서** 찍음.
 
     상수를 찍으면 덮어쓰기를 안 하는 경로(`stand`)에서 화면과 실제가 어긋남.
@@ -333,6 +344,10 @@ def _gain_line(robot, standing: bool) -> str:
             f"{name} {m.gains.kp:g}/{m.gains.kd:g}" for name, m in motors.items()
         )
     source = "robot.yaml" if standing else "학습값으로 덮어씀"
+    if ankle_scale != scale:
+        source += f", 발목 x{ankle_scale:g} / 나머지 x{scale:g}"
+    elif scale != 1.0:
+        source += f", x{scale:g} 로 낮춤"
     return f"  게인     {body}  ({source})"
 
 
@@ -444,7 +459,18 @@ def main(argv=None) -> int:
 
     if args.drain_ms < 0:
         raise SystemExit(f"--drain-ms 는 0 이상이어야 함 (받은 값 {args.drain_ms})")
+    if len(args.gain_scale) > 2:
+        raise SystemExit(
+            f"--gain-scale 은 숫자 하나(전체) 또는 둘(나머지 발목)임 (받은 값 {args.gain_scale})"
+        )
+    body_scale = args.gain_scale[0]
+    ankle_scale = args.gain_scale[-1]
+    for value in (body_scale, ankle_scale):
+        if not 0.0 < value <= 1.0:
+            raise SystemExit(f"--gain-scale 은 0 보다 크고 1 이하여야 함 (받은 값 {value})")
     options = dict(
+        gain_scale=body_scale,
+        joint_gain_scale={name: ankle_scale for name in ANKLE_MOTORS},
         allow_uncalibrated=args.allow_uncalibrated,
         drain_s=args.drain_ms / 1000.0,
         ankle_output=args.ankle_output,
@@ -454,8 +480,10 @@ def main(argv=None) -> int:
         # 있어서 덮어씀. stand 는 반대라 안 덮음 -- 아래 설명.
         options.update(
             gains=Gains(kp=POLICY_KP, kd=POLICY_KD),
-            ankle_kp=(POLICY_KP, POLICY_KP),
-            ankle_kd=(POLICY_KD, POLICY_KD),
+            # 발목 토크 경로의 관절 PD 는 모터 게인이 아니라 여기서 따로 받으므로
+            # gain_scale 이 안 닿음. 같이 낮춰야 화면의 배율과 실제가 맞음.
+            ankle_kp=(POLICY_KP * ankle_scale,) * 2,
+            ankle_kd=(POLICY_KD * ankle_scale,) * 2,
         )
     if args.robot:
         leg = build_biped(robot, limbs, **options)
@@ -505,7 +533,7 @@ def main(argv=None) -> int:
         f"  {leg.id}  {' '.join(channels)}  전송 {args.hz:.0f}Hz{hz_note}",
         f"  정책     {args.policy}  (입력 {spec.obs_dim}, x{spec.action_scale})",
         f"  가중치   {weights}",
-        _gain_line(leg, standing),
+        _gain_line(leg, standing, body_scale, ankle_scale),
         f"  발목     {args.ankle_space} ({order[-2]}, {order[-1]})  {args.ankle_output}",
         f"  IMU      {', '.join(i.name for i in leg.imus)}",
         "",

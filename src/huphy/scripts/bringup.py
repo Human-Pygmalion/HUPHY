@@ -73,6 +73,7 @@ def build_leg(
     limb: LimbConfig,
     *,
     gain_scale: float = 1.0,
+    joint_gain_scale: Optional[Dict[str, float]] = None,
     allow_uncalibrated: bool = False,
     gains: Optional[Gains] = None,
     ankle_output: str = "position",
@@ -85,7 +86,8 @@ def build_leg(
     """설정에서 다리 하나를 만듦.
 
     `gain_scale` 로 게인을 낮춰 시작할 수 있음. 튜닝값을 찾은 뒤에도 처음엔 낮게
-    시작하는 것이 안전함.
+    시작하는 것이 안전함. `joint_gain_scale` 에 적은 관절은 `gain_scale` 대신 그 배율을
+    받음 -- 발목처럼 게인 규모가 다른 관절을 따로 조절하려는 것임.
 
     `gains` 를 주면 **설정의 게인 대신 그 값을 모든 모터에 씀.** 정책을 돌릴 때
     학습에 쓴 게인을 그대로 써야 하는데, 그 값은 `robot.yaml` 이 아니라 학습 설정에
@@ -116,11 +118,12 @@ def build_leg(
             },
         )
 
-    if gain_scale != 1.0:
+    scales = {name: (joint_gain_scale or {}).get(name, gain_scale) for name in limb.motors}
+    if any(s != 1.0 for s in scales.values()):
         limb = replace(
             limb,
             motors={
-                name: replace(motor, gains=motor.gains.scaled(gain_scale))
+                name: replace(motor, gains=motor.gains.scaled(scales[name]))
                 for name, motor in limb.motors.items()
             },
         )
