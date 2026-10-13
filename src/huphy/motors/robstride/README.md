@@ -392,6 +392,16 @@ m1: 모르는 모델 'RS99'. 가용: ['RS00', 'RS02']
 
 같은 검사를 두 군데 두면 한쪽만 고쳐졌을 때 어느 쪽이 맞는지 알 수 없음.
 
+### 지연을 잴 수 있음 (`latency`)
+
+`latency` 에 기록기를 붙이면 `send_mit` 이 묶음을 보내기 직전 시각을 모터마다 남기고,
+`collect` 가 응답 프레임의 도착 시각(수신 스레드가 찍은 `CanFrame.stamp`)과 맞춰
+지연을 넘김. 도착이 이번 송신보다 앞이면 직전 명령의 늦은 응답으로 봄 -- MIT 응답에
+순번이 없어서임.
+
+기본은 `None` 이고, 그때는 시각을 재지도 않음. 붙이는 쪽은
+`telemetry.latency_log.LatencyLog.attach()` (`huphy-run --log`).
+
 ### 여기 없는 것
 
 CAN id 변경, 프로토콜 전환, 기계영점, 플래시 저장은 `commissioning.py` 로 감.

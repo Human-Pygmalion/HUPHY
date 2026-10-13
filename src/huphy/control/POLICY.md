@@ -36,8 +36,14 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 |---|---|---|
 | `--policy` | 없으면 오류 | `balance` / `hopping` / `stand` |
 | `--weights` | `config/policies/<정책>.pt` | 더 학습한 모델을 시험할 때 |
-| `--hz` | `50` | 학습 주기와 같아야 함 |
-| `--approach` | `3` | 영점 자세까지 옮기는 시간(초) |
+| `--robot` / `--limb` | — | 양다리 모델(12칸)이면 `--robot`, 한다리면 `--limb <이름>` |
+| `--ankle-space` | `rp` | 발목을 무엇으로 내는지. `rp` 발판 자세 / `ab` 모터각. `stand` 는 `ab` 고정 |
+| `--ankle-output` | `position` | 발목에 각도 / 토크. `torque` 는 `rp` 에서만 |
+| `--hz` | `50` | 모터 **전송** 주기. 50 의 정수 배만. 정책은 늘 50Hz 로 불리고 사이 주기는 직전 목표를 다시 보냄. slcan 이면 50 |
+| `--drain-ms` | `2` | 응답을 기다리는 최대 시간. slcan 이면 4 |
+| `--gain-scale A [B]` | `1.0` | kp/kd 배율. 하나면 전체, 둘이면 나머지 A · 발목 B. 0 초과 1 이하 |
+| `--log [DIR]` | 끔 (`logs/`) | 정책 입출력과 관절별 응답 지연을 CSV 로 남김 -- [`tools/README.md`](../../../tools/README.md) |
+| `--approach` | `3` | 시작 자세까지 옮기는 시간(초) |
 | `--duration` | 없음 | 이 초만큼만. 생략하면 Ctrl-Q 까지 |
 
 ### 0.1 바로 움직이지 않음

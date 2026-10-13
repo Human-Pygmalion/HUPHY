@@ -291,6 +291,33 @@ s2  50k    s5  250k    s8  1M     <- 우리
 **여기서는 `ip link` 에 `bitrate` 를 못 넘김.** 속도를 어댑터가 들고 있어서 커널
 쪽에 비트타이밍이 없음.
 
+**`-s8` 이 아니면 연결은 되는데 모터가 답을 안 함.** `-s6`(500k)으로 올리면 채널은
+`UP` 이고 프레임도 나가지만(`ip -s link` 의 TX 만 늚) 받는 것이 0 임. `ps aux | grep
+slcand` 로 떠 있는 속도를 볼 것.
+
+1.0 의 `canable0`/`canable1` 은 아래 udev 규칙으로 어댑터 시리얼에 고정한 이름임.
+어느 어댑터를 `canr`/`canl` 로 올리느냐가 `robot_v1.0.yaml` 의 다리와 맞아야 함 --
+뒤바뀌면 연결은 되는데 모터 id 가 안 맞아 응답이 없음. 연결에 실패하면 진입점들이
+두 방식(USB 어댑터 / 네이티브)의 올리는 명령을 같이 찍어 줌.
+
+#### slcan 은 느림 -- 주기와 수거 대기를 맞출 것
+
+slcan 은 프레임마다 USB 시리얼로 ASCII 를 주고받아서 네이티브 CAN 보다 왕복이
+훨씬 김. 실측(양다리 12모터, 토크 0):
+
+| | 시간 |
+|---|---|
+| 12프레임 송신 | 약 1.6 ms |
+| 마지막 응답 도착 | 송신 후 약 4.2 ms |
+| 한 주기 (다 왔을 때) | 약 5.5 ms |
+| 프레임 유실 | 3~6 % (CAN id 가 클수록 많음) |
+
+그래서 기본값(`--drain-ms 2`)이면 늦게 온 응답이 무응답으로 잡히고, 유실된
+주기마다 수거 대기를 끝까지 써서 100Hz 를 못 지킴. **slcan 에서는 `--hz 50
+--drain-ms 4` 로 돌릴 것** (두 다리 최악 8 ms, 주기 20 ms 안). 유실 자체를 없애려면
+어댑터에 candleLight(gs_usb) 펌웨어를 올려 네이티브 `canN` 으로 쓰는 것이 근본
+해결임. 관절별 지연은 `huphy-run --log` 이 남기는 기록으로 볼 수 있음.
+
 #### 장치 이름을 고정할 것
 
 USB 는 꽂는 순서대로 `/dev/ttyACM0`, `ttyACM1` 이 붙음. 어댑터가 둘이면 **어느 게
@@ -875,6 +902,10 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 
 # 정책 입출력을 logs/policy_<이름>_<시각>.csv 로 남김 (폴더 지정: --log 경로)
 huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt --log
+
+# slcan(1.0) 에서 권장 -- 50Hz, 수거 대기 4ms, 게인 나머지 0.5배 · 발목 0.8배
+huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt \
+          --hz 50 --drain-ms 4 --gain-scale 0.5 0.8 --log
 ```
 
 `--log` 파일은 모델이 본 관찰(정규화 전), 모델 출력, 관절 목표각·실측각을 정책
@@ -885,7 +916,11 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 응답이 도착한 때까지**의 지연이고, 끝날 때 관절별 p50/p95/p99·늦음·유실 표를 찍음.
 `tools/latency_viewer.html` 로 열면 관절별·전체 히스토그램이 나옴 (빨간 점선이
 `--drain-ms`). 늦음이 많으면 `--drain-ms` 를 늘릴 자리이고, 유실이 많으면 어댑터·배선
-쪽임.
+쪽임. 뷰어 쓰는 법은 [`tools/README.md`](tools/README.md).
+
+**정책이 한 번도 안 불렸으면(Enter 를 안 누르고 끝냄) 정책 기록은 안 남음.** 기록은
+메모리에 쌓았다가 끝날 때 한 번에 쓰므로, Ctrl-Q/Ctrl-C 로 끝내야 남고 강제로 죽이면
+안 남음.
 
 `.pt` 에는 신경망만 들어 있고 `action_scale` 이나 관찰 구성은 안 들어 있음. 그건
 `--policy` 이름이 정함. **파일의 입력·출력 개수가 그 규격과 다르면 모터를 켜기 전에
@@ -915,8 +950,13 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 | `--ankle-space rp` | 모델이 발목을 무엇으로 내는지. `rp` 발판 자세 / `ab` 모터 각도 |
 | `--ankle-output position` | 발목에 각도를 보낼지 토크를 보낼지. `torque` 는 `rp` 에서만 |
 | `--robot` | 양다리 모델(12칸). 왼다리 6개 → 오른다리 6개 순서 |
-| `--hz 50` | 제어 주기. **학습 주기와 같아야 함** |
+| `--hz 50` | 모터 전송 주기. **50 의 정수 배**만 받음. 정책은 늘 50Hz 로만 불리고 그 사이 주기는 직전 목표를 다시 보냄. slcan 에서는 50 |
+| `--gain-scale A [B]` | kp/kd 배율. 숫자 하나면 전체, 둘이면 **나머지 A · 발목 B** (`ankle_a`/`ankle_b`). 0 초과 1 이하. 시작 화면에 실제로 걸린 값이 찍힘 |
+| `--log [DIR]` | 정책 입출력(`policy_*.csv`)과 관절별 응답 지연(`latency_*.csv`)을 남김. 폴더를 안 주면 `logs/` |
 | `--duration` `--approach` `--drain-ms` `--allow-uncalibrated` | 위와 같음 |
+
+게인을 낮추면 같은 행동에도 관절이 덜 따라가 시뮬과 다르게 움직임. 첫 통전 확인용이고,
+실제로 세울 때는 1.0 으로 돌릴 것.
 
 **`--ankle-space` 를 잘못 골라도 코드가 못 잡음.** 두 공간이 관찰 개수도 행동
 개수도 같아서 가중치 검사를 그냥 통과함. 시작 화면에 어느 쪽인지 찍으므로 눈으로
@@ -943,6 +983,19 @@ huphy-imu watch         # 들어오는 값을 계속 보여줌
 다른 방향으로 붙었는지 드러남. 수평이면 부착이 틀려도 통과하므로 판정을 거부함.
 
 IMU 가 여럿이면 `--imu <이름>` 으로 고름.
+
+정책이 실제로 받는 IMU 값(obs 0-5)을 보거나 gyro·중력의 단위와 좌표계가 서로 맞는지
+보려면 `tools/imu_viewer.py` 를 씀 ([`tools/README.md`](tools/README.md)). 모터는 안
+열고 IMU 포트만 씀.
+
+```bash
+python3 tools/imu_viewer.py serve     # http://127.0.0.1:8765 에 실시간 값
+python3 tools/imu_viewer.py check     # 손으로 한 축씩 돌리며 단위·부호 판정
+```
+
+두 `check` 는 다른 것을 봄 -- `huphy-imu check` 는 정지 상태에서 부착 방향을, `imu_viewer.py
+check` 는 돌리는 동안 gyro 와 중력이 같은 좌표계·단위인지를 봄. IMU 포트는 한 프로세스만
+열 수 있으므로 정책 실행 중에는 못 씀.
 
 ### 공통
 

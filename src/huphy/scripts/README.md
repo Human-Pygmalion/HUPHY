@@ -229,8 +229,11 @@ right_leg.knee (id=10) 를 +5.0도 움직였다 되돌림.
 ```
 can1 (socketcan) 를 열 수 없음: ...
 채널이 올라와 있는지 확인할 것:
-  sudo ip link set can1 up type can bitrate 1000000
-  ip -details link show can1
+  USB 어댑터 (slcand, -s8 = 1 Mbps):
+    sudo slcand -o -c -s8 /dev/<어댑터> can1 && sudo ip link set can1 up
+  네이티브 CAN:
+    sudo ip link set can1 up type can bitrate 1000000
+  확인: ip -details link show can1
 ```
 
 ### 종료 코드
@@ -654,6 +657,42 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 시작은 세 단계임 (`staged`). `--approach` 초에 걸쳐 시작 자세로 옮김 → 그 자세로
 대기 → **Enter** 를 누르면 정책. **Ctrl-Q** 로 멈춤 (`huphy-test` 와 같은 키). 끝나면
 실패 집계를 찍음.
+
+`EnterWatcher` 가 `selftest.QuitWatcher` 를 이어받아 한 스레드에서 두 키를 봄 --
+터미널을 한 글자 모드로 두므로 `input()` 으로는 Enter 를 못 받음. `QuitWatcher.on_key`
+가 Ctrl-Q 가 아닌 키를 넘겨 줌. 화면이 아니면(파이프) 바로 시작하고 Ctrl-C 로 끊음.
+
+### 옵션
+
+| | 기본 | 무엇 |
+|---|---|---|
+| `--hz` | `50` | 모터 전송 주기. 50 의 정수 배. 정책은 늘 50Hz (`held`) |
+| `--drain-ms` | `2` | 응답 대기. slcan(1.0) 이면 `--hz 50 --drain-ms 4` |
+| `--gain-scale A [B]` | `1.0` | kp/kd 배율. 하나면 전체, 둘이면 나머지 A · 발목(`ANKLE_MOTORS`) B |
+| `--log [DIR]` | 끔 | 정책 입출력과 응답 지연 기록. 폴더를 안 주면 `logs/` |
+
+**게인 배율은 `build_leg` 가 함** -- `gain_scale` 이 전체 배율이고 `joint_gain_scale`
+(관절 이름 -> 배율)이 그 관절만 덮어씀. 발목 토크 경로(`--ankle-output torque`)의 관절 PD
+는 모터 게인이 아니라 `ankle_kp`/`ankle_kd` 로 따로 받으므로 `run.py` 가 발목 배율을
+직접 곱함. 시작 화면의 게인 줄은 **모터에 실제로 걸린 값**을 읽어 찍음.
+
+### 기록 (`--log`)
+
+| 파일 | 무엇 | 만드는 곳 |
+|---|---|---|
+| `policy_<정책>_<시각>.csv` | 정책 호출마다 관찰·출력·목표각·실측각 | `telemetry/policy_log.py` |
+| `latency_<정책>_<시각>.csv` | 모터마다 송신 → 응답 도착 지연 (제때/늦음/유실) | `telemetry/latency_log.py` |
+
+정책 기록은 모델(`wrap_model`)과 정책 motion(`wrap_motion`)을 감싸서 잡음. 지연은 접근
+구간부터 재고, 끝날 때 관절별 p50/p95/p99 표를 찍음. 둘 다 메모리에 쌓았다가 토크를
+끊은 **뒤** `finally` 에서 씀 -- 저장이 실패해도 정지 절차를 막지 않음. 보는 법은
+[`tools/README.md`](../../../tools/README.md).
+
+### 연결 실패
+
+채널이 안 올라와 있으면 진입점 넷이 모두 `canbus.bring_up_hint()` 의 명령을 찍음.
+채널 이름으로는 어댑터 종류를 알 수 없어서 USB 어댑터(`slcand -s8` + `ip link set up`)와
+네이티브(`ip link set ... type can bitrate 1000000`) 두 방식을 같이 찍음.
 
 ---
 
