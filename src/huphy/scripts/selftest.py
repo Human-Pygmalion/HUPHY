@@ -67,11 +67,13 @@ import sys
 import termios
 import threading
 import tty
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..config import ConfigError, LimbConfig, load_robot
 from ..control import ControlLoop, Mode, motions, policy
 from ..robots.biped import join_name
+from ..telemetry import latency_log
 from ..robots.leg import (
     ANKLE_JOINTS,
     ANKLE_MOTORS,
@@ -643,6 +645,18 @@ def _add_common(parser, *, suppress: bool) -> None:
         default=default(False),
     )
     parser.add_argument(
+        "--log",
+        nargs="?",
+        const=Path("logs"),
+        type=Path,
+        default=default(None),
+        metavar="DIR",
+        help=(
+            "관절별 응답 지연을 CSV 로 남김. 폴더를 안 주면 logs/. "
+            "tools/latency_viewer.html 로 열어 볼 수 있음"
+        ),
+    )
+    parser.add_argument(
         "-v", "--verbose", action="store_true", default=default(False)
     )
 
@@ -660,6 +674,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  --limb right_leg pose 0 10 0 30 0 0\n"
             "  --robot pose 0 10 0 30 0 0  0 10 0 30 0 0      왼다리 6 -> 오른다리 6\n"
             "  --robot pose left_leg/knee=30 right_leg/knee=30   나머지는 0\n"
+            "  --robot --hz 50 --drain-ms 4 zero --log    지연을 logs/ 에 남김\n"
         ),
     )
     _add_common(p, suppress=False)
@@ -749,6 +764,11 @@ def main(argv=None) -> int:
     hz = args.hz if args.hz else min(limb.control_hz for limb in limbs)
     loop = ControlLoop(machine, hz=hz, mode=Mode.OBSERVE)
 
+    # 첫 상태 읽기부터 잼 -- 통신은 패턴이 시작했는지와 무관함.
+    latency = None
+    if args.log is not None:
+        latency = latency_log.LatencyLog(drain_ms=args.drain_ms, hz=hz).attach(machine)
+
     try:
         with machine:
             return COMMANDS[args.command](args, machine, loop)
@@ -758,6 +778,22 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         print()
         return 130
+    finally:
+        if latency is not None:
+            _save_latency(latency, args.log, f"test_{args.command}")
+
+
+def _save_latency(latency: "latency_log.LatencyLog", directory: Path, name: str) -> None:
+    """지연 요약을 찍고 CSV 로 씀. **실패해도 올리지 않음** -- 토크는 이미 끊긴 뒤임."""
+    if not len(latency):
+        return
+    print("\n" + latency.summary())
+    try:
+        path = latency.save(latency_log.default_path(directory, name))
+    except OSError as e:
+        print(f"  지연 기록 저장 실패: {e}")
+        return
+    print(f"  지연 기록: {path}")
 
 
 if __name__ == "__main__":  # pragma: no cover

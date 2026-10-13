@@ -516,7 +516,12 @@ huphy-test --limb right_leg pose 0 10 0 30 0 0
 huphy-test --robot pose 0 10 0 30 0 0  0 10 0 30 0 0
 huphy-test --robot pose left_leg/ankle_a=10 right_leg/knee=-20
 huphy-test --robot pose --ankle-space rp left_leg/ankle_pitch=10 left_leg/ankle_roll=0
+huphy-test --robot --hz 50 --drain-ms 4 zero --log     # 지연을 logs/latency_test_zero_*.csv 로
 ```
+
+`--log [DIR]` 을 주면 `huphy-run` 과 같은 관절별 응답 지연 기록을 남김 (정책 입출력은
+없음). 끝날 때 p50/p95/p99·늦음·유실 표를 찍고 `latency_test_<명령>_<시각>.csv` 로
+씀. 첫 상태 읽기부터 잼.
 
 정해진 패턴으로 Ctrl-Q 를 누를 때까지 계속 움직임.
 

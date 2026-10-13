@@ -250,22 +250,43 @@ PYTHONPATH=src python3 -m pytest tests -q
 
 **속도는 커널이 정함.** 파이썬이 바꿀 수 없으므로 채널을 올릴 때 넣어야 함.
 
-**어댑터 종류에 따라 방법이 다름.** 어디서 속도를 정하느냐가 갈림길임.
+채널 이름은 `config/robot.yaml` 의 `channel` 을 따름.
 
-아래 예시는 채널 이름을 `can1` 로 씀. 실제 이름은 `config/robot.yaml` 의 `channel` 을
-따를 것 — 0.5 는 `can1` / `can0`, 1.0 은 `canr` / `canl` 임.
+| | 오른다리 | 왼다리 | 어댑터 |
+|---|---|---|---|
+| 1.0 | `canr` | `canl` | USB (EM Tech, CANable 호환). candleLight 펌웨어 |
+| 0.5 | `can1` | `can0` | 네이티브 |
 
-### USB 어댑터 (CANable 등)
+**1.0 은 `canX` 번호 이름을 쓰지 않음.** Jetson 내장 CAN 이 부팅 때 `can0` 을
+차지하고 있어서, 번호로 지으면 나중에 겹침.
 
-USB 로 붙으면 커널이 **시리얼 포트**로 봄. `slcand` 가 그걸 CAN 장치로 바꿔 줌.
+### 1.0 양다리 — USB 어댑터 (candleLight)
+
+어댑터에 candleLight 펌웨어를 올려 두었음. 커널 `gs_usb` 드라이버가 바로 CAN 장치를
+만들고, udev 규칙이 어댑터 시리얼로 `canr` / `canl` 이름을 붙임. **`slcand` 는 안 씀.**
 
 ```bash
-sudo slcand -o -c -s8 /dev/canable0 can1
-sudo ip link set can1 up
+sudo ip link set canr up type can bitrate 1000000   # 오른다리
+sudo ip link set canl up type can bitrate 1000000   # 왼다리
 ```
 
-1.0 양다리는 이렇게 올림. 이름을 `canX` 번호로 짓지 않는 이유: Jetson 내장 CAN 이
-부팅 때 `can0` 을 차지하고 있어서, 번호로 지으면 나중에 겹침.
+속도를 커널이 들고 있어서 `ip link` 에 `bitrate` 를 넘김. 전환 절차·되돌리기·udev
+규칙은 [docs/candlelight.md](docs/candlelight.md).
+
+어댑터가 candleLight 인지 확인.
+
+```bash
+lsusb | grep 1d50:606f        # canable gs_usb 로 잡혀야 함
+ip -br link show type can     # canr, canl 이 보여야 함
+```
+
+`can1` 처럼 번호로 보이면 udev 규칙(`/etc/udev/rules.d/70-candlelight.rules`)에 그
+어댑터 시리얼이 없는 것임. `lsusb` 에 `ad50:60c4 ... canable-fw.git` 로 나오면 아직
+slcan 펌웨어임 -- 아래 절.
+
+### slcan 펌웨어 어댑터 (전환 전)
+
+USB 로 붙으면 커널이 **시리얼 포트**로 봄. `slcand` 가 그걸 CAN 장치로 바꿔 줌.
 
 ```bash
 sudo slcand -o -c -s8 /dev/canable1 canr && sudo ip link set canr up   # 오른다리
