@@ -102,7 +102,7 @@ from typing import Dict
 from ..config import ConfigError, load_robot
 from ..control import ControlLoop, Mode, held, policy, rsl_rl, stand
 from ..motors.base import Gains
-from ..motors.canbus import DEFAULT_DRAIN_S
+from ..motors.canbus import DEFAULT_DRAIN_S, bring_up_hint
 from ..telemetry import latency_log, policy_log
 from . import failures
 from .bringup import build_biped, build_leg
@@ -545,12 +545,7 @@ def main(argv=None) -> int:
     except ImportError as e:
         raise SystemExit(f"{e}") from e
     except ConnectionError as e:
-        raise SystemExit(
-            f"{e}\n채널이 올라와 있는지 확인할 것:\n"
-            + "\n".join(
-                f"  sudo ip link set {c} up type can bitrate 1000000" for c in channels
-            )
-        ) from e
+        raise SystemExit(f"{e}\n{bring_up_hint(channels)}") from e
 
     loop = ControlLoop(leg, hz=args.hz, mode=Mode.CONTROL)
     signal.signal(signal.SIGINT, lambda *_: loop.stop())

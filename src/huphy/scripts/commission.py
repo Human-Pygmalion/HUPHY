@@ -49,7 +49,7 @@ from .. import calibration as cal
 from ..config import ConfigError, LimbConfig, load_robot
 from ..config.schema import RobotConfig
 from ..motors.base import MotorCalibration
-from ..motors.canbus import CanBus
+from ..motors.canbus import CanBus, bring_up_hint
 from ..motors.robstride import commissioning as C
 from ..motors.robstride import tables
 from ..motors.robstride.bus import RobStrideBus
@@ -369,11 +369,7 @@ def _open(limb: LimbConfig) -> RobStrideBus:
     except ImportError as e:
         raise SystemExit(f"{e}") from e
     except ConnectionError as e:
-        raise SystemExit(
-            f"{e}\n채널이 올라와 있는지 확인할 것:\n"
-            f"  sudo ip link set {limb.channel} up type can bitrate 1000000\n"
-            f"  ip -details link show {limb.channel}"
-        ) from e
+        raise SystemExit(f"{e}\n{bring_up_hint([limb.channel])}") from e
     return bus
 
 

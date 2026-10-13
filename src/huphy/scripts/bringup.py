@@ -50,7 +50,7 @@ from ..config.schema import RobotConfig
 from ..control import ControlLoop, Mode, motions
 from ..kinematics.ankle import AnkleGeometry, AnkleKinematics
 from ..motors.base import Gains
-from ..motors.canbus import CanBus
+from ..motors.canbus import CanBus, bring_up_hint
 from ..motors.robstride.bus import RobStrideBus
 from ..robots.biped import Biped
 from ..robots.leg import ANKLE_JOINTS, SINGLE_JOINTS, Leg
@@ -663,10 +663,7 @@ def main(argv=None) -> int:
     except ImportError as e:
         raise SystemExit(f"{e}") from e
     except ConnectionError as e:
-        raise SystemExit(
-            f"{e}\n채널이 올라와 있는지 확인할 것:\n"
-            f"  sudo ip link set {limb.channel} up type can bitrate 1000000"
-        ) from e
+        raise SystemExit(f"{e}\n{bring_up_hint([limb.channel])}") from e
 
     telemetry = tele.Telemetry.from_config(leg, robot.telemetry)
     loop = ControlLoop(

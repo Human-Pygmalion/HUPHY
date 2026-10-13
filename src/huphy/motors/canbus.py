@@ -10,11 +10,15 @@
 ## 채널은 이 코드 밖에서 올라옴
 
 socketcan 채널은 커널이 관리함. 속도를 포함한 설정이 채널을 올릴 때 정해지고,
-이 코드는 이미 올라와 있는 채널에 붙기만 함.
+이 코드는 이미 올라와 있는 채널에 붙기만 함. 올리는 법은 어댑터에 따라 다름.
 
-    sudo ip link set can0 up type can bitrate 1000000
+    네이티브        sudo ip link set can0 up type can bitrate 1000000
+    USB (slcand)    sudo slcand -o -c -s8 /dev/canable1 canr
+                    sudo ip link set canr up
 
-채널이 없거나 내려가 있으면 `connect()` 가 실패함.
+slcan 은 속도를 어댑터가 들고 있어서 `ip link` 에 `bitrate` 를 못 넘김.
+채널이 없거나 내려가 있으면 `connect()` 가 실패함. 진입점들은 `bring_up_hint()` 로
+채널 이름에 맞는 명령을 알려 줌.
 
 
 ## 전송과 수거를 나눔
@@ -73,6 +77,26 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_INTERFACE = "socketcan"
 """라즈베리파이 + 리눅스 커널 CAN. 다른 값은 테스트용 `virtual` 정도임."""
+
+def bring_up_hint(channels: Iterable[str]) -> str:
+    """채널을 올리는 명령. 연결에 실패했을 때 진입점들이 찍음.
+
+    **두 방식을 같이 찍음.** 채널 이름(`can1`, `canr`)으로는 USB 어댑터인지 네이티브
+    인지 알 수 없음 -- 0.5 는 USB 어댑터를 `can1` 로 올렸고 1.0 은 `canr` 로 올림.
+    USB 쪽은 `ip link` 에 `bitrate` 를 못 넘기고 속도를 `slcand -s8` 로 줌. 어느
+    어댑터(`/dev/canableN`)가 어느 채널인지는 루트 README 의 1.0 명령을 볼 것.
+    """
+    names = list(dict.fromkeys(channels))
+    lines = ["채널이 올라와 있는지 확인할 것:", "  USB 어댑터 (slcand, -s8 = 1 Mbps):"]
+    lines += [
+        f"    sudo slcand -o -c -s8 /dev/<어댑터> {ch} && sudo ip link set {ch} up"
+        for ch in names
+    ]
+    lines.append("  네이티브 CAN:")
+    lines += [f"    sudo ip link set {ch} up type can bitrate 1000000" for ch in names]
+    lines.append("  확인: " + "  ".join(f"ip -details link show {ch}" for ch in names))
+    return "\n".join(lines)
+
 
 DEFAULT_POLL_S = 0.0002
 """recv 한 번의 대기 시간. 짧게 여러 번 도는 쪽이 한 번 길게 기다리는 것보다 나음."""
@@ -197,9 +221,7 @@ class CanBus:
     def connect(self) -> None:
         """이미 올라와 있는 채널에 붙음.
 
-        속도는 커널이 관리함:
-
-            sudo ip link set can0 up type can bitrate 1000000
+        속도는 채널을 올릴 때 정해짐 -- 명령은 `bring_up_hint()` 참조.
 
         `python-can` 은 여기서 처음 import됨. 모듈 최상단에서 하면 이 파일을
         import하는 것만으로 `python-can` 이 필요해지고, 순수 계산 계층의 테스트까지

@@ -81,7 +81,7 @@ from ..robots.leg import (
 )
 from .bringup import build_biped, build_leg
 from . import failures, table
-from ..motors.canbus import DEFAULT_DRAIN_S
+from ..motors.canbus import DEFAULT_DRAIN_S, bring_up_hint
 from .commission import CONFIG_NAME, _find_config, _pick_limbs, all_legs
 
 logger = logging.getLogger("huphy.selftest")
@@ -753,14 +753,8 @@ def main(argv=None) -> int:
         with machine:
             return COMMANDS[args.command](args, machine, loop)
     except ConnectionError as e:
-        channels = " ".join(sorted({limb.channel for limb in limbs}))
-        raise SystemExit(
-            f"{e}\n채널이 올라와 있는지 확인할 것:\n"
-            + "\n".join(
-                f"  sudo ip link set {c} up type can bitrate 1000000"
-                for c in channels.split()
-            )
-        ) from e
+        channels = sorted({limb.channel for limb in limbs})
+        raise SystemExit(f"{e}\n{bring_up_hint(channels)}") from e
     except KeyboardInterrupt:
         print()
         return 130
