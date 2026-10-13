@@ -42,7 +42,11 @@ button, select { font: inherit; color: var(--fg); background: var(--chip);
 .legend { display: inline-flex; gap: 12px; color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
 main { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.legs { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+.leg { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.leg h2 { font-size: 13px; margin: 0; padding: 2px 2px 0; font-weight: 600; }
+.leg h2 span { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.leg .total { border-width: 2px; }
 .chart { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px 4px; }
 .chart .title { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); padding: 0 2px 2px; flex-wrap: wrap; }
 .chart .title b { color: var(--fg); font-weight: 600; }
@@ -92,7 +96,7 @@ th { color: var(--muted); font-weight: 500; }
 
 <main class="hidden" id="main">
   <div class="chart big" id="all"></div>
-  <div class="grid" id="joints"></div>
+  <div class="legs" id="legs"></div>
   <div class="tablewrap"><table id="table"></table></div>
 </main>
 
@@ -124,7 +128,16 @@ function load(name, text) {
   data.forEach((d) => { all.ontime.push(...d.ontime); all.late.push(...d.late); all.lost += d.lost; });
   data.forEach((d) => { d.ontime.sort((a, b) => a - b); d.late.sort((a, b) => a - b); });
   all.ontime.sort((a, b) => a - b); all.late.sort((a, b) => a - b);
-  Object.assign(S, { joints: order, data, meta, all, name });
+  // 다리별로 묶음. 이름 앞부분(right_leg/...)이 다리임. 화면 왼쪽에 왼다리를 둠.
+  const legs = new Map();
+  order.forEach((j) => { const leg = j.includes("/") ? j.split("/")[0] : "기타";
+    if (!legs.has(leg)) legs.set(leg, { joints: [], agg: { ontime: [], late: [], lost: 0 } });
+    const L = legs.get(leg), d = data.get(j);
+    L.joints.push(j); L.agg.ontime.push(...d.ontime); L.agg.late.push(...d.late); L.agg.lost += d.lost; });
+  legs.forEach((L) => { L.agg.ontime.sort((a, b) => a - b); L.agg.late.sort((a, b) => a - b); });
+  const rank = (k) => k.startsWith("left") ? 0 : k.startsWith("right") ? 1 : 2;
+  const legOrder = [...legs.keys()].sort((a, b) => rank(a) - rank(b));
+  Object.assign(S, { joints: order, data, meta, all, name, legs, legOrder });
 
   const n = all.ontime.length + all.late.length + all.lost;
   $("meta").textContent = `${name} · 응답 ${n.toLocaleString()}개 · 관절 ${order.length}개`
@@ -154,9 +167,17 @@ function chartBox(el, title) {
 function build() {
   S.boxes = new Map();
   S.boxes.set("__all", chartBox($("all"), "전체"));
-  const grid = $("joints"); grid.innerHTML = "";
-  S.joints.forEach((j) => { const el = document.createElement("div"); el.className = "chart"; grid.appendChild(el);
-    S.boxes.set(j, chartBox(el, j.replace("_leg/", " "))); });
+  const root = $("legs"); root.innerHTML = "";
+  S.legOrder.forEach((leg) => {
+    const L = S.legs.get(leg), col = document.createElement("div"); col.className = "leg";
+    const label = leg.startsWith("left") ? "왼다리" : leg.startsWith("right") ? "오른다리" : leg;
+    col.innerHTML = `<h2>${label}<span>${leg}</span></h2>`;
+    const total = document.createElement("div"); total.className = "chart total"; col.appendChild(total);
+    S.boxes.set("__leg:" + leg, chartBox(total, label + " 전체"));
+    L.joints.forEach((j) => { const el = document.createElement("div"); el.className = "chart"; col.appendChild(el);
+      S.boxes.set(j, chartBox(el, j.split("/").pop())); });
+    root.appendChild(col);
+  });
 }
 
 // ---- 그리기 -------------------------------------------------------------
@@ -181,16 +202,21 @@ function render() {
   xmax = Math.max(xmax, bin * 4);
 
   const hists = new Map([["__all", histogram(S.all, bin, xmax, withLate, denom)]]);
+  S.legOrder.forEach((leg) => hists.set("__leg:" + leg, histogram(S.legs.get(leg).agg, bin, xmax, withLate, denom)));
   S.joints.forEach((j) => hists.set(j, histogram(S.data.get(j), bin, xmax, withLate, denom)));
   const ysame = $("ysame").checked ? Math.max(...S.joints.map((j) => hists.get(j).ymax)) : null;
+  const legY = Math.max(...S.legOrder.map((leg) => hists.get("__leg:" + leg).ymax));
 
   hists.forEach((h, key) => {
-    const box = S.boxes.get(key), d = key === "__all" ? S.all : S.data.get(key), st = stats(d);
+    const isLeg = key.startsWith("__leg:");
+    const d = key === "__all" ? S.all : isLeg ? S.legs.get(key.slice(6)).agg : S.data.get(key);
+    const box = S.boxes.get(key), st = stats(d);
     const bad = st.lostP > 0.01 ? " class='bad'" : "";
     const items = [`p50 ${f2(st.p50)}`, `p95 ${f2(st.p95)}`, `최대 ${f2(st.max)} ms`, `늦음 ${pct(st.lateP)}`,
       `<span${bad}>유실 ${pct(st.lostP)}</span>`].concat(h.over ? [`범위 밖 ${pct(h.overP)}`] : []);
     box.info.innerHTML = items.map((t) => `<span class="nw">${t}</span>`).join(" · ");
-    draw(box.canvas, h, bin, xmax, key === "__all" ? h.ymax : (ysame ?? h.ymax));
+    // 두 다리 전체는 같은 y 축 -- 좌우를 나란히 비교하려는 것임.
+    draw(box.canvas, h, bin, xmax, key === "__all" ? h.ymax : isLeg ? legY : (ysame ?? h.ymax));
   });
   table();
 }
@@ -241,7 +267,9 @@ function table() {
   const row = (name, d) => { const s = stats(d);
     return `<tr><td>${name}</td><td>${s.sent}</td><td>${s.recv}</td><td>${f2(s.p50)}</td><td>${f2(s.p95)}</td><td>${f2(s.p99)}</td>`
       + `<td>${f2(s.max)}</td><td>${pct(s.lateP)}</td><td>${pct(s.lostP)}</td></tr>`; };
-  S.joints.forEach((j) => h += row(j, S.data.get(j)));
+  S.legOrder.forEach((leg) => { const L = S.legs.get(leg);
+    L.joints.forEach((j) => h += row(j, S.data.get(j)));
+    h += row(`<b>${leg} 전체</b>`, L.agg); });
   $("table").innerHTML = h + row("<b>전체</b>", S.all);
 }
 
