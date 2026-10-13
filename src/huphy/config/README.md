@@ -185,7 +185,7 @@ from huphy.config import load_robot
 robot = load_robot("config/robot.yaml")
 leg = robot.limb("right_leg")
 
-leg.channel          # "slcan1" (1.0). 0.5 면 "can1"
+leg.channel          # "canr" (1.0). 0.5 면 "can1"
 leg.period_s         # 0.01
 leg.motors["knee"]   # Motor(id=10, model='RS02', limits_deg=None, ...)
 leg.motors_by_id()   # RobStrideBus 로 넘길 형태

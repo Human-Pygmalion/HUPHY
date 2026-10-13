@@ -82,14 +82,14 @@ N·m 이고, **RS03·RS04 는 게인 범위가 나머지의 10배**임 (`0~5000`
 [120Ω]                                  [120Ω]
 ```
 
-오른다리는 `can1`, 왼다리는 `can0` 을 씀 (0.5). 1.0 은 USB 어댑터라 `slcan1` / `slcan0`
+오른다리는 `can1`, 왼다리는 `can0` 을 씀 (0.5). 1.0 은 USB 어댑터라 `canr` / `canl`
 임 (4번). **두 다리를 한 버스에 묶지 않음** —
 12개 모터가 같은 선을 나눠 쓰면 주기 예산이 두 배가 됨.
 
 ### CAN id 와 모델
 
 ```
-오른다리 (can1 / slcan1)         왼다리 (can0 / slcan0)
+오른다리 (can1 / canr)           왼다리 (can0 / canl)
  7   hip_pitch    RS02          1   hip_pitch    RS02
  8   hip_roll     RS02          2   hip_roll     RS02
  9   hip_yaw      RS02          3   hip_yaw      RS02
@@ -253,7 +253,7 @@ PYTHONPATH=src python3 -m pytest tests -q
 **어댑터 종류에 따라 방법이 다름.** 어디서 속도를 정하느냐가 갈림길임.
 
 아래 예시는 채널 이름을 `can1` 로 씀. 실제 이름은 `config/robot.yaml` 의 `channel` 을
-따를 것 — 0.5 는 `can1` / `can0`, 1.0 은 `slcan1` / `slcan0` 임.
+따를 것 — 0.5 는 `can1` / `can0`, 1.0 은 `canr` / `canl` 임.
 
 ### USB 어댑터 (CANable 등)
 
@@ -262,6 +262,14 @@ USB 로 붙으면 커널이 **시리얼 포트**로 봄. `slcand` 가 그걸 CAN
 ```bash
 sudo slcand -o -c -s8 /dev/canable0 can1
 sudo ip link set can1 up
+```
+
+1.0 양다리는 이렇게 올림. 이름을 `canX` 번호로 짓지 않는 이유: Jetson 내장 CAN 이
+부팅 때 `can0` 을 차지하고 있어서, 번호로 지으면 나중에 겹침.
+
+```bash
+sudo slcand -o -c -s8 /dev/canable1 canr && sudo ip link set canr up   # 오른다리
+sudo slcand -o -c -s8 /dev/canable0 canl && sudo ip link set canl up   # 왼다리
 ```
 
 | | 뜻 |
@@ -296,7 +304,7 @@ udevadm info -a -n /dev/ttyACM0 | grep -i serial    # 어댑터 시리얼 번호
 
 ```
 # /etc/udev/rules.d/99-canable.rules
-SUBSYSTEM=="tty", ATTRS{idVendor}=="16d0", ATTRS{serial}=="<시리얼>", SYMLINK+="canable0"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="ad50", ATTRS{idProduct}=="60c4", ATTRS{serial}=="<시리얼>", SYMLINK+="canable0", MODE="0666"
 ```
 
 키는 **시리얼 번호**로 잡을 것. VID/PID 로 잡으면 같은 모델 둘을 구분 못 함.
@@ -1022,7 +1030,7 @@ huphy-test       --config config/robot_v1.0.yaml --limb right_leg zero
 | `kp` / `kd` | 튜닝할 때 | 0.5 오른다리 20 / 1, 1.0 양다리 10 / 1 (둘 다 튜닝 전) |
 | `command_margin_deg` | 게인을 바꾸면 다시 봄 | 3.0 |
 | `max_delta_deg` | 주기를 바꾸면 다시 봄 | 50.0 |
-| `channel` | 배선이 바뀌면 | 0.5 `can1` / `can0`, 1.0 `slcan1` / `slcan0` |
+| `channel` | 배선이 바뀌면 | 0.5 `can1` / `can0`, 1.0 `canr` / `canl` |
 | `control_hz` | — | 100.0 |
 | `telemetry.host` | 그래프를 볼 때 | 비어 있음 (UDP 꺼짐) |
 

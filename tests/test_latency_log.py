@@ -21,7 +21,7 @@ from test_robstride_bus import state_frame
 class StubBus:
     """보내기는 기록만 하고, 수거는 미리 넣어 둔 프레임을 내줌."""
 
-    channel = "slcan0"
+    channel = "canl"
 
     def __init__(self):
         self.queue = []
