@@ -298,8 +298,8 @@ sudo slcand -o -c -s8 /dev/canable0 canl && sudo ip link set canl up   # 왼다�
 | `-o` | 어댑터의 CAN 채널을 엶 |
 | `-c` | 데몬이 끝날 때 닫음 |
 | `-s8` | **비트레이트 1 Mbps** |
-| `/dev/canable0` | 시리얼 포트 |
-| `can1` | 만들어낼 커널 장치 이름 |
+| `/dev/canable1` | 시리얼 포트. udev 규칙으로 어댑터 시리얼에 고정한 링크 |
+| `canr` | 만들어낼 커널 장치 이름 |
 
 `-sN` 은 속도 코드임.
 
@@ -316,10 +316,17 @@ s2  50k    s5  250k    s8  1M     <- 우리
 `UP` 이고 프레임도 나가지만(`ip -s link` 의 TX 만 늚) 받는 것이 0 임. `ps aux | grep
 slcand` 로 떠 있는 속도를 볼 것.
 
-1.0 의 `canable0`/`canable1` 은 아래 udev 규칙으로 어댑터 시리얼에 고정한 이름임.
-어느 어댑터를 `canr`/`canl` 로 올리느냐가 `robot_v1.0.yaml` 의 다리와 맞아야 함 --
-뒤바뀌면 연결은 되는데 모터 id 가 안 맞아 응답이 없음. 연결에 실패하면 진입점들이
-두 방식(USB 어댑터 / 네이티브)의 올리는 명령을 같이 찍어 줌.
+**어댑터를 뽑았다 꽂으면 `slcand` 가 남음.** 다시 올리기 전에 `sudo pkill slcand` 로
+정리할 것 -- 같은 채널에 데몬이 둘 떠 있었던 적이 있음.
+
+`/dev/canable0`/`canable1` 은 udev 규칙(`/etc/udev/rules.d/99-mydevice.rules`)으로
+어댑터 시리얼에 고정한 이름임. 어느 어댑터를 `canr`/`canl` 로 올리느냐가
+`robot_v1.0.yaml` 의 다리와 맞아야 함 -- 뒤바뀌면 연결은 되는데 모터 id 가 안 맞아
+응답이 없음.
+
+```
+SUBSYSTEM=="tty", ATTRS{idVendor}=="ad50", ATTRS{idProduct}=="60c4", ATTRS{serial}=="<시리얼>", SYMLINK+="canable0", MODE="0666"
+```
 
 #### slcan 은 느림 -- 주기와 수거 대기를 맞출 것
 
@@ -336,28 +343,10 @@ slcan 은 프레임마다 USB 시리얼로 ASCII 를 주고받아서 네이티�
 그래서 기본값(`--drain-ms 2`)이면 늦게 온 응답이 무응답으로 잡히고, 유실된
 주기마다 수거 대기를 끝까지 써서 100Hz 를 못 지킴. **slcan 에서는 `--hz 50
 --drain-ms 4` 로 돌릴 것** (두 다리 최악 8 ms, 주기 20 ms 안). 유실 자체를 없애려면
-어댑터에 candleLight(gs_usb) 펌웨어를 올려 네이티브 `canN` 으로 쓰는 것이 근본
-해결임. 관절별 지연은 `huphy-run --log` 이 남기는 기록으로 볼 수 있음.
+어댑터에 candleLight(gs_usb) 펌웨어를 올리는 것이 근본 해결임 (위 절,
+[docs/candlelight.md](docs/candlelight.md)). 관절별 지연은 `huphy-run --log` / `huphy-test --log` 이 남기는 기록으로 볼 수 있음.
 
-#### 장치 이름을 고정할 것
-
-USB 는 꽂는 순서대로 `/dev/ttyACM0`, `ttyACM1` 이 붙음. 어댑터가 둘이면 **어느 게
-어느 다리인지 매번 달라짐.**
-
-udev 규칙으로 고정함.
-
-```bash
-udevadm info -a -n /dev/ttyACM0 | grep -i serial    # 어댑터 시리얼 번호 확인
-```
-
-```
-# /etc/udev/rules.d/99-canable.rules
-SUBSYSTEM=="tty", ATTRS{idVendor}=="ad50", ATTRS{idProduct}=="60c4", ATTRS{serial}=="<시리얼>", SYMLINK+="canable0", MODE="0666"
-```
-
-키는 **시리얼 번호**로 잡을 것. VID/PID 로 잡으면 같은 모델 둘을 구분 못 함.
-
-### 네이티브 CAN (HAT, MCP2515)
+### 0.5 — 네이티브 CAN (HAT, MCP2515)
 
 부팅할 때 커널 드라이버가 `canX` 를 이미 만들어 둠. 올리기만 하면 됨.
 
@@ -365,41 +354,41 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="ad50", ATTRS{idProduct}=="60c4", ATTRS{seria
 sudo ip link set can1 up type can bitrate 1000000
 ```
 
-이쪽은 **커널이 비트타이밍을 들고 있어서** `ip link` 에 속도를 넘김.
-
-### 어느 쪽이든 확인은 같음
+### 확인
 
 ```bash
-ip -details link show can1
+ip -details link show canr    # state ERROR-ACTIVE, bitrate 1000000
 ```
 
-`state UP` 이 보여야 함.
+slcan 장치는 `can state` 줄이 없고 `state UNKNOWN` 으로 보임. 그것도 정상임.
 
 ### 배선이 살아 있는지
 
 ```bash
-candump can1        # 다른 터미널에서. 모터가 응답하면 프레임이 보임
+candump canr        # 다른 터미널에서. 모터가 응답하면 프레임이 보임
 ```
 
 ### 내릴 때
 
 ```bash
-sudo ip link set can1 down
-sudo pkill slcand          # USB 어댑터면 데몬도
+sudo ip link set canr down
+sudo ip link set canl down
+sudo pkill slcand          # slcan 어댑터면 데몬도
 ```
 
-채널이 안 올라와 있으면 `connect()` 가 실패하고 이 명령을 알려줌.
+채널이 안 올라와 있으면 `connect()` 가 실패하고 올리는 명령을 알려줌.
 
 ### 코드는 어느 쪽인지 모름
 
-`slcand` 가 만들었든 HAT 이 만들었든 **커널 입장에서 같은 socketcan 장치**임.
+gs_usb 가 만들었든 `slcand` 가 만들었든 HAT 이 만들었든 **커널 입장에서 같은
+socketcan 장치**임.
 
 ```python
-CanBus("can1", interface="socketcan")
+CanBus("canr", interface="socketcan")
 ```
 
-`config/robot.yaml` 에는 채널 이름만 있음. 어댑터를 바꿔도 설정은 그대로임 —
-달라지는 건 셸에서 채널 올리는 방법 하나뿐.
+`config/robot.yaml` 에는 채널 이름만 있음. 어댑터나 펌웨어를 바꿔도 설정은 그대로임
+— 달라지는 건 셸에서 채널 올리는 방법 하나뿐.
 
 ---
 
@@ -701,6 +690,7 @@ huphy-test --robot --hz 100 --drain-ms 4 zero
 | `--period 6` | `range` 한 번 왕복하는 시간. 길수록 천천히 |
 | `--margin 5` | 한계에서 남길 여유. 한계는 하드스톱을 잰 값이라 그대로 명령하면 부딪힘 |
 | `--drain-ms 2` | 응답을 기다리는 최대 시간 (ms) |
+| `--log [DIR]` | 관절별 응답 지연을 `latency_test_<명령>_<시각>.csv` 로 남김. 폴더를 안 주면 `logs/`. `tools/latency_viewer.html` 로 봄 |
 | `--robot` | 다리 전부를 한 루프로. `--limb` 과 같이 못 씀 |
 | `--gain-scale` `--hz` `--allow-uncalibrated` | 브링업과 같음 |
 
