@@ -39,12 +39,14 @@ CAN_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("rx_errors", "수신실패"),
     ("drain_timeouts", "대기초과"),
     ("rx_dropped", "버림"),
+    ("error_frames", "버스오류"),
 )
 """`CanCounters` 필드 -> 화면 이름. 순서가 열 순서임.
 
     보냄/받음  나간 프레임과 들어온 프레임. **둘을 비교하는 것이 요점임**
     대기초과   기다린 개수를 못 채우고 수거 대기 시간을 다 쓴 횟수
     버림       수신 스레드 큐가 차서 버린 프레임 (수신 스레드를 켰을 때만)
+    버스오류   CAN 오류 프레임 수. 응답으로 세지 않음. gs_usb 만 냄 (slcan 은 늘 0)
 """
 
 MISSING_LABEL = "미수신"

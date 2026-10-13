@@ -27,10 +27,16 @@ from huphy.motors.canbus import (
 # 가짜 python-can
 # ===========================================================================
 class FakeMessage:
-    def __init__(self, arbitration_id, data, is_extended_id=False):
+    def __init__(self, arbitration_id, data, is_extended_id=False, is_error_frame=False):
         self.arbitration_id = arbitration_id
         self.data = data
         self.is_extended_id = is_extended_id
+        self.is_error_frame = is_error_frame
+
+
+def error_frame():
+    """gs_usb 가 버스 오류 때 올려 보내는 것. id 와 데이터는 오류 종류임."""
+    return FakeMessage(0x20000004, bytes([0, 0x08, 0, 0, 0, 0, 0, 0]), True, True)
 
 
 class FakeCanBus:
@@ -256,6 +262,19 @@ class TestDrain:
         assert len(got) == 2
         assert bus.counters.drain_timeouts == 1
 
+    def test_error_frames_do_not_count_as_responses(self, bus):
+        """오류 프레임이 `expect` 칸을 차지하면 진짜 응답이 다음 주기로 밀림.
+
+        gs_usb 로 바꾼 뒤 모터별 무응답이 25% 넘게 고르게 나왔던 원인임.
+        """
+        raw = FakeCanBus.instances[-1]
+        raw.rx.extend([error_frame(), FakeMessage(10, bytes(8)), error_frame()])
+        raw.rx.extend(FakeMessage(i, bytes(8)) for i in (11, 12))
+        got = bus.drain(expect=3, timeout_s=0.005, poll_s=0.0)
+        assert [f.can_id for f in got] == [10, 11, 12]
+        assert bus.counters.error_frames == 2
+        assert bus.counters.frames_received == 3
+
     def test_stops_when_quiet_without_expect(self, bus):
         """expect 가 없으면 조용해진 시점을 끝으로 봄."""
         raw = FakeCanBus.instances[-1]
@@ -357,6 +376,7 @@ class TestCounters:
             "can.frames_received",
             "can.drain_timeouts",
             "can.rx_dropped",
+            "can.error_frames",
         }
         assert all(v == 0 for v in fields.values())
 
@@ -427,6 +447,20 @@ class TestReader:
             raw.rx.extend(FakeMessage(i, bytes(8)) for i in (7, 8))
             got = _wait_for(b, 2)
             assert [f.can_id for f in got] == [7, 8]
+        finally:
+            b.disconnect()
+
+    def test_the_reader_drops_error_frames(self, fake_can):
+        """큐에 넣지 않고 세기만 함. 수신 스레드 경로도 같아야 함."""
+        b = CanBus("can1", reader=True)
+        b.connect()
+        try:
+            raw = FakeCanBus.instances[-1]
+            raw.rx.extend([error_frame(), FakeMessage(7, bytes(8)), error_frame()])
+            raw.rx.append(FakeMessage(8, bytes(8)))
+            got = _wait_for(b, 2)
+            assert [f.can_id for f in got] == [7, 8]
+            assert b.counters.error_frames == 2
         finally:
             b.disconnect()
 

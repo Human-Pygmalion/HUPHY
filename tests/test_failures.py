@@ -54,9 +54,10 @@ class TestReport:
         leg.bus.bus.counters.frames_received = 98
         leg.bus.bus.counters.drain_timeouts = 7
         leg.bus.bus.counters.tx_errors = 2
+        leg.bus.bus.counters.error_frames = 4
         line = [l for l in failures.report(leg, stats()).splitlines() if "can1" in l][0]
-        #                보냄  받음  미수신 송신  수신  대기초과 버림
-        assert line.split()[1:] == ["100", "98", "2", "2", "0", "7", "0"]
+        #                보냄  받음  미수신 송신  수신  대기초과 버림 버스오류
+        assert line.split()[1:] == ["100", "98", "2", "2", "0", "7", "0", "4"]
 
     def test_missing_frames_are_sent_minus_received(self):
         """MIT 는 명령을 받으면 반드시 응답함. 차이가 곧 안 돌아온 수임."""

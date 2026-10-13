@@ -154,6 +154,15 @@ class CanCounters:
     `loop_dt` 와 같이 봐야 함.
     """
 
+    error_frames: int = 0
+    """들어온 CAN 오류 프레임 수. **수신 큐에 넣지 않고 세기만 함.**
+
+    `python-can` 은 오류 프레임을 기본으로 받음. 큐에 섞이면 `drain(expect=6)` 이
+    그것을 응답 한 개로 세어, 진짜 응답이 다음 주기로 밀리고 그 밀림이 쌓임 -- 지연이
+    늘고 모터별 무응답이 고르게 높아짐. slcan 은 오류 프레임을 안 만들어 안 보였고
+    gs_usb 에서 드러남. 0 이 아니면 버스 오류가 실제로 있는 것임 (배선·노이즈·타이밍).
+    """
+
     def reset(self) -> None:
         self.tx_errors = 0
         self.rx_errors = 0
@@ -161,6 +170,7 @@ class CanCounters:
         self.frames_received = 0
         self.drain_timeouts = 0
         self.rx_dropped = 0
+        self.error_frames = 0
 
     def as_fields(self) -> Dict[str, int]:
         """0이어도 모든 키를 냄. 필드가 중간에 생기면 그래프가 끊김."""
@@ -171,6 +181,7 @@ class CanCounters:
             "can.frames_received": self.frames_received,
             "can.drain_timeouts": self.drain_timeouts,
             "can.rx_dropped": self.rx_dropped,
+            "can.error_frames": self.error_frames,
         }
 
 
@@ -342,6 +353,9 @@ class CanBus:
                 continue
             if msg is None:
                 continue
+            if getattr(msg, "is_error_frame", False):
+                self.counters.error_frames += 1
+                continue
             if len(self._rx) == self._rx.maxlen:
                 # 큐가 참 -- 소비가 밀린 것임. 오래된 것부터 밀려나감.
                 self.counters.rx_dropped += 1
@@ -433,7 +447,10 @@ class CanBus:
                 break
 
             if msg is not None:
-                out.append(_frame_of(msg))
+                if getattr(msg, "is_error_frame", False):
+                    self.counters.error_frames += 1
+                else:
+                    out.append(_frame_of(msg))
                 continue
 
             # 큐가 비었음
