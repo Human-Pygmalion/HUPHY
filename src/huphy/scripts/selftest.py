@@ -4,14 +4,28 @@
     huphy-test --limb right_leg range
     huphy-test --robot zero             로봇 전체를 같은 루프로
     huphy-test --robot pose 0 10 0 30 0 0  0 10 0 30 0 0
+    huphy-test --robot watch            토크 없이 손으로 움직이는 것을 봄
 
-세 가지임.
+네 가지임.
 
     zero     관절 전부를 0도로 두고 붙잡음
     range    관절마다 최소~최대를 오감
     pose     준 각도로 옮기고 붙잡음. 발목은 기본이 모터각(ankle_a/ankle_b)
+    watch    **토크를 끄고** 위치만 읽음. 사람이 손으로 움직이는 것을 보고 녹화함
 
-셋 다 **Ctrl-Q 를 누를 때까지** 계속함. 끝나면 자세를 붙잡은 채로 토크를 끊음.
+넷 다 **Ctrl-Q 를 누를 때까지** 계속함. 앞의 셋은 끝나면 자세를 붙잡은 채로 토크를
+끊음. `watch` 는 처음부터 끝까지 토크가 없음.
+
+
+## watch -- 손으로 움직이는 것을 기록
+
+제어 루프를 관찰 모드(`Mode.OBSERVE`)로 돌림. 들어갈 때 토크를 끊고, 힘이 0인 명령
+(kp = kd = 토크 = 0)을 보내 그 응답으로 위치를 받음 -- MIT 모드에는 읽기 전용 명령이
+없음. 목표가 없으므로 기록에는 실측(`pos/`)과 IMU 만 있음.
+
+실시간 뷰어(`--live`)가 **기본으로 켜짐** -- 화면 없이 할 일이 없어서임. 화면의
+녹화 버튼으로 원하는 구간만 `logs/track_live_test_watch_*.csv` 로 남김. `--log` 을 같이
+주면 실행 전체도 `track_test_watch_*.csv` 로 남김.
 
 
 ## 무엇을 보는 것인가
@@ -72,8 +86,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..config import ConfigError, LimbConfig, load_robot
 from ..control import ControlLoop, Mode, motions, policy
+from ..control.studio import Studio
 from ..robots.biped import join_name
-from ..telemetry import latency_log
+from ..telemetry import latency_log, live, track_log
 from ..robots.leg import (
     ANKLE_JOINTS,
     ANKLE_MOTORS,
@@ -338,8 +353,14 @@ def _read_pose(robot, loop: ControlLoop, joints) -> Dict[str, float]:
     return out
 
 
-def _run(robot, loop: ControlLoop, targets, motion, *, approach_s: float) -> int:
-    """접근 -> 패턴. Ctrl-Q 까지 돎."""
+def _run(
+    robot, loop: ControlLoop, targets, motion, *, approach_s: float, watchers=(),
+) -> int:
+    """접근 -> 패턴. Ctrl-Q 까지 돎.
+
+    `watchers` 는 `wrap_motion` 을 가진 관측기 (`--log` 의 추종 기록, `--live` 의
+    실시간 뷰어). 매 주기 낸 목표와 받은 관찰을 봄 -- 목표를 바꾸지 않음.
+    """
     start = _read_pose(robot, loop, targets)
     missing = [name for name in targets if name not in start]
     if missing:
@@ -350,6 +371,8 @@ def _run(robot, loop: ControlLoop, targets, motion, *, approach_s: float) -> int
 
     loop.mode = Mode.CONTROL
     plan = then(approach(targets, start, approach_s), approach_s, motion)
+    for watcher in watchers:
+        plan = watcher.wrap_motion(plan)
 
     with QuitWatcher(loop):
         stats = loop.run(plan)
@@ -383,7 +406,10 @@ def cmd_zero(args, robot, loop: ControlLoop) -> int:
         print("  양다리를 같은 루프로 돌림 -- 좌우가 어긋난 것도 눈으로 보임.")
     print(f"\n  {args.approach:.0f}초에 걸쳐 0도로 옮긴 뒤 그대로 유지합니다.")
 
-    return _run(robot, loop, targets, motions.hold(targets), approach_s=args.approach)
+    return _run(
+        robot, loop, targets, motions.hold(targets),
+        approach_s=args.approach, watchers=getattr(args, "watchers", ()),
+    )
 
 
 def cmd_range(args, robot, loop: ControlLoop) -> int:
@@ -421,6 +447,7 @@ def cmd_range(args, robot, loop: ControlLoop) -> int:
         midpoints(inset),
         cycle(inset, period_s=args.period),
         approach_s=args.approach,
+        watchers=getattr(args, "watchers", ()),
     )
 
 
@@ -576,10 +603,108 @@ def cmd_pose(args, robot, loop: ControlLoop) -> int:
         print(f"\n  범위 밖: {outside}.\n{note}")
     print(f"\n  {args.approach:g}초에 걸쳐 옮긴 뒤 그대로 유지합니다.")
 
-    return _run(robot, loop, targets, motions.hold(targets), approach_s=args.approach)
+    return _run(
+        robot, loop, targets, motions.hold(targets),
+        approach_s=args.approach, watchers=getattr(args, "watchers", ()),
+    )
 
 
-COMMANDS = {"zero": cmd_zero, "range": cmd_range, "pose": cmd_pose}
+def watch_joints(robot) -> List[str]:
+    """`watch` 가 기록하는 관절. 다리마다 단일 관절 넷, 발목 자세 둘, 발목 모터 둘.
+
+    발목은 두 공간을 다 남김 -- 손으로 움직일 때는 어느 쪽으로 볼지 미리 정할 이유가
+    없음. 자세(pitch/roll)는 모터각에서 기구학으로 되짚은 값임.
+    """
+    names = list(SINGLE_JOINTS) + list(ANKLE_JOINTS) + list(ANKLE_MOTORS)
+    return [named(robot, part, name) for part in parts(robot) for name in names]
+
+
+def cmd_watch(args, robot, loop: ControlLoop) -> int:
+    """토크를 끄고 위치만 읽음. 사람이 손으로 움직이는 것을 봄."""
+    joints = watch_joints(robot)
+    watchers = getattr(args, "watchers", ())
+    for watcher in watchers:
+        if watcher.order is None:
+            watcher.order = tuple(joints)
+
+    print(f"\n{robot.id} 손으로 움직이기 -- 관절 {len(joints)}개를 읽기만 함")
+    print("  ** 토크가 없음. 다리가 중력에 처지므로 받쳐 둘 것 **")
+    if not watchers:
+        print("  기록하는 곳이 없음 -- --live 를 못 띄웠으면 --log 를 줄 것")
+    print("  화면의 녹화 버튼으로 원하는 구간만 저장함. 멈추려면 Ctrl-Q.\n")
+
+    # 관찰 모드에서는 motion 이 안 불림 -- 매 주기 불리는 텔레메트리 자리에 붙음.
+    loop.mode = Mode.OBSERVE
+    loop.telemetry = track_log.ObservationTap(robot, watchers, inner=loop.telemetry)
+    with QuitWatcher(loop):
+        stats = loop.run()
+
+    print("\n" + failures.report(robot, stats))
+    if not stats.kept_up:
+        print("  주기를 못 지킴. 기록 간격이 고르지 않음.")
+    return 0
+
+
+def studio_gains(robot) -> Dict[str, Any]:
+    """studio 게인표의 기준값과 상한. 모터 이름(팔다리 없이) -> `(kp, kd)`.
+
+    기준값은 첫 팔다리의 설정값(robot.yaml) -- 양다리가 같은 값을 받으므로 다르면
+    알림. 상한은 MIT 인코딩이 실을 수 있는 최댓값이고, 팔다리마다 모델이 다르면 작은 쪽.
+    """
+    base: Dict[str, Tuple[float, float]] = {}
+    top: Dict[str, Tuple[float, float]] = {}
+    differ = []
+    for part in parts(robot):
+        for name, motor in part.config.motors.items():
+            g = part.base_gains[name]
+            if name in base and base[name] != (g.kp, g.kd):
+                differ.append(f"{part.id}/{name}")
+            base.setdefault(name, (g.kp, g.kd))
+            enc = part.bus.encoding(motor.id)
+            kp_max, kd_max = top.get(name, (float("inf"), float("inf")))
+            top[name] = (min(kp_max, enc.kp_max), min(kd_max, enc.kd_max))
+    if differ:
+        print(f"  ** 팔다리마다 robot.yaml 게인이 다름: {differ}. studio 는 같은 값을 양쪽에 걺 **")
+    return {"base_gains": base, "max_gains": top}
+
+
+def cmd_studio(args, robot, loop: ControlLoop) -> int:
+    """웹에서 토크·게인·자세·동작 순서를 다룸. 힘이 풀린 채로 시작함."""
+    studio: Studio = args.studio
+    watchers = getattr(args, "watchers", ())
+    for watcher in watchers:
+        if watcher.order is None:
+            watcher.order = tuple(studio.joints)
+    if not any(isinstance(w, live.LiveFeed) for w in watchers):
+        print("  실시간 뷰어를 못 띄워 조작할 화면이 없음. --live <다른 포트> 로 다시 실행할 것.")
+        return 1
+
+    print(f"\n{robot.id} studio -- 관절 {len(studio.joints)}개, 발목은 모터각")
+    print("  ** 토크 없이 시작함. 화면의 '토크 켜기' 로 지금 자세를 붙잡음 **")
+    print(f"  게인은 robot.yaml 값 x {args.gain_scale:g} 로 시작. 붙잡은 상태에서만 값으로 바꿈")
+    print("  화면이 5초 끊기면 동작을 멈추고 그 자리를 붙잡음.")
+    print("  끝내려면 Ctrl-Q (감쇠 후 토크를 끊음).\n")
+
+    # 웹 요청은 매 주기 앞에서 처리함 -- CAN 을 건드리는 일은 제어 스레드에서만.
+    loop.mode = Mode.OBSERVE
+    loop.before_step = studio.before_step
+    loop.telemetry = track_log.ObservationTap(
+        robot, watchers, inner=loop.telemetry, targets=studio.row_targets
+    )
+    with QuitWatcher(loop):
+        stats = loop.run(studio.motion)
+
+    print("\n" + failures.report(robot, stats))
+    if stats.link_loss is not None:
+        print(f"\n  ** 통신 두절로 멈춤: {stats.link_loss} **")
+        return 1
+    return 0
+
+
+COMMANDS = {
+    "zero": cmd_zero, "range": cmd_range, "pose": cmd_pose,
+    "watch": cmd_watch, "studio": cmd_studio,
+}
 
 
 # ===========================================================================
@@ -652,8 +777,20 @@ def _add_common(parser, *, suppress: bool) -> None:
         default=default(None),
         metavar="DIR",
         help=(
-            "관절별 응답 지연을 CSV 로 남김. 폴더를 안 주면 logs/. "
-            "tools/latency_viewer.html 로 열어 볼 수 있음"
+            "관절별 목표·실측각과 응답 지연을 CSV 로 남김. 폴더를 안 주면 logs/. "
+            "tools/policy_viewer.html, tools/latency_viewer.html 로 열어 볼 수 있음"
+        ),
+    )
+    parser.add_argument(
+        "--live",
+        nargs="?",
+        const=live.DEFAULT_PORT,
+        type=int,
+        default=default(None),
+        metavar="PORT",
+        help=(
+            f"도는 동안 관절 목표·실측을 브라우저로 봄. 포트를 안 주면 {live.DEFAULT_PORT}. "
+            "같은 망의 다른 기계에서도 열림"
         ),
     )
     parser.add_argument(
@@ -674,7 +811,10 @@ def build_parser() -> argparse.ArgumentParser:
             "  --limb right_leg pose 0 10 0 30 0 0\n"
             "  --robot pose 0 10 0 30 0 0  0 10 0 30 0 0      왼다리 6 -> 오른다리 6\n"
             "  --robot pose left_leg/knee=30 right_leg/knee=30   나머지는 0\n"
-            "  --robot --hz 50 --drain-ms 4 zero --log    지연을 logs/ 에 남김\n"
+            "  --robot --hz 50 --drain-ms 4 zero --log    목표·실측과 지연을 logs/ 에 남김\n"
+            "  --robot --hz 50 zero --live              브라우저로 실시간 (포트 8770)\n"
+            "  --robot watch                            토크 없이 손으로 움직이며 보고 녹화\n"
+            "  --robot studio                           웹에서 토크·게인·자세·동작 순서\n"
         ),
     )
     _add_common(p, suppress=False)
@@ -683,6 +823,26 @@ def build_parser() -> argparse.ArgumentParser:
 
     z = sub.add_parser("zero", help="관절 전부를 0도로 두고 붙잡음")
     _add_common(z, suppress=True)
+
+    w = sub.add_parser(
+        "watch",
+        help="토크를 끄고 위치만 읽음. 손으로 움직이는 것을 실시간 뷰어로 보고 녹화",
+    )
+    _add_common(w, suppress=True)
+
+    st = sub.add_parser(
+        "studio",
+        help="웹에서 토크·게인·자세·동작 순서를 다룸. 힘이 풀린 채로 시작",
+    )
+    _add_common(st, suppress=True)
+    st.add_argument(
+        "--open", action="store_true",
+        help="같은 망의 다른 기계에서도 열리게 함. 기본은 이 기계(127.0.0.1)만 -- 제어가 붙음",
+    )
+    st.add_argument(
+        "--sequences", type=Path, default=Path("config/sequences"),
+        help="동작 순서를 저장하는 폴더. 기본 config/sequences",
+    )
 
     r = sub.add_parser("range", help="관절마다 최소~최대를 오감")
     _add_common(r, suppress=True)
@@ -747,7 +907,8 @@ def main(argv=None) -> int:
     if args.drain_ms < 0:
         raise SystemExit(f"--drain-ms 는 0 이상이어야 함 (받은 값 {args.drain_ms})")
     options = dict(
-        gain_scale=args.gain_scale,
+        # studio 는 실행 중에 배율을 바꿈 -- 설정의 게인 그대로 만들고 배율은 세션이 걺.
+        gain_scale=1.0 if args.command == "studio" else args.gain_scale,
         allow_uncalibrated=args.allow_uncalibrated,
         drain_s=args.drain_ms / 1000.0,
     )
@@ -764,10 +925,44 @@ def main(argv=None) -> int:
     hz = args.hz if args.hz else min(limb.control_hz for limb in limbs)
     loop = ControlLoop(machine, hz=hz, mode=Mode.OBSERVE)
 
-    # 첫 상태 읽기부터 잼 -- 통신은 패턴이 시작했는지와 무관함.
+    # 지연은 첫 상태 읽기부터 잼 -- 통신은 패턴이 시작했는지와 무관함. 추종은 접근
+    # 구간부터 매 주기 한 줄 (`_run`).
+    # watch 는 화면 없이 할 일이 없음 -- 실시간 뷰어를 기본으로 켬.
+    # watch·studio 는 화면 없이 할 일이 없음 -- 실시간 뷰어를 기본으로 켬.
+    if args.command in ("watch", "studio") and args.live is None:
+        args.live = live.DEFAULT_PORT
+    args.studio = None
+    if args.command == "studio":
+        args.studio = Studio(
+            machine,
+            joints=pose_order(machine, ANKLE_SPACE_MOTOR),
+            limits=pose_limits(machine, ANKLE_SPACE_MOTOR),
+            **studio_gains(machine),
+            gain_scale=args.gain_scale,
+            sequences_dir=args.sequences,
+        )
     latency = None
+    args.track = None
+    watchers = []
     if args.log is not None:
         latency = latency_log.LatencyLog(drain_ms=args.drain_ms, hz=hz).attach(machine)
+        args.track = track_log.TrackLog(robot=machine)
+        watchers.append(args.track)
+    server = None
+    if args.live is not None:
+        feed = live.LiveFeed(
+            hz=hz, title=f"huphy-test {args.command} · {machine.id}",
+            name=f"test_{args.command}", save_dir=args.log or Path("logs"),
+            robot=machine,
+        )
+        server = live.start(
+            feed, args.live, studio=args.studio,
+            # 제어가 붙는 studio 는 이 기계에서만 열림. --open 이면 같은 망에서도.
+            host="0.0.0.0" if args.command != "studio" or args.open else "127.0.0.1",
+        )
+        if server is not None:
+            watchers.append(feed)
+    args.watchers = tuple(watchers)
 
     try:
         with machine:
@@ -779,8 +974,25 @@ def main(argv=None) -> int:
         print()
         return 130
     finally:
+        if server is not None:
+            server.stop()
+        if args.track is not None:
+            _save_track(args.track, args.log, f"test_{args.command}")
         if latency is not None:
             _save_latency(latency, args.log, f"test_{args.command}")
+
+
+def _save_track(track: "track_log.TrackLog", directory: Path, name: str) -> None:
+    """추종 기록을 씀. 실패해도 올리지 않음."""
+    if not len(track):
+        return
+    try:
+        path = track.save(track_log.default_path(directory, name))
+    except OSError as e:
+        print(f"  추종 기록 저장 실패: {e}")
+        return
+    note = f", 기록 실패 {track.errors}회" if track.errors else ""
+    print(f"  추종 기록: {path}  ({len(track)}줄{note})")
 
 
 def _save_latency(latency: "latency_log.LatencyLog", directory: Path, name: str) -> None:

@@ -420,6 +420,38 @@ class Biped(Robot):
                 out[join_name(part.id, name)] = value
         return out
 
+    def _per_part(self, method: str, values: Dict[str, Any]) -> None:
+        """`팔다리/모터` 또는 `모터` -> 값을 팔다리마다 나눠 `part.<method>` 로 넘김.
+        앞에 팔다리가 없으면 모든 팔다리에 같이."""
+        for part in self.parts:
+            setter = getattr(part, method, None)
+            if not callable(setter):
+                continue
+            mine = {
+                name: value
+                for key, value in values.items()
+                for name in [key.split("/", 1)[1] if key.startswith(part.id + "/") else key]
+                if "/" not in name
+            }
+            setter(mine)
+
+    def set_gain_scale(self, scales: Dict[str, float]) -> None:
+        """`팔다리/모터` 또는 `모터` -> 배율 (`Leg.set_gain_scale`)."""
+        self._per_part("set_gain_scale", scales)
+
+    def set_gains(self, gains: Dict[str, Any]) -> None:
+        """`팔다리/모터` 또는 `모터` -> `Gains` (`Leg.set_gains`)."""
+        self._per_part("set_gains", gains)
+
+    @property
+    def base_gains(self) -> Dict[str, Any]:
+        """`팔다리/모터` -> 만들 때 받은 게인."""
+        out: Dict[str, Any] = {}
+        for part in self.parts:
+            for name, gains in getattr(part, "base_gains", {}).items():
+                out[join_name(part.id, name)] = gains
+        return out
+
     def hold(self) -> Commands:
         """지금 자세를 유지하는 명령. 팔다리별로 나뉜 꾸러미임.
 

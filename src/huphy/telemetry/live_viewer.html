@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Tracking Viewer</title>
+<!--
+  huphy-test / huphy-run 을 --live 로 띄우면 같은 프로세스가 이 페이지를 내줌.
+  0.1초마다 /data?since=<번호> 로 새 줄만 받아 그림. 외부 라이브러리 없음.
+
+  녹화     누른 때부터 정지까지를 서버가 CSV 로 씀 (logs/track_live_*.csv).
+           policy_viewer.html 로 열림.
+
+  단축키   Space 멈춤/이어서   R 녹화/정지
+-->
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1d2330; --muted: #6b7385; --line: #e2e5eb;
+  --grid: #eef0f4; --accent: #2f6fed; --chip: #eef2fb; --ok: #2b8a3e; --bad: #c92a2a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --panel: #1a1e26; --fg: #e4e7ee; --muted: #8a93a6; --line: #2a303c;
+    --grid: #232833; --accent: #6b9bff; --chip: #232a38; --ok: #51cf66; --bad: #ff6b6b;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151b; --panel: #1a1e26; --fg: #e4e7ee; --muted: #8a93a6; --line: #2a303c;
+  --grid: #232833; --accent: #6b9bff; --chip: #232a38; --ok: #51cf66; --bad: #ff6b6b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 13px/1.4 system-ui, -apple-system, "Noto Sans KR", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+  position: sticky; top: 0; z-index: 2; }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+.meta { color: var(--muted); font-variant-numeric: tabular-nums; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); margin-right: 4px; }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+button, select { font: inherit; color: var(--fg); background: var(--chip);
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); min-width: 72px; }
+button.rec { min-width: 84px; }
+button.rec.on { background: var(--bad); color: #fff; border-color: var(--bad); }
+button.rec i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--bad); margin-right: 5px; }
+button.rec.on i { background: #fff; border-radius: 1px; }
+#recinfo { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spacer { flex: 1; }
+main { display: grid; grid-template-columns: 270px 1fr; gap: 12px; padding: 12px 16px; }
+@media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+aside { display: flex; flex-direction: column; gap: 12px; }
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.box h2 { font-size: 12px; margin: 0 0 6px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px;
+  background: var(--chip); border: 1px solid var(--line); cursor: pointer; user-select: none; font-size: 12px; }
+.chip.off { opacity: .4; }
+.chip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+label.row { display: flex; gap: 6px; align-items: center; padding: 2px 0; cursor: pointer; }
+.charts { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.chart { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px 4px; }
+.chart .title { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 0 2px 2px; }
+.chart .title b { color: var(--fg); font-weight: 600; }
+.chart .title span { font-variant-numeric: tabular-nums; }
+canvas { width: 100%; height: 190px; display: block; }
+.each { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 12px; }
+th, td { padding: 2px 4px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 500; }
+#wait { margin: 40px auto; max-width: 560px; text-align: center; padding: 48px 24px;
+  border: 2px dashed var(--line); border-radius: 12px; color: var(--muted); }
+.hidden { display: none !important; }
+/* studio 제어 패널 */
+#studio { display: flex; flex-direction: column; gap: 10px; }
+#studio .row2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#studio .badge { font-weight: 700; padding: 2px 10px; border-radius: 12px; background: var(--chip); border: 1px solid var(--line); }
+#studio .badge.FREE { color: var(--muted); } #studio .badge.HOLD, #studio .badge.RAMP { color: var(--ok); }
+#studio .badge.MOVING, #studio .badge.PLAYING { color: var(--accent); }
+#studio .badge.DAMPING { color: var(--bad); }
+#studio input[type=number] { width: 72px; font: inherit; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+#studio input[type=text] { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; width: 140px; }
+#studio .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 12px; }
+#studio .j { display: grid; grid-template-columns: 1fr 72px; gap: 2px 6px; align-items: center; font-size: 12px; }
+#studio .j small { grid-column: 1 / -1; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: -2px; }
+#studio .j input.bad { border-color: var(--bad); }
+#studio h3 { font-size: 12px; margin: 4px 0 0; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+#studio button.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
+#studio button:disabled { opacity: .45; cursor: not-allowed; }
+#studio .msg { color: var(--muted); }
+#studio table input[type=number] { width: 60px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>실시간 추종</h1>
+  <span class="meta" id="title"></span>
+  <span class="meta"><span class="dot" id="dot"></span><span id="state">연결 중</span></span>
+  <span class="meta" id="rate"></span>
+  <span class="spacer"></span>
+  <span class="meta" id="recinfo"></span>
+  <button class="rec" id="rec" title="누른 구간을 CSV 로 저장 (R)" disabled><i></i>녹화</button>
+  <button class="primary" id="pause">멈춤</button>
+  <select id="win" title="보이는 시간 폭">
+    <option value="5">창 5 s</option><option value="10" selected>창 10 s</option>
+    <option value="30">창 30 s</option><option value="60">창 60 s</option>
+  </select>
+  <label class="row"><input type="checkbox" id="err" checked> 오차 그래프</label>
+</header>
+
+<div id="wait">제어 루프가 첫 목표를 낼 때까지 기다리는 중…</div>
+
+<main class="hidden" id="main">
+  <aside>
+    <div class="box"><h2>관절</h2><div class="chips" id="joints"></div>
+      <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">
+        <button data-pick="all">전체</button><button data-pick="right_leg">오른</button>
+        <button data-pick="left_leg">왼</button><button data-pick="none">없음</button>
+      </div></div>
+    <div class="box hidden" id="imubox"><h2>IMU 그래프</h2><div id="imugroups"></div></div>
+    <div class="box"><h2>지금 값 (deg)</h2><div id="values"></div></div>
+  </aside>
+  <section class="charts">
+    <div class="box hidden" id="studio"></div>
+    <div class="charts" id="charts"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const PALETTE = ["#2f6fed", "#e8590c", "#2b8a3e", "#c2255c", "#7048e8", "#0c8599",
+                 "#e67700", "#5c940d", "#d6336c", "#1971c2", "#9c36b5", "#087f5b"];
+const KEEP_S = 60, POLL_MS = 100, STALE_MS = 1500;
+// IMU 열(imu/<이름>/<값>)을 묶는 법. 값 이름 -> 묶음.
+const IMU_KIND = { roll: "att", pitch: "att", yaw: "att", gx: "gyro", gy: "gyro", gz: "gyro",
+  grav_x: "grav", grav_y: "grav", grav_z: "grav", ax: "acc", ay: "acc", az: "acc", age: "age" };
+const IMU_TITLE = { att: ["자세", "deg"], gyro: ["각속도", "deg/s"], grav: ["중력방향", ""],
+  acc: ["가속도", "m/s²"], age: ["수신 나이", "ms"] };
+const IMU_DEFAULT = new Set(["att", "gyro"]);
+const AXIS_COLOR = ["#e03131", "#2f9e44", "#1c7ed6"];   // x/roll, y/pitch, z/yaw
+const S = { seq: 0, cols: null, joints: [], t: [], tgt: {}, pos: {}, on: new Set(),
+  imuCols: [], imu: {}, imuGroups: [], imuOn: new Set(IMU_DEFAULT),
+  paused: false, frozen: null, last: 0, dirty: false, charts: [], arrivals: [] };
+const $ = (id) => document.getElementById(id);
+
+// ---- 받기 -----------------------------------------------------------------
+function reset(d) {
+  S.cols = d.cols.join(",");
+  // 목표가 없으면(huphy-test watch, 토크 없이 손으로) 관절을 pos/ 에서 읽고 실측만 그림
+  S.hasTgt = d.cols.some((c) => c.startsWith("tgt/"));
+  S.joints = d.cols.filter((c) => c.startsWith(S.hasTgt ? "tgt/" : "pos/")).map((c) => c.slice(4));
+  $("err").disabled = !S.hasTgt;
+  S.t = []; S.tgt = {}; S.pos = {};
+  S.joints.forEach((j) => { S.tgt[j] = []; S.pos[j] = []; });
+  S.on = new Set(S.joints);
+  S.imuCols = d.cols.filter((c) => c.startsWith("imu/"));
+  S.imu = {}; S.imuCols.forEach((c) => { S.imu[c] = []; });
+  // 묶음: "imu/main" + 종류. 순서는 IMU_TITLE 순.
+  const groups = new Map();
+  S.imuCols.forEach((c) => {
+    const p = c.split("/"), kind = IMU_KIND[p[2]]; if (!kind) return;
+    const key = `${p[1]}/${kind}`;
+    if (!groups.has(key)) groups.set(key, { key, name: p[1], kind, cols: [] });
+    groups.get(key).cols.push(c);
+  });
+  const rank = Object.keys(IMU_TITLE);
+  S.imuGroups = [...groups.values()].sort((a, b) => a.name.localeCompare(b.name) || rank.indexOf(a.kind) - rank.indexOf(b.kind));
+  $("imubox").classList.toggle("hidden", !S.imuGroups.length);
+  $("title").textContent = d.title ? `${d.title} · 목표 ${d.hz} Hz` : `목표 ${d.hz} Hz`;
+  $("wait").classList.add("hidden"); $("main").classList.remove("hidden");
+  buildSide(); buildCharts();
+}
+
+function take(d) {
+  if (!d.cols || d.cols.length < 2) return;
+  // 처음, 관절 구성이 바뀜, 번호가 되돌아감(같은 포트에 새 실행) -> 새로 시작
+  if (S.cols !== d.cols.join(",") || d.seq < S.seq) { S.seq = 0; reset(d); }
+  const n = S.joints.length, m = S.hasTgt ? n : 0;    // 목표 칸 수
+  d.rows.forEach((r) => {
+    S.t.push(r[0]);
+    S.joints.forEach((j, k) => { S.tgt[j].push(S.hasTgt ? r[1 + k] ?? NaN : NaN); S.pos[j].push(r[1 + m + k] ?? NaN); });
+    S.imuCols.forEach((c, k) => { S.imu[c].push(r[1 + m + n + k] ?? NaN); });
+  });
+  S.seq = d.seq;
+  if (d.rec) showRec(d.rec);
+  // 오래된 것 버림
+  const cut = S.t.length ? S.t[S.t.length - 1] - KEEP_S : 0;
+  let drop = 0; while (drop < S.t.length && S.t[drop] < cut) drop++;
+  if (drop) {
+    S.t.splice(0, drop);
+    S.joints.forEach((j) => { S.tgt[j].splice(0, drop); S.pos[j].splice(0, drop); });
+    S.imuCols.forEach((c) => S.imu[c].splice(0, drop));
+  }
+  if (d.rows.length) {
+    const now = performance.now();
+    S.arrivals.push([now, d.rows.length]); S.arrivals = S.arrivals.filter(([a]) => now - a < 2000);
+    S.dirty = true;
+  }
+}
+
+async function poll() {
+  try {
+    const r = await fetch(`/data?since=${S.seq}`, { cache: "no-store" });
+    take(await r.json());
+    S.last = performance.now();
+  } catch (e) { /* 서버가 내려감 -- 상태 표시가 알려줌 */ }
+  setTimeout(poll, POLL_MS);
+}
+
+function status() {
+  const age = performance.now() - S.last;
+  const live = S.last && age < STALE_MS;
+  $("dot").className = "dot " + (live ? "ok" : S.last ? "bad" : "");
+  $("state").textContent = live ? (S.paused ? "멈춤 (받는 중)" : "받는 중") : S.last ? "끊김 -- 실행이 끝났거나 서버가 내려감" : "연결 중";
+  $("rec").disabled = !live;
+  if (!live && S.rec.on) $("recinfo").textContent = "끊김 -- 녹화는 서버가 끝날 때 저장함";
+  const rows = S.arrivals.reduce((a, [, k]) => a + k, 0);
+  $("rate").textContent = live ? `수신 ${(rows / 2).toFixed(0)} 줄/s` : "";
+}
+
+// ---- 옆 패널 --------------------------------------------------------------
+function colorOf(j) { return PALETTE[S.joints.indexOf(j) % PALETTE.length]; }
+function short(j) { return j.replace("_leg/", " "); }
+
+function buildSide() {
+  const ib = $("imugroups"); ib.innerHTML = "";
+  S.imuGroups.forEach((g) => {
+    const el = document.createElement("label"); el.className = "row";
+    const [title] = IMU_TITLE[g.kind];
+    el.innerHTML = `<input type="checkbox" ${S.imuOn.has(g.kind) ? "checked" : ""}> ${title}${S.imuGroups.some((o) => o.name !== g.name) ? " · " + g.name : ""}`;
+    el.querySelector("input").onchange = (e) => { e.target.checked ? S.imuOn.add(g.kind) : S.imuOn.delete(g.kind); buildSide(); buildCharts(); };
+    ib.appendChild(el);
+  });
+  const box = $("joints"); box.innerHTML = "";
+  S.joints.forEach((j) => {
+    const el = document.createElement("span");
+    el.className = "chip" + (S.on.has(j) ? "" : " off");
+    el.innerHTML = `<i style="background:${colorOf(j)}"></i>${short(j)}`;
+    el.onclick = () => { S.on.has(j) ? S.on.delete(j) : S.on.add(j); buildSide(); buildCharts(); };
+    box.appendChild(el);
+  });
+}
+document.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => {
+  const k = b.dataset.pick;
+  S.on = new Set(k === "all" ? S.joints : k === "none" ? [] : S.joints.filter((j) => j.startsWith(k)));
+  buildSide(); buildCharts();
+});
+
+function renderValues(i) {
+  const js = S.joints.filter((j) => S.on.has(j));
+  let h = S.hasTgt ? `<table><tr><th>관절</th><th>목표</th><th>실측</th><th>오차</th></tr>` : `<table><tr><th>관절</th><th>실측</th></tr>`;
+  js.forEach((j) => {
+    const tg = S.tgt[j][i], ps = S.pos[j][i];
+    h += S.hasTgt
+      ? `<tr><td style="color:${colorOf(j)}">${short(j)}</td><td>${num(tg)}</td><td>${num(ps)}</td><td>${num(tg - ps)}</td></tr>`
+      : `<tr><td style="color:${colorOf(j)}">${short(j)}</td><td>${num(ps)}</td></tr>`;
+  });
+  $("values").innerHTML = h + "</table>";
+}
+
+// ---- 그래프 ---------------------------------------------------------------
+function chartBox(parent, title, height) {
+  const div = document.createElement("div"); div.className = "chart";
+  div.innerHTML = `<div class="title"><b>${title}</b><span></span></div><canvas></canvas>`;
+  const cv = div.querySelector("canvas");
+  if (height) cv.style.height = height + "px";
+  parent.appendChild(div);
+  return { canvas: cv, info: div.querySelector(".title span"), head: div.querySelector("b") };
+}
+
+function buildCharts() {
+  const root = $("charts"); root.innerHTML = ""; S.charts = [];
+  const js = S.joints.filter((j) => S.on.has(j));
+  if (S.hasTgt && $("err").checked && js.length) {
+    const box = chartBox(root, "오차 — 목표 − 실측", 0);
+    S.charts.push({ ...box, kind: "err", joints: js });
+  }
+  // IMU 묶음마다 한 그래프. 세 축을 x/y/z (roll/pitch/yaw) 색으로.
+  S.imuGroups.filter((g) => S.imuOn.has(g.kind)).forEach((g) => {
+    const [title, unit] = IMU_TITLE[g.kind];
+    const box = chartBox(root, `IMU ${g.name} · ${title}${unit ? " (" + unit + ")" : ""}`, 150);
+    S.charts.push({ ...box, kind: "imu", group: g, unit });
+  });
+  const grid = document.createElement("div"); grid.className = "each";
+  if (!js.length) grid.innerHTML = `<div class="chart meta">관절을 하나 이상 고르세요</div>`;
+  js.forEach((j) => {
+    const box = chartBox(grid, short(j), 150);
+    box.head.style.color = colorOf(j);
+    S.charts.push({ ...box, kind: "joint", joint: j });
+  });
+  root.appendChild(grid);
+  S.dirty = true;
+}
+$("err").onchange = buildCharts;
+$("win").onchange = () => { S.dirty = true; };
+
+const PAD = { l: 64, r: 8, t: 6, b: 32 };
+function lowerBound(arr, x) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; arr[m] < x ? lo = m + 1 : hi = m; } return lo; }
+function niceStep(raw) {
+  if (!(raw > 0)) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+  return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p;
+}
+function fmt(v) { const a = Math.abs(v); return a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toFixed(2); }
+function num(v, d = 1) { return Number.isFinite(v) ? v.toFixed(d) : "—"; }
+
+function render() {
+  if (!S.t.length) return;
+  const n = S.t.length;
+  // 멈춤이면 멈춘 순간의 끝 시각을 붙잡음. 데이터는 계속 받음.
+  const end = S.paused ? S.frozen : S.t[n - 1];
+  const w = +$("win").value, a = end - w, b = end;
+  const i0 = Math.max(0, lowerBound(S.t, a) - 1);
+  const i1 = Math.min(n, lowerBound(S.t, b + 1e-9));
+  const css = getComputedStyle(document.documentElement);
+  const C = (v) => css.getPropertyValue(v).trim();
+  S.charts.forEach((ch) => drawChart(ch, a, b, i0, i1, C));
+  renderValues(i1 - 1);
+}
+
+function drawChart(ch, a, b, i0, i1, C) {
+  const cv = ch.canvas, dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (!W || !H) return;
+  if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const pw = W - PAD.l - PAD.r, ph = H - PAD.t - PAD.b;
+
+  // 그릴 선: [{y: 배열, color, dash}]
+  let lines;
+  if (ch.kind === "joint") {
+    const j = ch.joint;
+    lines = S.hasTgt
+      ? [{ y: S.tgt[j], color: colorOf(j), dash: true }, { y: S.pos[j], color: colorOf(j) }]
+      : [{ y: S.pos[j], color: colorOf(j) }];
+  } else if (ch.kind === "imu") {
+    lines = ch.group.cols.map((c, k) => ({ y: S.imu[c], color: AXIS_COLOR[k % 3], label: c.split("/").pop() }));
+  } else {
+    lines = ch.joints.map((j) => ({ y: S.tgt[j].map((v, i) => v - S.pos[j][i]), color: colorOf(j) }));
+  }
+
+  let lo = Infinity, hi = -Infinity;
+  lines.forEach((s) => { for (let i = i0; i < i1; i++) { const v = s.y[i]; if (v < lo) lo = v; if (v > hi) hi = v; } });
+  if (ch.kind === "err") { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+  if (!isFinite(lo)) { lo = -1; hi = 1; }
+  if (hi - lo < 0.5) { const m = (hi + lo) / 2; lo = m - 0.25; hi = m + 0.25; }
+  const padY = (hi - lo) * 0.08; lo -= padY; hi += padY;
+  const X = (t) => PAD.l + ((t - a) / (b - a || 1)) * pw;
+  const Y = (v) => PAD.t + (1 - (v - lo) / (hi - lo)) * ph;
+
+  g.font = "11px system-ui, sans-serif"; g.fillStyle = C("--muted"); g.strokeStyle = C("--grid"); g.lineWidth = 1;
+  const ystep = niceStep((hi - lo) / (H < 170 ? 3 : 4));
+  for (let v = Math.ceil(lo / ystep) * ystep; v <= hi; v += ystep) {
+    const y = Math.round(Y(v)) + 0.5; g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(W - PAD.r, y); g.stroke();
+    g.textAlign = "right"; g.fillText(fmt(v), PAD.l - 6, y + 4);
+  }
+  // 시간 눈금은 "지금으로부터 몇 초 전"
+  const xstep = niceStep((b - a) / Math.max(2, Math.floor(pw / 110)));
+  for (let s = 0; s <= b - a + 1e-9; s += xstep) {
+    const x = Math.round(X(b - s)) + 0.5; g.beginPath(); g.moveTo(x, PAD.t); g.lineTo(x, PAD.t + ph); g.stroke();
+    g.textAlign = "center"; g.fillText(s ? `−${fmt(s)}` : "지금", x, PAD.t + ph + 13);
+  }
+  g.fillStyle = C("--fg"); g.textAlign = "center";
+  g.fillText("시간 (s)", PAD.l + pw / 2, H - 3);
+  g.save(); g.translate(12, PAD.t + ph / 2); g.rotate(-Math.PI / 2);
+  g.fillText(ch.kind === "err" ? "오차 (deg)" : ch.kind === "imu" ? (ch.unit || "값") : "각도 (deg)", 0, 0); g.restore();
+  if (ch.kind === "err" && lo < 0 && hi > 0) {
+    const y = Math.round(Y(0)) + 0.5; g.strokeStyle = C("--muted"); g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(W - PAD.r, y); g.stroke();
+  }
+
+  g.save(); g.beginPath(); g.rect(PAD.l, PAD.t, pw, ph); g.clip();
+  // 관절 칸: 목표와 실측 사이를 옅게 칠해 오차를 면적으로
+  if (ch.kind === "joint" && S.hasTgt) {
+    const tg = lines[0].y, ps = lines[1].y;
+    g.fillStyle = lines[0].color; g.globalAlpha = 0.12; g.beginPath();
+    let started = false;
+    for (let i = i0; i < i1; i++) { if (!Number.isFinite(tg[i])) continue; const x = X(S.t[i]), y = Y(tg[i]); started ? g.lineTo(x, y) : (g.moveTo(x, y), started = true); }
+    for (let i = i1 - 1; i >= i0; i--) { if (!Number.isFinite(ps[i])) continue; g.lineTo(X(S.t[i]), Y(ps[i])); }
+    g.closePath(); g.fill(); g.globalAlpha = 1;
+  }
+  lines.forEach((s) => {
+    g.strokeStyle = s.color; g.lineWidth = 1.6; g.setLineDash(s.dash ? [5, 4] : []);
+    g.beginPath(); let pen = false;
+    for (let i = i0; i < i1; i++) {
+      const v = s.y[i]; if (!Number.isFinite(v)) { pen = false; continue; }
+      const x = X(S.t[i]), y = Y(v); pen ? g.lineTo(x, y) : (g.moveTo(x, y), pen = true);
+    }
+    g.stroke();
+  });
+  g.setLineDash([]); g.restore();
+
+  if (ch.kind === "imu") {
+    // 머리 줄이 범례를 겸함: 축 이름을 선 색으로, 지금 값과 같이
+    const i = i1 - 1;
+    ch.info.innerHTML = lines.map((s) => `<span style="color:${s.color}">${s.label} ${num(s.y[i], ch.group.kind === "grav" ? 3 : 2)}</span>`).join(" · ");
+  }
+  if (ch.kind === "joint") {
+    const j = ch.joint, i = i1 - 1, tg = S.tgt[j][i], ps = S.pos[j][i];
+    let sq = 0, k = 0, worst = 0;
+    for (let m = i0; m < i1; m++) { const e = S.tgt[j][m] - S.pos[j][m]; if (Number.isFinite(e)) { sq += e * e; k++; worst = Math.max(worst, Math.abs(e)); } }
+    if (!S.hasTgt) {
+      // 목표가 없으면 창 안의 범위를 보여줌 -- 손으로 어디서 어디까지 움직였나
+      let lo = Infinity, hi = -Infinity;
+      for (let m = i0; m < i1; m++) { const v = S.pos[j][m]; if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
+      ch.info.textContent = `실측 ${num(ps)} · 창 범위 ${num(lo)} ~ ${num(hi)}`;
+    } else
+    ch.info.textContent = `목표 ${num(tg)} · 실측 ${num(ps)} · 오차 ${num(tg - ps, 2)} · 창 RMS ${num(k ? Math.sqrt(sq / k) : NaN, 2)} 최대 ${num(worst, 2)}`;
+  }
+}
+
+// ---- 녹화 ------------------------------------------------------------------
+// 상태는 서버가 들고 있음 -- 탭을 여러 개 열어도 같은 녹화를 봄.
+S.rec = { on: false };
+function showRec(r) {
+  S.rec = r;
+  const b = $("rec");
+  b.classList.toggle("on", r.on);
+  b.innerHTML = r.on ? `<i></i>정지 ${clock(r.seconds)}` : "<i></i>녹화";
+  const info = $("recinfo");
+  if (r.on) info.textContent = `녹화 중 · ${r.rows}줄`;
+  else if (r.error) info.textContent = `저장 실패: ${r.error}`;
+  else if (r.saved) { info.textContent = `저장됨 (${r.count}) ${r.saved}`; info.title = r.saved; }
+  else info.textContent = "";
+}
+function clock(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.floor(s % 60)).padStart(2, "0")}`; }
+async function toggleRec() {
+  const b = $("rec"); if (b.disabled) return;
+  b.disabled = true;
+  try {
+    const r = await fetch(S.rec.on ? "/record/stop" : "/record/start", { method: "POST" });
+    showRec(await r.json());
+  } catch (e) { $("recinfo").textContent = "녹화 요청 실패 -- 서버가 내려갔을 수 있음"; }
+  b.disabled = false;
+}
+$("rec").onclick = toggleRec;
+
+// ---- 조작 ------------------------------------------------------------------
+function togglePause() {
+  S.paused = !S.paused;
+  S.frozen = S.t.length ? S.t[S.t.length - 1] : 0;
+  $("pause").textContent = S.paused ? "이어서" : "멈춤";
+  S.dirty = true;
+}
+$("pause").onclick = togglePause;
+document.addEventListener("keydown", (e) => {
+  if (e.target !== document.body) return;
+  if (e.code === "Space") { e.preventDefault(); togglePause(); }
+  if (e.code === "KeyR") { e.preventDefault(); toggleRec(); }
+});
+window.addEventListener("resize", () => { S.dirty = true; });
+
+function frame() {
+  if (S.dirty) { S.dirty = false; render(); }
+  requestAnimationFrame(frame);
+}
+// ---- studio 제어 패널 -------------------------------------------------------
+// /api/layout 이 답하면(huphy-test studio) 패널을 켬. 요청은 서버 큐로만 가고 제어
+// 루프가 다음 주기에 처리함 -- 화면은 /api/status 로 결과를 봄.
+const ST = { layout: null, status: null, frames: [] };
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? { cache: "no-store" }
+    : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json();
+}
+function lastPos(j) { const a = S.pos[j]; return a && a.length ? a[a.length - 1] : NaN; }
+
+async function studioInit() {
+  let layout;
+  try { const r = await fetch("/api/layout", { cache: "no-store" }); if (!r.ok) return; layout = await r.json(); }
+  catch (e) { return; }
+  ST.layout = layout;
+  const lim = layout.limits;
+  const joints = layout.joints.map((j) => {
+    const [lo, hi] = lim[j] || [NaN, NaN];
+    return `<label class="j">${short(j)}<input type="number" step="0.5" data-j="${j}" value="0">
+      <small>${num(lo)} ~ ${num(hi)} · 지금 <span data-now="${j}">—</span></small></label>`;
+  }).join("");
+  const gains = `<table><tr><th>모터</th><th>kp</th><th>kd</th><th>지금</th><th>yaml</th><th>상한</th></tr>` +
+    layout.motors.map((m) => {
+      const [bk, bd] = layout.base_gains[m], [mk, md] = layout.max_gains[m];
+      return `<tr><td>${m}</td>
+        <td><input type="number" min="0" max="${mk}" step="1" data-g="${m}" data-k="0"></td>
+        <td><input type="number" min="0" max="${md}" step="0.1" data-g="${m}" data-k="1"></td>
+        <td data-gnow="${m}">—</td><td>${fmt(bk)} / ${fmt(bd)}</td><td>${fmt(mk)} / ${fmt(md)}</td></tr>`;
+    }).join("") + "</table>";
+  const box = $("studio");
+  box.innerHTML = `
+    <div class="row2"><b>studio</b><span class="badge" id="st-state">—</span><span class="msg" id="st-msg"></span></div>
+    <div class="row2">
+      <button class="primary" id="st-on">토크 켜기</button>
+      <button class="danger" id="st-off">토크 끄기</button>
+      <button id="st-stop">정지 (붙잡기)</button>
+    </div>
+    <h3>게인 (양다리 공통) -- 붙잡은 상태에서만, ${layout.ramp_s}초에 걸쳐 바뀜</h3>
+    <div id="st-gains">${gains}</div>
+    <div class="row2">
+      <button id="st-gain">게인 적용</button>
+      <button id="st-gyaml">yaml 값으로 채우기</button>
+      <input type="number" id="st-gscale" min="0" step="0.1" value="0.5" title="yaml 값에 곱할 배율">
+      <button id="st-gfill">배율로 채우기</button>
+      <span class="msg">채우기는 입력칸만 바꿈. 적용을 눌러야 나감</span>
+    </div>
+    <h3>자세 (도, 발목은 모터각) -- 한계 밖이면 거부</h3>
+    <div class="grid" id="st-joints">${joints}</div>
+    <div class="row2">
+      <button id="st-fromnow">지금 자세 불러오기</button>
+      <button id="st-fromtgt">지금 목표 불러오기</button>
+      이동 <input type="number" id="st-move" min="${layout.min_move_s}" step="0.5" value="2"> 초
+      <button class="primary" id="st-go">자세 실행</button>
+      머무름 <input type="number" id="st-hold" min="0" step="0.5" value="0"> 초
+      <button id="st-add">키프레임으로 추가</button>
+    </div>
+    <h3>동작 순서</h3>
+    <div id="st-frames"></div>
+    <div class="row2">
+      반복 <input type="number" id="st-repeat" min="0" step="1" value="1" title="0 이면 무한">
+      <button class="primary" id="st-play">재생</button>
+      <span class="spacer"></span>
+      이름 <input type="text" id="st-name" placeholder="wave_1">
+      <button id="st-save">저장</button>
+      <select id="st-list"><option value="">저장된 것</option></select>
+      <button id="st-load">불러오기</button>
+    </div>`;
+  box.classList.remove("hidden");
+
+  const send = async (body) => { const r = await api("/api/command", body); if (!r.ok) $("st-msg").textContent = r.error; };
+  $("st-on").onclick = () => send({ op: "torque_on" });
+  $("st-off").onclick = () => send({ op: "torque_off" });
+  $("st-stop").onclick = () => send({ op: "stop" });
+  $("st-gain").onclick = () => send({ op: "gain", gains: readGains() });
+  $("st-gyaml").onclick = () => fillGains((m) => layout.base_gains[m]);
+  $("st-gfill").onclick = () => { const s = +$("st-gscale").value; fillGains((m) => layout.base_gains[m].map((v) => v * s)); };
+  $("st-fromnow").onclick = () => fillPose((j) => lastPos(j));
+  $("st-fromtgt").onclick = () => fillPose((j) => (ST.status && ST.status.target[j]) ?? NaN);
+  $("st-go").onclick = () => send({ op: "move", pose: readPose(), move_s: +$("st-move").value });
+  $("st-add").onclick = () => { ST.frames.push({ pose: readPose(), move_s: +$("st-move").value, hold_s: +$("st-hold").value }); drawFrames(); };
+  $("st-play").onclick = () => send({ op: "play", keyframes: ST.frames, repeat: +$("st-repeat").value });
+  $("st-save").onclick = async () => {
+    const r = await api("/api/sequence/save", { name: $("st-name").value.trim(), repeat: +$("st-repeat").value, keyframes: ST.frames });
+    $("st-msg").textContent = r.ok ? `저장: ${r.path}` : `저장 실패: ${r.error}`; listSeq();
+  };
+  $("st-load").onclick = async () => {
+    const name = $("st-list").value; if (!name) return;
+    const d = await api(`/api/sequence?name=${encodeURIComponent(name)}`);
+    if (d.error) { $("st-msg").textContent = `불러오기 실패: ${d.error}`; return; }
+    ST.frames = d.keyframes || []; $("st-name").value = d.name || name; $("st-repeat").value = d.repeat ?? 1; drawFrames();
+  };
+  document.querySelectorAll("#st-joints input").forEach((el) => el.oninput = checkLimits);
+  drawFrames(); listSeq(); studioPoll();
+}
+
+function readGains() {
+  const out = {};
+  ST.layout.motors.forEach((m) => {
+    const kp = document.querySelector(`[data-g="${m}"][data-k="0"]`).value;
+    const kd = document.querySelector(`[data-g="${m}"][data-k="1"]`).value;
+    out[m] = { kp: +kp, kd: +kd };
+  });
+  return out;
+}
+function fillGains(get) {
+  ST.layout.motors.forEach((m) => {
+    const [kp, kd] = get(m);
+    document.querySelector(`[data-g="${m}"][data-k="0"]`).value = +kp.toFixed(3);
+    document.querySelector(`[data-g="${m}"][data-k="1"]`).value = +kd.toFixed(3);
+  });
+}
+function readPose() {
+  const out = {};
+  document.querySelectorAll("#st-joints input").forEach((el) => { out[el.dataset.j] = +el.value; });
+  return out;
+}
+function fillPose(get) {
+  document.querySelectorAll("#st-joints input").forEach((el) => {
+    const v = get(el.dataset.j); if (Number.isFinite(v)) el.value = v.toFixed(1);
+  });
+  checkLimits();
+}
+function checkLimits() {
+  document.querySelectorAll("#st-joints input").forEach((el) => {
+    const [lo, hi] = ST.layout.limits[el.dataset.j] || [-Infinity, Infinity];
+    el.classList.toggle("bad", !(+el.value >= lo && +el.value <= hi));
+  });
+}
+async function listSeq() {
+  const d = await api("/api/sequences"); const sel = $("st-list");
+  sel.innerHTML = `<option value="">저장된 것</option>` + (d.names || []).map((n) => `<option>${n}</option>`).join("");
+}
+function drawFrames() {
+  const box = $("st-frames");
+  if (!ST.frames.length) { box.innerHTML = `<span class="msg">키프레임이 없음. 자세를 맞추고 '키프레임으로 추가'.</span>`; return; }
+  box.innerHTML = `<table><tr><th>#</th><th>자세</th><th>이동 s</th><th>머무름 s</th><th></th></tr>` +
+    ST.frames.map((f, i) => `<tr><td>${i + 1}</td>
+      <td style="white-space:normal;text-align:left">${Object.entries(f.pose).map(([j, v]) => `${short(j)} ${num(v)}`).join(" · ")}</td>
+      <td><input type="number" step="0.5" value="${f.move_s}" data-i="${i}" data-k="move_s"></td>
+      <td><input type="number" step="0.5" value="${f.hold_s}" data-i="${i}" data-k="hold_s"></td>
+      <td><button data-act="edit" data-i="${i}" title="입력칸으로">↧</button>
+          <button data-act="up" data-i="${i}">↑</button><button data-act="down" data-i="${i}">↓</button>
+          <button data-act="del" data-i="${i}">✕</button></td></tr>`).join("") + "</table>";
+  box.querySelectorAll("input").forEach((el) => el.onchange = () => { ST.frames[+el.dataset.i][el.dataset.k] = +el.value; });
+  box.querySelectorAll("button").forEach((b) => b.onclick = () => {
+    const i = +b.dataset.i, F = ST.frames;
+    if (b.dataset.act === "del") F.splice(i, 1);
+    if (b.dataset.act === "up" && i > 0) [F[i - 1], F[i]] = [F[i], F[i - 1]];
+    if (b.dataset.act === "down" && i < F.length - 1) [F[i + 1], F[i]] = [F[i], F[i + 1]];
+    if (b.dataset.act === "edit") { fillPose((j) => F[i].pose[j]); $("st-move").value = F[i].move_s; $("st-hold").value = F[i].hold_s; }
+    drawFrames();
+  });
+}
+async function studioPoll() {
+  try {
+    const s = await api("/api/status"); ST.status = s;
+    const st = s.state;
+    $("st-state").textContent = st; $("st-state").className = "badge " + st;
+    $("st-msg").textContent = s.message + (s.play ? ` · ${s.play.index + 1}/${s.play.count} (${s.play.round}${s.play.repeat ? "/" + s.play.repeat : ""}회)` : "");
+    ST.layout.motors.forEach((m) => {
+      const [kp, kd] = s.gains[m];
+      document.querySelector(`[data-gnow="${m}"]`).textContent = `${fmt(kp)} / ${fmt(kd)}`;
+    });
+    if (!ST.gainsFilled) { fillGains((m) => s.gains[m]); ST.gainsFilled = true; }   // 처음 한 번만
+    $("st-on").disabled = st !== "FREE";
+    $("st-off").disabled = st === "FREE";
+    $("st-stop").disabled = !(st === "MOVING" || st === "PLAYING");
+    $("st-gain").disabled = !(st === "HOLD" || st === "FREE");
+    $("st-go").disabled = st !== "HOLD";
+    $("st-play").disabled = st !== "HOLD" || !ST.frames.length;
+    ST.layout.joints.forEach((j) => { const el = document.querySelector(`[data-now="${j}"]`); if (el) el.textContent = num(lastPos(j)); });
+  } catch (e) { $("st-state").textContent = "끊김"; $("st-state").className = "badge"; }
+  setTimeout(studioPoll, 200);
+}
+
+if (location.protocol === "file:") {
+  // 파일로 열면 물어볼 서버가 없음. 영원히 "연결 중" 으로 남지 않게 알려줌.
+  $("state").textContent = "파일로 열었음 -- 서버 주소로 열 것";
+  $("dot").className = "dot bad";
+  $("wait").innerHTML = "이 파일은 직접 열면 동작하지 않음.<br>"
+    + "<b>huphy-test / huphy-run 을 --live 로 실행</b>하고 터미널에 찍힌 주소"
+    + " (예: <b>http://127.0.0.1:8770</b>) 로 여세요.";
+} else {
+  setInterval(status, 250);
+  poll(); frame(); studioInit();
+}
+</script>
+</body>
+</html>

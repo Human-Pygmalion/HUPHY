@@ -283,7 +283,13 @@ class ControlLoop:
 
         self.stats = LoopStats(target_hz=self.hz)
         self._stop = False
+        self.before_step: Optional[Callable[["ControlLoop", float], None]] = None
+        """매 주기 `step` 앞에 부름 (`(loop, t)`). **제어 스레드에서 돎.**
 
+        밖(웹 서버 등)에서 온 요청을 처리하는 자리임 -- 모드 전환·게인 교체처럼 CAN 을
+        건드리는 일은 반드시 여기서 해야 함. 다른 스레드에서 하면 루프와 동시에 버스를
+        씀. 예외가 나면 루프를 세움 (안전 쪽).
+        """
     def __repr__(self) -> str:
         return f"ControlLoop({self.robot.id}, {self.hz:.0f}Hz, {self.mode.value})"
 
@@ -379,6 +385,10 @@ class ControlLoop:
                 dt_ms = (cycle_start - previous) * 1000.0
                 previous = cycle_start
 
+                if self.before_step is not None:
+                    self.before_step(self, t)
+                    if self._stop:
+                        break
                 self.step(motion, t)
                 self._record(dt_ms)
                 self._note_timing(dt_ms)
@@ -431,6 +441,30 @@ class ControlLoop:
 
         if self.telemetry is not None:
             self.telemetry.close()
+
+    # ---- 도는 중에 모드 바꾸기 ------------------------------------------------
+    def switch_to_control(self) -> None:
+        """토크를 넣고 제어 모드로. **제어 스레드에서만** (`before_step` 안에서) 부를 것.
+
+        넣기 전에 motion 이 지금 자세를 목표로 내도록 해 둘 것 -- 아니면 켜는 순간 튐.
+        """
+        if self.mode is Mode.CONTROL:
+            return
+        self.robot.enable()
+        self.mode = Mode.CONTROL
+
+    def switch_to_observe(self) -> None:
+        """감쇠한 뒤 토크를 끊고 관찰 모드로. **제어 스레드에서만** 부를 것.
+
+        멈출 때(`_exit`)와 같은 순서임 -- 바로 끊으면 서 있는 다리가 주저앉음.
+        """
+        if self.mode is Mode.OBSERVE:
+            return
+        try:
+            self._settle()
+        finally:
+            self.robot.disable()
+            self.mode = Mode.OBSERVE
 
     def _settle(self) -> None:
         """`DAMPING_S` 초 동안 감쇠 명령을 보냄. 위치를 붙잡지 않고 속도만 죽임."""

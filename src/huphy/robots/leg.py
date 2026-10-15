@@ -68,7 +68,7 @@ import numpy as np
 from .. import calibration as calib
 from ..config.schema import LimbConfig, SafetyConfig
 from ..kinematics.ankle import AnkleKinematics, AnkleUnreachableError
-from ..motors.base import MotorCalibration
+from ..motors.base import Gains, MotorCalibration
 from ..motors.robstride.bus import MitCommand, RobStrideBus
 from ..safety import guards
 from ..sensors.group import ImuGroup
@@ -157,6 +157,10 @@ class Leg(Robot):
         ankle_kd: Tuple[float, float] = (0.0, 0.0),
     ) -> None:
         self.config = config
+        self._base_gains = {name: motor.gains for name, motor in config.motors.items()}
+        """만들 때 받은 게인. `set_gain_scale` 은 늘 여기서 배율을 곱함 -- 곱한 것에 또
+        곱하면 바꿀 때마다 쌓임. **게인만** 들고 있음 -- 설정 전체를 들고 있다가 되살리면
+        뒤에 캘리브레이션이 끼워 넣은 한계(`_set_calibration`)가 빠짐."""
         self.id = config.name
         self.bus = bus
         self.safety = safety if safety is not None else SafetyConfig()
@@ -360,6 +364,33 @@ class Leg(Robot):
 
     def disable(self) -> None:
         self.bus.disable_torque()
+
+    @property
+    def base_gains(self) -> Dict[str, Gains]:
+        """만들 때 받은 게인 (보통 `robot.yaml`). 모터 이름 -> `Gains`."""
+        return dict(self._base_gains)
+
+    def set_gains(self, gains: Mapping[str, Gains]) -> None:
+        """모터 게인을 그 값으로 바꿈. 모터 이름 -> `Gains`. 없는 모터는 그대로.
+
+        **설정에서 게인만 갈아 끼움** (한계 등 나머지는 지금 설정 그대로). 명령을 만들
+        때마다 `self.config` 의 게인을 읽으므로 다음 주기부터 적용됨. 제어 스레드에서만
+        부를 것 -- 명령을 만드는 중간에 바뀌면 한 주기 안에서 관절마다 다른 게인이 나감.
+        """
+        self.config = replace(
+            self.config,
+            motors={
+                name: replace(motor, gains=gains.get(name, motor.gains))
+                for name, motor in self.config.motors.items()
+            },
+        )
+
+    def set_gain_scale(self, scales: Mapping[str, float]) -> None:
+        """만들 때 받은 게인의 배율로 바꿈. 모터 이름 -> 배율. 없는 모터는 1."""
+        self.set_gains({
+            name: base.scaled(float(scales.get(name, 1.0)))
+            for name, base in self._base_gains.items()
+        })
 
     # ---- 캘리브레이션 -----------------------------------------------------
     @property

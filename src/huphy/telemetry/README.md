@@ -6,11 +6,15 @@ telemetry/
 ├── udp.py          UDP JSON 송신. 실시간으로 보는 것
 ├── csv_log.py      CSV 기록. 끝나고 되돌아보는 것
 ├── policy_log.py   정책이 본 입력과 낸 출력. huphy-run --log
-└── latency_log.py  관절별 응답 지연 (송신 -> 도착). huphy-run --log
+├── track_log.py    매 주기 관절 목표각과 실측각. huphy-test --log
+├── live.py         같은 값을 브라우저로 실시간. huphy-test / huphy-run --live
+├── live_viewer.html  live.py 가 내주는 화면
+└── latency_log.py  관절별 응답 지연 (송신 -> 도착). huphy-run / huphy-test --log
 ```
 
-앞의 셋은 **한 주기의 로봇 상태**(스냅샷)를 내보내고, 뒤의 둘은 그 스냅샷에 없는 것을
-따로 잡음 -- 모델이 실제로 본 벡터와, 프레임 하나하나의 왕복 시간임. 뒤의 둘을 보는
+앞의 셋은 **한 주기의 로봇 상태**(스냅샷)를 내보내고, 뒤의 셋은 `--log` 으로 켜는
+실행 기록임 -- 모델이 실제로 본 벡터, 시험 패턴의 목표·실측, 프레임 하나하나의 왕복
+시간. 뒤의 셋을 보는
 도구는 [`tools/README.md`](../../../tools/README.md).
 
 ---
@@ -344,6 +348,40 @@ UDP 는 실시간으로 보는 것이고, 이쪽은 **끝나고 나서 되돌아
 
 루프 안에서 파일을 쓰지 않음 (줄 하나에 수 µs). 50Hz 로 한 시간이 18만 줄 정도라
 메모리로 충분함. 대신 **강제로 죽으면 남지 않음.**
+
+---
+
+## `track_log.py`
+
+`huphy-test --log` 이 남김. 매 주기 한 줄.
+
+    t              첫 주기부터 흐른 초
+    tgt/<관절>     실제로 나간 관절 목표각 (도). 가드가 자른 뒤 값 (`robot.last_sent`)
+    pos/<관절>     그 명령에 대한 실측 관절각 (도)
+    imu/<이름>/<값> IMU. roll/pitch/yaw, gx/gy/gz, grav_x/y/z, ax/ay/az, age (`IMU_FIELDS`)
+
+`policy_log` 에서 정책 칸(obs/act)을 뺀 모양이라 `tools/policy_viewer.html` 로 그대로
+열림. 뷰어는 `act/` 가 없으면 관절 목록을 `tgt/` 에서 읽음.
+
+`pos` 는 motion 이 받은 관찰임 -- 직전 주기에 수거한 값이라 같은 줄 `tgt` 보다 한
+주기 앞섬. 응답이 빠진 주기는 마지막으로 받은 값이 그대로 남음.
+
+---
+
+## `live.py`
+
+`--live [PORT]` 로 켬. `track_log` 와 같은 줄을 파일 대신 메모리 고리(60초)에 쌓고,
+같은 프로세스의 HTTP 스레드가 `live_viewer.html` 과 `/data?since=<번호>` 를 내줌.
+브라우저는 0.1초마다 새 줄만 받아 그림.
+
+- 제어 루프는 줄 하나를 고리에 넣을 뿐임 (락 한 번). 브라우저가 없거나 느려도 모름
+- `0.0.0.0` 에 열어서 같은 망의 노트북에서도 봄. 읽기 전용
+- 포트가 막혀 있으면 경고만 하고 제어는 그대로 감
+- **녹화**: 화면의 녹화 버튼(`POST /record/start`, `/record/stop`)이 누른 구간을 따로
+  모아 `track_live_<이름>_<시각>.csv` 로 씀 (`track_log` 형식). 파일은 HTTP 스레드가
+  씀. 녹화 중에 끝나면 `LiveServer.stop()` 이 거기까지 저장함
+- **주기가 빠듯하면 끄고 돌릴 것.** HTTP 스레드도 GIL 을 잠깐씩 잡음 -- 끝 집계의
+  밀림으로 확인
 
 ---
 

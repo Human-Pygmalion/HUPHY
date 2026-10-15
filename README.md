@@ -551,7 +551,18 @@ huphy-test --limb right_leg zero      # 관절 전부를 0도로 두고 붙잡�
 huphy-test --limb right_leg range     # 관절마다 최소~최대를 오감
 huphy-test --limb right_leg pose 0 10 0 30 0 0    # 준 각도로 옮기고 붙잡음
 huphy-test --robot zero               # 양다리를 한 루프로
+huphy-test --robot watch              # 토크 없이 손으로 움직이며 실시간으로 보고 녹화
+huphy-test --robot studio             # 웹에서 토크·게인·자세·동작 순서를 다룸
 ```
+
+**`watch` 만 토크가 없음.** 위치만 읽어 실시간 뷰어에 띄우고(기본으로 켜짐, 포트
+8770), 화면의 녹화 버튼으로 원하는 구간을 `logs/track_live_test_watch_*.csv` 로 남김.
+다리가 중력에 처지므로 받쳐 두고 할 것.
+
+**`studio` 는 웹에서 조작함.** 힘이 풀린 채로 시작하고 `http://127.0.0.1:8770` 에
+제어 패널이 뜸 -- 토크 켜기/끄기, 모터별 kp/kd 값(양다리 공통, 붙잡은 상태에서만, 0.3초에 걸쳐), 관절별
+목표각과 이동 시간으로 자세 실행, 키프레임을 엮어 반복 재생하고 `config/sequences/`
+에 저장. 자세한 것은 [scripts/README.md](src/huphy/scripts/README.md).
 
 **Ctrl-Q 를 누를 때까지** 계속함. 사람이 답을 고르는 자리가 없어서 다리를 보거나
 그래프를 보는 데 손을 쓸 수 있음. `bringup` 이 한 관절씩 게인을 찾는 자리라면
@@ -690,7 +701,8 @@ huphy-test --robot --hz 100 --drain-ms 4 zero
 | `--period 6` | `range` 한 번 왕복하는 시간. 길수록 천천히 |
 | `--margin 5` | 한계에서 남길 여유. 한계는 하드스톱을 잰 값이라 그대로 명령하면 부딪힘 |
 | `--drain-ms 2` | 응답을 기다리는 최대 시간 (ms) |
-| `--log [DIR]` | 관절별 응답 지연을 `latency_test_<명령>_<시각>.csv` 로 남김. 폴더를 안 주면 `logs/`. `tools/latency_viewer.html` 로 봄 |
+| `--live [PORT]` | 도는 동안 관절 목표·실측을 브라우저로 봄. 기본 포트 8770. 시작할 때 주소를 찍음 ([tools/README.md](tools/README.md)) |
+| `--log [DIR]` | 매 주기 목표·실측각(`track_test_<명령>_<시각>.csv`, `tools/policy_viewer.html`)과 관절별 응답 지연(`latency_test_...csv`, `tools/latency_viewer.html`)을 남김. 폴더를 안 주면 `logs/` |
 | `--robot` | 다리 전부를 한 루프로. `--limb` 과 같이 못 씀 |
 | `--gain-scale` `--hz` `--allow-uncalibrated` | 브링업과 같음 |
 
@@ -965,6 +977,7 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 | `--hz 50` | 모터 전송 주기. **50 의 정수 배**만 받음. 정책은 늘 50Hz 로만 불리고 그 사이 주기는 직전 목표를 다시 보냄. slcan 에서는 50 |
 | `--gain-scale A [B]` | kp/kd 배율. 숫자 하나면 전체, 둘이면 **나머지 A · 발목 B** (`ankle_a`/`ankle_b`). 0 초과 1 이하. 시작 화면에 실제로 걸린 값이 찍힘 |
 | `--log [DIR]` | 정책 입출력(`policy_*.csv`)과 관절별 응답 지연(`latency_*.csv`)을 남김. 폴더를 안 주면 `logs/` |
+| `--live [PORT]` | 도는 동안 관절 목표·실측을 브라우저로 봄. 기본 포트 8770 ([tools/README.md](tools/README.md)) |
 | `--duration` `--approach` `--drain-ms` `--allow-uncalibrated` | 위와 같음 |
 
 게인을 낮추면 같은 행동에도 관절이 덜 따라가 시뮬과 다르게 움직임. 첫 통전 확인용이고,

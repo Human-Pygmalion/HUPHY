@@ -1,0 +1,43 @@
+{
+  "name": "test",
+  "ankle_space": "ab",
+  "repeat": 0,
+  "keyframes": [
+    {
+      "pose": {
+        "left_leg/hip_pitch": -10.0,
+        "left_leg/hip_roll": 10.0,
+        "left_leg/hip_yaw": -10.0,
+        "left_leg/knee": -6.0,
+        "left_leg/ankle_a": -10.0,
+        "left_leg/ankle_b": -10.0,
+        "right_leg/hip_pitch": 10.0,
+        "right_leg/hip_roll": 10.0,
+        "right_leg/hip_yaw": -10.0,
+        "right_leg/knee": 6.0,
+        "right_leg/ankle_a": -10.0,
+        "right_leg/ankle_b": -10.0
+      },
+      "move_s": 2.0,
+      "hold_s": 0.0
+    },
+    {
+      "pose": {
+        "left_leg/hip_pitch": 10.0,
+        "left_leg/hip_roll": 19.0,
+        "left_leg/hip_yaw": 10.0,
+        "left_leg/knee": -12.0,
+        "left_leg/ankle_a": 10.0,
+        "left_leg/ankle_b": 10.0,
+        "right_leg/hip_pitch": -10.0,
+        "right_leg/hip_roll": 19.0,
+        "right_leg/hip_yaw": 10.0,
+        "right_leg/knee": 12.0,
+        "right_leg/ankle_a": 10.0,
+        "right_leg/ankle_b": 10.0
+      },
+      "move_s": 2.0,
+      "hold_s": 0.0
+    }
+  ]
+}

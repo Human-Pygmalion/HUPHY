@@ -7,6 +7,7 @@ control/
 ├── policy.py    학습한 정책을 Motion 으로 만듦 (0.5 한다리·양다리)
 ├── stand.py     1.0 서기 정책. 관찰 구성이 달라 따로 둠
 ├── rsl_rl.py    체크포인트(.pt) -> 부를 수 있는 함수. numpy 만 씀
+├── studio.py    웹 요청으로 토크·게인·자세·동작 순서를 다루는 세션 (huphy-test studio)
 └── POLICY.md    정책 실행 -- 실행 방법, 제한사항, 앞으로 바꿀 것
 ```
 
@@ -493,3 +494,26 @@ id 11,12  ankle_pitch/ankle_roll -> 기구학을 거쳐 모터로
 
 시뮬에서는 발목 두 축이 독립 관절이고 각자 서보가 붙어 있음. 실물은 모터 두 개가
 로드로 둘을 같이 만들어서, `Leg` 가 `ankle_output` 에 따라 각도나 토크로 내려보냄.
+
+---
+
+## 도는 중에 바꾸기 — `before_step`, `switch_to_*`
+
+루프는 보통 시작할 때 모드를 정하고 끝까지 감. `studio` 처럼 **밖에서 온 요청**으로
+도는 중에 토크를 켜고 끄려면 두 가지를 씀.
+
+```
+loop.before_step = f          매 주기 step 앞에서 f(loop, t). 제어 스레드에서 돎
+loop.switch_to_control()      토크를 넣고 제어 모드로
+loop.switch_to_observe()      감쇠(DAMPING_S) 후 토크를 끊고 관찰 모드로
+```
+
+**CAN 을 건드리는 일은 반드시 `before_step` 안에서.** 웹 서버 같은 다른 스레드에서
+부르면 루프와 동시에 버스를 씀. 다른 스레드는 큐에 넣기만 하고 `before_step` 이 꺼내
+처리함 (`studio.Studio`).
+
+게인은 `Leg.set_gains` / `Biped.set_gains` 로 바꿈 (모터 이름 -> `Gains`). 지금 설정에서
+**게인만** 갈아 끼우고 한계 등은 그대로 둠 -- 설정 전체를 되살리면 캘리브레이션이
+끼워 넣은 한계가 빠짐. 다음 주기 명령부터 적용됨. 배율로 바꾸는 `set_gain_scale` 도
+있음 (만들 때 받은 게인 x 배율).
+

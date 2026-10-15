@@ -1,0 +1,43 @@
+{
+  "name": "walk",
+  "ankle_space": "ab",
+  "repeat": 1,
+  "keyframes": [
+    {
+      "pose": {
+        "left_leg/hip_pitch": 38.0,
+        "left_leg/hip_roll": 0.5,
+        "left_leg/hip_yaw": 0.1,
+        "left_leg/knee": -26.4,
+        "left_leg/ankle_a": 2.5,
+        "left_leg/ankle_b": -0.7,
+        "right_leg/hip_pitch": -1.0,
+        "right_leg/hip_roll": -0.4,
+        "right_leg/hip_yaw": -1.0,
+        "right_leg/knee": 9.5,
+        "right_leg/ankle_a": 12.0,
+        "right_leg/ankle_b": -11.4
+      },
+      "move_s": 2.0,
+      "hold_s": 0.0
+    },
+    {
+      "pose": {
+        "left_leg/hip_pitch": 0.0,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -6.0,
+        "left_leg/ankle_a": 0.0,
+        "left_leg/ankle_b": 0.0,
+        "right_leg/hip_pitch": -38.0,
+        "right_leg/hip_roll": 0.5,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 26.4,
+        "right_leg/ankle_a": 2.5,
+        "right_leg/ankle_b": 0.7
+      },
+      "move_s": 2.0,
+      "hold_s": 0.0
+    }
+  ]
+}

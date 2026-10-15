@@ -516,12 +516,23 @@ huphy-test --limb right_leg pose 0 10 0 30 0 0
 huphy-test --robot pose 0 10 0 30 0 0  0 10 0 30 0 0
 huphy-test --robot pose left_leg/ankle_a=10 right_leg/knee=-20
 huphy-test --robot pose --ankle-space rp left_leg/ankle_pitch=10 left_leg/ankle_roll=0
-huphy-test --robot --hz 50 --drain-ms 4 zero --log     # 지연을 logs/latency_test_zero_*.csv 로
+huphy-test --robot --hz 50 --drain-ms 4 zero --log     # 목표·실측과 지연을 logs/ 에
+huphy-test --robot --hz 50 zero --live                  # 같은 것을 브라우저로 실시간 (포트 8770)
 ```
 
-`--log [DIR]` 을 주면 `huphy-run` 과 같은 관절별 응답 지연 기록을 남김 (정책 입출력은
-없음). 끝날 때 p50/p95/p99·늦음·유실 표를 찍고 `latency_test_<명령>_<시각>.csv` 로
-씀. 첫 상태 읽기부터 잼.
+`--live [PORT]` 는 도는 동안 관절 목표·실측을 브라우저로 보여줌. `huphy-run` 에도 있음.
+화면의 **녹화** 버튼으로 누른 구간만 `logs/track_live_*.csv` 로 남길 수 있음.
+화면 설명은 [tools/README.md](../../../tools/README.md).
+
+`--log [DIR]` 을 주면 파일 둘을 남김. 정책 입출력은 없음.
+
+| 파일 | 무엇 | 볼 곳 |
+|---|---|---|
+| `track_test_<명령>_<시각>.csv` | 매 주기 관절 목표각(`tgt/`)과 실측각(`pos/`). 접근 구간부터 | `tools/policy_viewer.html` |
+| `latency_test_<명령>_<시각>.csv` | 관절별 응답 지연. 첫 상태 읽기부터. 끝날 때 p50/p95/p99 표도 찍음 | `tools/latency_viewer.html` |
+
+`zero`·`pose` 는 목표가 고정이라 실측이 거기로 어떻게 다가가고 얼마나 처지는지가
+보임. 뷰어의 "관절별 추종" 칸이 목표(점선)·실측(실선)·오차를 같이 그림.
 
 정해진 패턴으로 Ctrl-Q 를 누를 때까지 계속 움직임.
 
@@ -530,6 +541,81 @@ huphy-test --robot --hz 50 --drain-ms 4 zero --log     # 지연을 logs/latency_
 | `zero` | 관절 전부를 0도로 두고 붙잡음 | 자세가 유지되는가. 처지면 `kp` 부족, 떨면 과함 |
 | `range` | 관절마다 최소~최대를 오감 | 끝까지 가는가. 걸리는 데는 없는가 |
 | `pose` | 준 각도로 옮기고 붙잡음 | 원하는 자세를 직접 넣어 봄 |
+| `watch` | **토크를 끄고** 위치만 읽음 | 손으로 움직인 각도를 실시간으로 보고 녹화 |
+| `studio` | 웹에서 토크·게인·자세·동작 순서를 다룸 | 자세를 손으로 넣어 보고, 엮어서 반복 |
+
+### `studio` — 웹에서 자세와 동작 순서
+
+```bash
+huphy-test --robot studio                       # http://127.0.0.1:8770 (이 기계에서만)
+huphy-test --robot studio --gain-scale 0.4      # 처음 게인 = robot.yaml 값 x 0.4
+huphy-test --robot studio --open                # 같은 망의 노트북에서도 (제어가 붙음 -- 주의)
+huphy-test --robot studio --log                 # 실행 전체를 track_test_studio_*.csv 로도
+```
+
+**힘이 풀린 채로 시작함.** 실시간 뷰어 위에 제어 패널이 붙음.
+
+| 상태 | 뜻 | 할 수 있는 것 |
+|---|---|---|
+| `FREE` | 토크 없음. 위치만 읽음 | 토크 켜기, 게인 미리 정하기 (바로 걸림) |
+| `HOLD` | 지금 목표를 붙잡음 | 자세 실행, 재생, 게인 바꾸기, 토크 끄기 |
+| `RAMP` | 게인을 0.3초에 걸쳐 바꾸는 중 | 기다림 |
+| `MOVING` | 정한 시간에 자세로 이동 | 정지(그 자리 붙잡기), 토크 끄기 |
+| `PLAYING` | 키프레임을 차례로 (반복) | 정지, 토크 끄기 |
+| `DAMPING` | 토크를 끄기 전 감쇠 (5초) | 기다림 |
+
+튀지 않게 하는 것:
+
+- **토크를 켤 때 목표 = 지금 실측 자세.** 켜는 순간 당기는 힘이 없음
+- 이동과 재생은 늘 **지금 목표**에서 출발함 (처져 있어도 목표가 끊기지 않음)
+- **게인은 `HOLD` 에서만** 바꾸고 0.3초에 걸쳐 바꿈
+
+**게인은 값으로 넣음.** 모터 이름(`hip_pitch hip_roll hip_yaw knee ankle_a ankle_b`)마다
+kp/kd 한 쌍, **양다리 공통**. 표에 지금 값·robot.yaml 값·상한이 같이 나옴.
+
+- 상한은 모터 통신 형식(MIT)이 실을 수 있는 최댓값뿐임 (RS03·RS04 kp 5000, kd 100).
+  넘으면 보내는 숫자가 잘려 적은 값과 다른 게인이 나가서 거부함. **robot.yaml 값은
+  상한이 아님** -- 처음 값(`--gain-scale` 을 곱함)과 기준으로만 씀
+- "yaml 값으로 채우기", "배율로 채우기" 는 입력칸만 채움. "게인 적용" 을 눌러야 나감
+- 게인은 동작 순서 파일에 안 들어감 -- 튜닝 값이라 동작과 따로 둠
+- robot.yaml 에서 양다리 값이 다르면 시작할 때 알리고 첫 다리 값을 기준으로 씀
+- 목표가 한계 밖이면 실행 전에 거부함. 가드는 그대로 걸려 있음
+- 이동 시간은 0.2초 이상
+- 이동·재생 중 **화면이 5초 끊기면** 그 자리를 붙잡음
+
+웹 요청은 큐에만 들어가고 **제어 루프가 다음 주기 앞에서 처리함** (`ControlLoop.before_step`).
+웹 서버 스레드가 직접 토크를 켜거나 게인을 바꾸면 루프와 동시에 버스를 씀.
+
+발목은 **모터각**(`ankle_a`/`ankle_b`)으로 받음 (`pose --ankle-space ab` 와 같음). 동작
+순서 파일(`config/sequences/<이름>.json`)도 모터각이고 `ankle_space: ab` 를 적어 둠.
+
+```json
+{"name": "wave_1", "ankle_space": "ab", "repeat": 0,
+ "keyframes": [{"pose": {"right_leg/knee": 40.0, "...": 0}, "move_s": 2.0, "hold_s": 0.5}]}
+```
+
+`repeat` 0 은 무한. 패널의 "지금 자세 불러오기" 를 쓰면 토크를 끈 채 손으로 자세를 잡고
+그대로 키프레임으로 만들 수 있음.
+
+### `watch` — 손으로 움직이는 것을 기록
+
+```bash
+huphy-test --robot watch                 # 실시간 뷰어가 기본으로 켜짐 (8770)
+huphy-test --robot watch --log           # 실행 전체도 logs/track_test_watch_*.csv 로
+```
+
+제어 루프를 관찰 모드로 돌림 -- 들어갈 때 토크를 끊고, 힘이 0인 명령(kp = kd = 토크
+= 0)을 보내 그 응답으로 위치를 받음. MIT 모드에는 읽기 전용 명령이 없음. 관찰 모드에서는
+motion 이 안 불리므로 기록기(`track_log.ObservationTap`)를 루프의 텔레메트리 자리에
+꽂아 매 주기 관찰을 받음.
+
+| 기록 | 열 |
+|---|---|
+| 관절 | 다리마다 `hip_pitch hip_roll hip_yaw knee`, 발목 자세 `ankle_pitch ankle_roll`, 발목 모터 `ankle_a ankle_b` 의 `pos/` |
+| IMU | `imu/<이름>/...` (붙어 있으면) |
+
+목표가 없어 `tgt/` 열이 없음. 실시간 뷰어와 `policy_viewer` 는 그때 실측만 그리고, 관절
+칸 머리에 지금 값과 보이는 창의 범위(어디서 어디까지 움직였나)를 보여줌.
 
 ### `pose` 의 각도 넣는 법
 
@@ -676,6 +762,7 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 | `--drain-ms` | `2` | 응답 대기. slcan(1.0) 이면 `--hz 50 --drain-ms 4` |
 | `--gain-scale A [B]` | `1.0` | kp/kd 배율. 하나면 전체, 둘이면 나머지 A · 발목(`ANKLE_MOTORS`) B |
 | `--log [DIR]` | 끔 | 정책 입출력과 응답 지연 기록. 폴더를 안 주면 `logs/` |
+| `--live [PORT]` | 끔 | 도는 동안 관절 목표·실측을 브라우저로. 포트를 안 주면 8770 |
 
 **게인 배율은 `build_leg` 가 함** -- `gain_scale` 이 전체 배율이고 `joint_gain_scale`
 (관절 이름 -> 배율)이 그 관절만 덮어씀. 발목 토크 경로(`--ankle-output torque`)의 관절 PD

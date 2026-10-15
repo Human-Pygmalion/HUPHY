@@ -4,12 +4,13 @@
 tools/
 ├── policy_viewer.html    정책 입출력 기록을 재생하듯 봄
 ├── latency_viewer.html   관절별 응답 지연 히스토그램
+│   (실시간 뷰어)          huphy-test / huphy-run --live -- 도는 동안 목표·실측
 └── imu_viewer.py         정책이 받는 IMU 값을 실시간으로 보고 단위·좌표계를 검사
 ```
 
 **셋 다 외부 라이브러리가 없음.** 로봇(Jetson)에서 인터넷 없이 열려야 해서임. html 은
 브라우저로 열고 파일을 끌어다 놓거나 "파일 열기" 로 고름. 기록 파일은 `huphy-run --log`
-이 `logs/` 에 남김.
+과 `huphy-test --log` 이 `logs/` 에 남김.
 
 ```bash
 huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt \
@@ -17,6 +18,11 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 # 끝나면
 #   logs/policy_stand_<날짜_시각>.csv    -> policy_viewer.html
 #   logs/latency_stand_<날짜_시각>.csv   -> latency_viewer.html
+
+huphy-test --robot --hz 50 --drain-ms 4 zero --log
+# 끝나면
+#   logs/track_test_zero_<날짜_시각>.csv    -> policy_viewer.html (목표·실측만)
+#   logs/latency_test_zero_<날짜_시각>.csv  -> latency_viewer.html
 ```
 
 ---
@@ -34,6 +40,7 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 | `act/<관절>` | 모델 출력 그대로 (배율·기본자세 입히기 전) | — |
 | `tgt/<관절>` | 관절 목표각. 루프에 실제로 넘긴 것 | 도 |
 | `pos/<관절>` | 그 순간의 실측 관절각 | 도 |
+| `imu/<이름>/<값>` | IMU. `huphy-test --log`·실시간 녹화에만 있음. roll/pitch/yaw, gx/gy/gz, grav_x/y/z, ax/ay/az, age | 도, 도/초, —, m/s², ms |
 
 `stand` 의 관찰은 `obs/gyro/{x,y,z}`, `obs/grav/{x,y,z}`, `obs/q_prev/<관절>`,
 `obs/q/<관절>`, `obs/last_act/<관절>`, `obs/cmd/{vx,vy,wz}` 순서임 (45칸).
@@ -50,6 +57,10 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 
 오차는 파일에 없고 열 때 `tgt − pos` 로 계산함. 예전 기록도 그대로 열림.
 
+**`huphy-test` 기록(`track_*.csv`)도 열림.** `t`, `tgt/`, `pos/`, `imu/` 만 있는 파일임 --
+관절 목록을 `tgt/` 에서 읽고, 관찰·행동 그래프 대신 IMU 그래프(자세·각속도 기본)가 나옴. 목표가 고정인 `zero`·`pose` 에서
+실측이 어떻게 따라가고 얼마나 처지는지 보는 용도.
+
 | 조작 | |
 |---|---|
 | 재생 · 속도 | 0.25x ~ 4x |
@@ -61,6 +72,45 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 
 **정책이 한 번도 안 불리면(Enter 를 안 누름) 기록이 안 남음.** 메모리에 쌓았다가 끝날
 때 쓰므로 강제로 죽인 실행도 안 남음.
+
+---
+
+## 실시간 뷰어 (`--live`)
+
+`policy_viewer` 의 "관절별 추종" 을 **도는 동안** 보는 화면. 파일이 아니라 실행 중인
+`huphy-test` / `huphy-run` 이 직접 내줌 (`src/huphy/telemetry/live_viewer.html`).
+
+```bash
+huphy-test --robot --hz 50 zero --live          # 포트 8770
+huphy-run --robot --policy stand --ankle-space ab --hz 50 --live 8771
+# 시작할 때 주소를 찍음
+#   실시간 뷰어  http://127.0.0.1:8770   http://192.168.0.x:8770
+```
+
+| 화면 | 무엇 |
+|---|---|
+| 관절별 | 관절마다 목표(점선)·실측(실선)·사이 칠함. 머리에 지금 값과 보이는 창의 RMS·최대 오차 |
+| 오차 | 고른 관절의 목표 − 실측을 한 그래프에 (끌 수 있음) |
+| IMU | 자세(roll/pitch/yaw)·각속도가 기본. 옆 패널에서 중력방향·가속도·수신 나이를 켬. 머리 줄에 축별 지금 값 |
+| 지금 값 | 관절별 목표·실측·오차 표 |
+| 녹화 / `R` | 누른 때부터 정지까지를 CSV 로 저장. 다시 누르면 정지하고 저장 |
+| 멈춤 / `Space` | 화면만 멈춤. 받기는 계속함 |
+| 창 | 5/10/30/60 s. 가로축은 "지금으로부터 몇 초 전" |
+
+**녹화 파일**은 `logs/track_live_<이름>_<날짜_시각>.csv` (`--log DIR` 을 줬으면 그
+폴더). 형식이 `track_*.csv` 와 같아서 위 `policy_viewer.html` 로 열림. 저장한 경로는
+화면 머리와 터미널에 찍힘. 녹화 중에 실행이 끝나면 거기까지 저장함. 녹화는 60초
+화면 고리와 따로 모으므로 길게 해도 잘리지 않음.
+
+`huphy-test studio` 면 이 화면 위에 **제어 패널**이 붙음 (토크·게인·자세·동작 순서).
+설명은 [scripts/README.md](../src/huphy/scripts/README.md) 의 `studio`.
+
+`huphy-test watch`(토크 없이 손으로)는 목표가 없어 **실측만** 그림. 관절 칸 머리에
+지금 값과 보이는 창의 범위가 나오고 오차 그래프는 꺼짐. 녹화 파일도 `tgt/` 없이
+`pos/`·`imu/` 만 있고 `policy_viewer.html` 로 그대로 열림.
+
+실행이 끝나면 "끊김" 으로 바뀌고 마지막 화면이 남음. 같은 포트로 새로 실행하면 알아서
+처음부터 다시 그림. `--log` 와 같이 켜도 됨 -- 실시간으로 보고 파일로도 남김.
 
 ---
 

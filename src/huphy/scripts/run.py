@@ -103,7 +103,7 @@ from ..config import ConfigError, load_robot
 from ..control import ControlLoop, Mode, held, policy, rsl_rl, stand
 from ..motors.base import Gains
 from ..motors.canbus import DEFAULT_DRAIN_S, bring_up_hint
-from ..telemetry import latency_log, policy_log
+from ..telemetry import latency_log, live, policy_log
 from . import failures
 from .bringup import build_biped, build_leg
 from .commission import CONFIG_NAME, _find_config, _pick_limb, all_legs
@@ -318,6 +318,13 @@ def build_parser() -> argparse.ArgumentParser:
             "kp/kd 배율. 숫자 하나면 전체, 둘이면 '나머지 발목' 순서 "
             "(예: --gain-scale 0.5 0.8). 기본 1.0. 정책은 학습 게인을 전제로 하므로 "
             "낮추면 시뮬과 다르게 움직임 -- 첫 통전 확인용"
+        ),
+    )
+    p.add_argument(
+        "--live", nargs="?", const=live.DEFAULT_PORT, type=int, metavar="PORT",
+        help=(
+            f"도는 동안 관절 목표·실측을 브라우저로 봄. 포트를 안 주면 {live.DEFAULT_PORT}. "
+            "같은 망의 다른 기계에서도 열림"
         ),
     )
     p.add_argument(
@@ -616,9 +623,22 @@ def main(argv=None) -> int:
     if args.hz != POLICY_HZ:
         motion = held(motion, inner_hz=POLICY_HZ, outer_hz=args.hz)
 
+    # 실시간 뷰어는 루프에 넘기는 쪽만 감쌈. EnterWatcher 는 원래 motion 의 start()
+    # 를 불러야 함.
+    looped, server = motion, None
+    if args.live is not None:
+        feed = live.LiveFeed(
+            hz=args.hz, title=f"huphy-run {args.policy} · {leg.id}",
+            name=args.policy, save_dir=args.log or Path("logs"),
+            robot=leg,
+        )
+        server = live.start(feed, args.live)
+        if server is not None:
+            looped = feed.wrap_motion(motion)
+
     try:
         with EnterWatcher(motion, loop):
-            stats = loop.run(motion, duration_s=args.duration)
+            stats = loop.run(looped, duration_s=args.duration)
         print("\n" + failures.report(leg, stats))
         if stats.link_loss is not None:
             # 정상 종료와 구분되어야 함 -- 둘 다 조용히 끝남.
@@ -629,6 +649,8 @@ def main(argv=None) -> int:
     finally:
         leg.disconnect()
         print("\n  종료. 토크가 끊겼음")
+        if server is not None:
+            server.stop()
         if log is not None:
             _save_log(log, args)
         if latency is not None:

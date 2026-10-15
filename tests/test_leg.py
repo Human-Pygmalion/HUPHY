@@ -444,6 +444,19 @@ class TestCalibration:
             entry.zero_reference = "편 상태"
         assert build(calibration=cal).is_calibrated is True
 
+    def test_gain_scale_keeps_the_calibrated_limits(self, fake_can):
+        """`set_gain_scale` 이 게인만 바꿔야 함. 설정을 통째로 되살리면 캘리브레이션이
+        끼워 넣은 한계가 빠져 `studio` 에서 토크를 켤 때 "미설정 관절" 로 거부됐음."""
+        cal = measured()
+        for entry in cal.values():
+            entry.zero_reference = "편 상태"
+        leg = build(calibration=cal)
+        leg.set_gain_scale({"knee": 0.5})
+        assert leg.is_calibrated is True
+        assert leg.config.motors["knee"].gains.kp == pytest.approx(15.0)
+        leg.set_gain_scale({"knee": 1.0})                 # 배율은 쌓이지 않음
+        assert leg.config.motors["knee"].gains.kp == pytest.approx(30.0)
+
     def test_enable_refuses_when_uncalibrated(self, fake_can):
         cfg = leg_config()
         bus = RobStrideBus(CanBus(cfg.channel), cfg.motors_by_id())
