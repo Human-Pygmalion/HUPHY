@@ -12,6 +12,7 @@ build_log.md       무엇을 어떤 순서로 만들었나. 각 단계의 중점
 issues.md          구현하면서 마주친 판단·미확인 사항
 motor_setup.md     출하 상태 모터 세팅. 보낼 프레임까지
 candlelight.md     USB-CAN 어댑터를 slcan 에서 candleLight(gs_usb) 로 전환
+can_communication.md  CAN 통신 진단 기록. 무엇이 문제였고 지금 어떻게 보내고 세나
 monitoring.md      무엇을 왜 보는가
 ```
 
@@ -33,6 +34,7 @@ monitoring.md      무엇을 왜 보는가
 | 그래프에서 무엇을 보나 | [monitoring.md](monitoring.md) |
 | 갓 뜯은 모터를 어떻게 세팅하나 | [motor_setup.md](motor_setup.md) |
 | CAN 지연·유실을 어떻게 줄이나 | [candlelight.md](candlelight.md) |
+| 응답이 왜 빠졌나, 늦음·유실은 어떻게 세나 | [can_communication.md](can_communication.md) |
 
 ---
 
