@@ -85,6 +85,11 @@ gravity_from_quat(quat)               # EBIMU
 gravity_from_euler(roll, pitch)       # Xsens. ZYX 순서를 전제함
 ```
 
+**축이 각속도·가속도와 같아야 함.** EBIMU 는 쿼터니언만 `(X, -Y, -Z)` 축(X 앞 / Y
+오른쪽 / Z 아래) 기준으로 보내서, `to_quaternion` 이 순서를 바꾸면서 y, z 부호도
+뒤집음. 안 뒤집으면 중력의 **x 성분만** 부호가 반대로 나옴 -- 크기는 1 이라 검사로
+안 잡히고, `huphy-imu check` 의 가속도계 대조에서만 드러남 (0.5 가까이 벌어짐).
+
 원본 자세는 `extra` 로 감. 그래프에는 그대로 나옴.
 
 ### `extra` 는 센서마다 다름

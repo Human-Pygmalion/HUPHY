@@ -22,7 +22,7 @@ FULL = ("quat", "gyro", "accel", "dist", "temp", "time")
 LINE = (
     "*-0.0885,0.3304,0.2432,0.9077,"      # quat  z, y, x, w
     "1.20,-0.45,0.33,"                     # gyro  도/초
-    "-0.643,0.383,0.663,"                  # accel g
+    "0.643,0.383,0.663,"                   # accel g. 위 자세의 중력과 맞춘 값 (도면 축)
     "0.012,-0.003,0.001,"                  # dist  m
     "31.4,"                                # temp
     "12345"                                # time  ms
@@ -123,10 +123,26 @@ class TestParse:
         assert protocol.parse_fields(LINE + ",A3F1", FULL) is not None
 
     def test_quaternion_order_is_flipped(self):
-        """센서는 (z, y, x, w) 로 보냄. 저장소 안에서는 (w, x, y, z) 임."""
+        """센서는 (z, y, x, w) 로 보냄. 저장소 안에서는 (w, x, y, z) 이고, 센서 축이
+        (X, -Y, -Z) 라 y, z 부호를 뒤집어 도면 축으로 옮김."""
         assert protocol.to_quaternion((-0.0885, 0.3304, 0.2432, 0.9077)) == (
-            0.9077, 0.2432, 0.3304, -0.0885,
+            0.9077, 0.2432, -0.3304, 0.0885,
         )
+
+    def test_nose_up_gives_negative_gravity_x(self):
+        """기수를 들면(피치 +, 도면 Y 축 기준 오른손) 중력의 x 성분은 음수여야 함.
+
+        센서 축은 Y 가 반대라, 센서 쿼터니언에서는 같은 자세가 y 성분이 음수로 옴.
+        부호를 안 뒤집으면 여기서 x 가 양수로 나옴 -- 고치기 전의 버그.
+        """
+        import math
+
+        half = math.radians(15.0) / 2.0
+        # 센서 기준 (w, x, y, z) = (cos, 0, -sin, 0) 을 센서 순서 (z, y, x, w) 로
+        packed = (0.0, -math.sin(half), 0.0, math.cos(half))
+        g = gravity_from_quat(protocol.to_quaternion(packed))
+        assert g[0] == pytest.approx(-math.sin(math.radians(15.0)))
+        assert g[2] == pytest.approx(-math.cos(math.radians(15.0)))
 
     def test_accel_becomes_mps2(self):
         """센서는 g 로 보냄."""
@@ -140,19 +156,20 @@ class TestParse:
     def test_gravity_comes_from_the_quaternion(self):
         state = protocol.decode(LINE, FULL)
         assert state.gravity == pytest.approx(
-            gravity_from_quat((0.9077, 0.2432, 0.3304, -0.0885))
+            gravity_from_quat((0.9077, 0.2432, -0.3304, 0.0885))
         )
 
     def test_euler_is_added_for_the_graph(self):
         """쿼터니언을 받아도 사람은 자세를 도로 봄. 제어 경로는 아님."""
         extra = protocol.decode(LINE, FULL).extra
         assert extra["roll"] == pytest.approx(30.0, abs=0.1)
-        assert extra["pitch"] == pytest.approx(40.0, abs=0.1)
+        # 센서 축의 Y 가 도면과 반대라 도면 기준 피치는 부호가 바뀜 (to_quaternion)
+        assert extra["pitch"] == pytest.approx(-40.0, abs=0.1)
 
     def test_blocks_that_are_off_stay_at_zero(self):
         """열이 나타났다 사라지면 CSV 가 밀림. 키는 늘 냄."""
         state = protocol.decode(
-            "*-0.0885,0.3304,0.2432,0.9077,1.2,-0.45,0.33,-0.643,0.383,0.663",
+            "*-0.0885,0.3304,0.2432,0.9077,1.2,-0.45,0.33,0.643,0.383,0.663",
             ("quat", "gyro", "accel"),
         )
         assert state.extra["dx"] == 0.0
