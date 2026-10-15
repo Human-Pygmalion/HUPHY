@@ -53,7 +53,7 @@ from ..motors.base import Gains
 from ..motors.canbus import CanBus, bring_up_hint
 from ..motors.robstride.bus import RobStrideBus
 from ..robots.biped import Biped
-from ..robots.leg import ANKLE_JOINTS, SINGLE_JOINTS, Leg
+from ..robots.leg import ANKLE_JOINTS, SEND_BURST, SINGLE_JOINTS, Leg
 from ..sensors import make_imus
 from . import table
 from .commission import CONFIG_NAME, _find_config, _pick_limb
@@ -82,6 +82,7 @@ def build_leg(
     reader: bool = False,
     imus: Optional[List[object]] = None,
     drain_s: Optional[float] = None,
+    send_mode: str = SEND_BURST,
 ) -> Leg:
     """설정에서 다리 하나를 만듦.
 
@@ -148,6 +149,7 @@ def build_leg(
         ankle_output=ankle_output,
         ankle_kp=ankle_kp,
         ankle_kd=ankle_kd,
+        send_mode=send_mode,
     )
 
 

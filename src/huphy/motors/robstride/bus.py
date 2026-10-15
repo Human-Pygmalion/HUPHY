@@ -45,7 +45,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 from ..base import Motor, MotorFault, MotorState, MotorsBus, resolve_motor_list
 from ..canbus import DEFAULT_DRAIN_S, CanBus, CanFrame
@@ -284,8 +284,31 @@ class RobStrideBus(MotorsBus):
         """
         wait = self.drain_s if timeout_s is None else float(timeout_s)
         frames = self.bus.drain(expect=expect, timeout_s=wait)
+        seen = self._absorb(frames)
+        return [mid for mid in self.motor_ids if mid not in seen]
 
-        seen = set()
+    def collect_until(self, motor_id: int, *, timeout_s: Optional[float] = None) -> Set[int]:
+        """`motor_id` 의 응답이 올 때까지 받음. **받은 모든 모터 id** 를 반환함.
+
+        하나씩 보내기(`Leg.send_mode == "seq"`)가 씀 -- 한 모터에 보내고 그 응답을
+        받은 뒤 다음 모터로 감. 기다리는 동안 다른 모터의 늦은 응답이 들어오면 그것도
+        해석해 캐시에 넣음 (버리면 그 모터가 무응답으로 잡힘).
+
+        `timeout_s` 를 안 주면 `self.drain_s` 를 씀 -- 이 모터 하나에 쓰는 시간임.
+        """
+        wait = self.drain_s if timeout_s is None else float(timeout_s)
+        deadline = time.monotonic() + max(0.0, wait)
+        seen: Set[int] = set()
+        while motor_id not in seen:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            seen |= self._absorb(self.bus.drain(expect=1, timeout_s=remaining))
+        return seen
+
+    def _absorb(self, frames: Iterable[CanFrame]) -> Set[int]:
+        """응답 프레임을 해석해 캐시에 넣음. 해석된 모터 id 를 반환함."""
+        seen: Set[int] = set()
         now = time.monotonic()
         for f in frames:
             try:
@@ -306,8 +329,7 @@ class RobStrideBus(MotorsBus):
             seen.add(mid)
             if self.latency is not None:
                 self._note_received(mid, f.stamp)
-
-        return [mid for mid in self.motor_ids if mid not in seen]
+        return seen
 
     def _encoding_for_frame(self, frame: CanFrame) -> tables.EncodingRange:
         """응답 프레임의 인코딩 범위를 고름.

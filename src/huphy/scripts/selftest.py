@@ -93,6 +93,8 @@ from ..robots.leg import (
     ANKLE_JOINTS,
     ANKLE_MOTORS,
     ANKLE_SPACE_MOTOR,
+    SEND_BURST,
+    SEND_MODES,
     SINGLE_JOINTS,
     Leg,
 )
@@ -753,6 +755,16 @@ def _add_common(parser, *, suppress: bool) -> None:
         ),
     )
     parser.add_argument(
+        "--send-mode",
+        choices=SEND_MODES,
+        default=default(SEND_BURST),
+        help=(
+            "명령을 버스에 내는 방식. burst=6개를 연달아 보내고 모음 (기본), "
+            "seq=한 모터씩 보내고 응답을 받은 뒤 다음. RobStride 응답은 모든 모터가 "
+            "같은 CAN id 라 burst 에서 응답이 겹치면 둘 다 깨짐 -- seq 는 안 겹침"
+        ),
+    )
+    parser.add_argument(
         "--gain-scale",
         type=float,
         default=default(1.0),
@@ -911,6 +923,7 @@ def main(argv=None) -> int:
         gain_scale=1.0 if args.command == "studio" else args.gain_scale,
         allow_uncalibrated=args.allow_uncalibrated,
         drain_s=args.drain_ms / 1000.0,
+        send_mode=args.send_mode,
     )
 
     # 팔다리가 하나면 다리 그대로 씀 -- 관절 이름에 접두어가 붙지 않아 화면과

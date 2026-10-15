@@ -69,7 +69,7 @@ from .. import calibration as calib
 from ..config.schema import LimbConfig, SafetyConfig
 from ..kinematics.ankle import AnkleKinematics, AnkleUnreachableError
 from ..motors.base import Gains, MotorCalibration
-from ..motors.robstride.bus import MitCommand, RobStrideBus
+from ..motors.robstride.bus import PASSIVE, MitCommand, RobStrideBus
 from ..safety import guards
 from ..sensors.group import ImuGroup
 from .base import Action, Observation, Robot
@@ -125,6 +125,21 @@ MIT 프레임은 하나고 칸이 다섯임 (q, dq, kp, kd, tau_ff). 두 가지 
 달라짐. 관절 토크를 만들어 야코비안으로 내리면 그 비가 보정됨.
 """
 
+SEND_BURST = "burst"
+SEND_SEQ = "seq"
+SEND_MODES = (SEND_BURST, SEND_SEQ)
+"""명령을 버스에 내는 방식.
+
+    burst   모터 6개에 연달아 보내고 응답을 모음. 응답이 서로 겹칠 수 있음
+    seq     한 모터에 보내고 그 응답을 받은 뒤 다음 모터. 한 버스에서 응답이 안 겹침
+
+**RobStride MIT 응답은 모든 모터가 같은 CAN id(호스트 id)를 씀.** 두 모터가 같은
+순간에 응답을 시작하면 id 가 같아 CAN 중재로 순서가 안 정해지고 데이터에서 부딪힘 --
+둘 다 깨지고, 재전송이 다시 부딪히면 결국 빠짐. 2026-10-15 실측(gs_usb, 토크 0 상태
+조회 1800프레임): burst 7.6~9.0% 유실(빠질 때 둘씩), seq 0%. seq 의 한 다리 6모터는
+p50 4.3ms / p95 5.3ms 로 burst 의 마지막 응답(약 3.5ms)보다 1ms 남짓 김.
+"""
+
 
 class Leg(Robot):
     """다리 하나. CAN 채널 하나를 씀.
@@ -155,6 +170,7 @@ class Leg(Robot):
         ankle_output: str = ANKLE_POSITION,
         ankle_kp: Tuple[float, float] = (0.0, 0.0),
         ankle_kd: Tuple[float, float] = (0.0, 0.0),
+        send_mode: str = SEND_BURST,
     ) -> None:
         self.config = config
         self._base_gains = {name: motor.gains for name, motor in config.motors.items()}
@@ -177,6 +193,20 @@ class Leg(Robot):
         한 실행 안에서 바뀌지 않음 -- 브링업은 위치로, 정책 실행은 토크로 만듦.
         섞어 쓸 일이 생기면 그때 주기마다 바꾸는 길을 내면 됨.
         """
+
+        if send_mode not in SEND_MODES:
+            raise ValueError(
+                f"{config.name}: send_mode 는 {SEND_MODES} 중 하나여야 함 (받은 값 {send_mode!r})"
+            )
+        self.send_mode = send_mode
+        """명령을 버스에 내는 방식. `SEND_MODES` 참조.
+
+        `seq` 면 `send()` 가 모터마다 보내고 그 응답을 받은 뒤 다음으로 감 -- 송신과
+        수거가 `send()` 안에서 끝나고 `collect()` 는 결과만 정리함. `collect()` 를 안
+        부르는 경로가 생겨도 명령은 나감.
+        """
+        self._seq_pending: Tuple[Tuple[int, MitCommand], ...] = ()
+        self._seq_seen: set = set()
 
         self.ankle_kp = (float(ankle_kp[0]), float(ankle_kp[1]))
         self.ankle_kd = (float(ankle_kd[0]), float(ankle_kd[1]))
@@ -725,13 +755,48 @@ class Leg(Robot):
         return out
 
     def send(self, commands: Mapping[int, MitCommand]) -> int:
-        """계산된 명령을 보냄. **수거하지 않음.**
+        """계산된 명령을 보냄. `burst` 면 **수거하지 않음.**
 
         보낸 대상을 기억해 둠 — 응답은 **명령을 받은 모터만** 보내므로, 기다릴
         개수가 명령한 개수임. 전체를 기다리면 명령하지 않은 모터가 무응답으로 잡힘.
+
+        `seq` 면 모터마다 보내고 응답을 받음 (`_seq_*`). 수거까지 여기서 끝남.
         """
+        if self.send_mode == SEND_SEQ:
+            self._seq_begin(commands)
+            for i in range(len(self._seq_pending)):
+                self._seq_wait(self._seq_send(i))
+            return len(self._seq_pending)
         self._awaiting = tuple(commands)
         return self.bus.send_mit(dict(commands))
+
+    # ---- 하나씩 보내기 (seq) ------------------------------------------------
+    # 모든 모터가 같은 응답 id(호스트 id)로 답하므로, 몰아서 보내면 두 응답이 동시에
+    # 시작될 때 CAN 중재가 성립하지 않아 둘 다 깨짐. 한 버스에서 응답을 하나씩 받으면
+    # 겹칠 일이 없음. `Biped` 는 다리끼리 엇갈려 부름 -- 버스가 따로라 동시에 감.
+    def _seq_begin(self, commands: Mapping[int, MitCommand]) -> None:
+        self._awaiting = tuple(commands)
+        self._seq_pending = tuple(commands.items())
+        self._seq_seen = set()
+
+    def _seq_send(self, index: int) -> Optional[int]:
+        """`index` 번째 명령을 보냄. 보낸 모터 id, 남은 것이 없으면 `None`."""
+        if index >= len(self._seq_pending):
+            return None
+        motor_id, command = self._seq_pending[index]
+        self.bus.send_mit({motor_id: command})
+        return motor_id
+
+    def _seq_wait(self, motor_id: Optional[int]) -> None:
+        if motor_id is not None:
+            self._seq_seen |= self.bus.collect_until(motor_id)
+
+    def _seq_finish(self) -> Tuple[int, ...]:
+        """받은 것을 정리함. 응답이 없었던 모터 id (명령한 것 중에서)."""
+        missing = [m for m in self.bus.motor_ids if m not in self._seq_seen]
+        self._note_link(missing)
+        self._update_ankle_pose()
+        return tuple(m for m in missing if m in self._awaiting)
 
     def refresh(self) -> Tuple[int, ...]:
         """명령하지 않고 상태만 읽음. 응답이 없었던 모터 id 를 반환함.
@@ -741,6 +806,10 @@ class Leg(Robot):
 
         관찰 모드와 시작 직전에 씀.
         """
+        if self.send_mode == SEND_SEQ:
+            self.bus.bus.flush_rx()
+            self.send({m: PASSIVE for m in self.config.motor_ids})
+            return self._seq_finish()
         self._awaiting = tuple(self.config.motor_ids)
         missing = self.bus.refresh_states()
         self._note_link(missing)
@@ -749,6 +818,8 @@ class Leg(Robot):
 
     def collect(self) -> Tuple[int, ...]:
         """응답을 수거함. **직전에 명령한 모터만** 기다림."""
+        if self.send_mode == SEND_SEQ:
+            return self._seq_finish()
         missing = self.bus.collect(expect=len(self._awaiting))
         self._note_link(missing)
         self._update_ankle_pose()

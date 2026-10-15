@@ -103,6 +103,7 @@ from ..config import ConfigError, load_robot
 from ..control import ControlLoop, Mode, held, policy, rsl_rl, stand
 from ..motors.base import Gains
 from ..motors.canbus import DEFAULT_DRAIN_S, bring_up_hint
+from ..robots.leg import SEND_BURST, SEND_MODES
 from ..telemetry import latency_log, live, policy_log
 from . import failures
 from .bringup import build_biped, build_leg
@@ -302,6 +303,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             f"응답을 기다리는 최대 시간(ms). 기본 {DEFAULT_DRAIN_S * 1000.0:g}. "
             f"늘리면 늦은 응답을 받지만 모터가 죽으면 매 주기 그만큼 씀"
+        ),
+    )
+    p.add_argument(
+        "--send-mode", choices=SEND_MODES, default=SEND_BURST,
+        help=(
+            "명령을 버스에 내는 방식. burst=6개를 연달아 보내고 모음 (기본), "
+            "seq=한 모터씩 보내고 응답을 받은 뒤 다음. RobStride 응답은 모든 모터가 "
+            "같은 CAN id 라 burst 에서 응답이 겹치면 둘 다 깨짐 -- seq 는 안 겹침"
         ),
     )
     p.add_argument(
@@ -515,6 +524,7 @@ def main(argv=None) -> int:
         joint_gain_scale={name: ankle_scale for name in ANKLE_MOTORS},
         allow_uncalibrated=args.allow_uncalibrated,
         drain_s=args.drain_ms / 1000.0,
+        send_mode=args.send_mode,
         ankle_output=args.ankle_output,
     )
     if not standing:

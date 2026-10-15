@@ -66,8 +66,10 @@ import logging
 from typing import Any, Dict, Iterable, Optional, Sequence, Tuple
 
 from ..config.schema import SafetyConfig
+from ..motors.robstride.bus import PASSIVE
 from ..sensors.group import ImuGroup
 from .base import Action, Commands, Observation, Robot
+from .leg import SEND_SEQ
 
 logger = logging.getLogger(__name__)
 
@@ -376,6 +378,10 @@ class Biped(Robot):
         팔다리 순서대로 보냄. 순차 전송이라 프레임 사이의 지연은 남지만, 응답
         대기가 사이에 끼지 않는 것이 핵심임 — 대기는 수거로 미뤄져 있음.
         """
+        if self._all_seq():
+            for part in self.parts:
+                part._seq_begin(commands.get(part.id, {}))
+            return self._seq_run()
         sent = 0
         for part in self.parts:
             sent += part.send(commands.get(part.id, {}))
@@ -387,10 +393,47 @@ class Biped(Robot):
         **하나가 실패해도 나머지를 수거함.** 여기서 멈추면 멀쩡한 다리의 상태가
         직전 주기 값에 머물러, 가드가 옛 위치로 점프를 판정함.
         """
+        if self._all_seq():
+            return self._gather("_seq_finish")
         return self._gather("collect")
 
     def refresh(self) -> Tuple[Any, ...]:
+        if self._all_seq():
+            for part in self.parts:
+                part.bus.bus.flush_rx()
+                part._seq_begin({m: PASSIVE for m in part.config.motor_ids})
+            self._seq_run()
+            return self._gather("_seq_finish")
         return self._gather("refresh")
+
+    # ---- 하나씩 보내기 (seq) ------------------------------------------------
+    def _all_seq(self) -> bool:
+        """팔다리가 전부 `seq` 일 때만 엇갈려 보냄. 섞여 있으면 각자 하던 대로."""
+        return bool(self.parts) and all(
+            getattr(part, "send_mode", None) == SEND_SEQ for part in self.parts
+        )
+
+    def _seq_run(self) -> int:
+        """다리끼리 엇갈려 보냄: 각 다리의 i 번째를 보내고, 그 응답들을 받은 뒤 i+1.
+
+        버스가 다리마다 따로라 두 다리의 i 번째는 동시에 오감 -- 한 주기가 다리 수만큼
+        길어지지 않음. 한 버스 안에서는 응답이 하나씩이라 같은 응답 id 가 안 겹침.
+        한 다리가 실패해도 나머지는 계속함 (`_gather` 와 같은 이유).
+        """
+        rounds = max((len(part._seq_pending) for part in self.parts), default=0)
+        for i in range(rounds):
+            sent = []
+            for part in self.parts:
+                try:
+                    sent.append((part, part._seq_send(i)))
+                except Exception as e:  # noqa: BLE001 - 다른 다리는 계속 보내야 함
+                    logger.warning("%s 송신 실패 (무응답으로 셈): %s", part.id, e)
+            for part, motor_id in sent:
+                try:
+                    part._seq_wait(motor_id)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("%s 수거 실패 (무응답으로 셈): %s", part.id, e)
+        return sum(len(part._seq_pending) for part in self.parts)
 
     def _gather(self, method: str) -> Tuple[Any, ...]:
         """팔다리를 돌며 수거함. **실패한 팔다리는 전부 무응답으로 셈.**
