@@ -15,8 +15,8 @@
 **코드는 안 바뀜.** 지금도 socketcan 으로 열고 있어서 `robot.yaml` 의 `channel`
 (`canr` / `canl`)만 맞으면 됨. 바뀌는 것은 채널을 올리는 방법뿐임.
 
-> **상태: 오른다리 전환 끝, 왼다리 남음.** 진행한 것은 바로 아래 "진행 기록".
-> 어댑터는 **하나씩** 바꿈.
+> **상태: 양다리 전환 끝 (10-15).** `canr`/`canl` 둘 다 gs_usb 로 올라옴. 모터 응답과
+> 효과 확인(6절)이 남음. 진행한 것은 바로 아래 "진행 기록".
 
 ---
 
@@ -34,8 +34,12 @@
 | 10-13 | 오른다리 candleLight 쓰기 (4-2) | `1d50:606f canable.io canable gs_usb`. **시리얼 그대로** |
 | 10-13 | 오른다리 이름 고정 (5) | `/etc/udev/rules.d/70-candlelight.rules` -> `canr` |
 | 10-13 | 오른다리 채널 올리기 (6) | `state ERROR-ACTIVE`, `bitrate 1000000` |
-| | 오른다리 모터 응답 (`scan`) | 다음 차례 |
-| | 왼다리 3~6 | |
+| 10-15 | 왼다리 칩 확인 (3-3) | **STM32F072** (128K). 오른다리와 같음 |
+| 10-15 | 왼다리 백업 (4-1) | `firmware/canable/backup_left.bin` 131072 바이트 |
+| 10-15 | 왼다리 candleLight 쓰기 (4-2) | `1d50:606f`. **시리얼 그대로** (`004100375034570520323530`) |
+| 10-15 | 왼다리 이름 고정 (5) | `70-candlelight.rules` 에 줄 추가 -> `canl` |
+| 10-15 | 양다리 채널 올리기 (6) | `canr`/`canl` 둘 다 `state ERROR-ACTIVE`, `bitrate 1000000`. `slcand` 안 씀 |
+| | 모터 응답 (`scan`) | 다음 차례 |
 | | 효과 확인 (6) | |
 
 처음 쓰기는 들어가지 않았음 -- 다시 꽂아 보니 `ad50:60c4 ... canable-fw.git` 그대로였음.
@@ -108,8 +112,8 @@ Found DFU: [0483:df11] ver=2200, devnum=11, cfg=1, intf=0, path="1-2.3", alt=0, 
 | 파일 | 무엇 | 크기 | 상태 |
 |---|---|---|---|
 | `backup_right.bin` | 오른다리 원래 펌웨어 (시리얼 `003E00315550530B20303731`) | 131072 | 뜸 |
-| `backup_left.bin` | 왼다리 원래 펌웨어 (시리얼 `004100375034570520323530`) | 131072 | 뜰 차례 |
-| `candlelight_canable_85e5b33.bin` | 쓴 candleLight. `canable` 대상, 소스 커밋 `85e5b33` | 23624 | 오른다리에 씀 |
+| `backup_left.bin` | 왼다리 원래 펌웨어 (시리얼 `004100375034570520323530`) | 131072 | 뜸 |
+| `candlelight_canable_85e5b33.bin` | 쓴 candleLight. `canable` 대상, 소스 커밋 `85e5b33` | 23624 | 양다리에 씀 |
 
 백업은 전체 플래시(128K)를 그대로 뜬 것임. 되돌릴 때 그대로 씀 (7절). candleLight
 파일이 있으면 왼다리나 재설치 때 다시 빌드할 필요 없음.
@@ -212,7 +216,7 @@ ID ad50:60c4 Protofusion Labs CANable 9fddea4 github.com/normaldotcom/canable-fw
 | | 시리얼 | udev 링크 | 채널 | 칩 |
 |---|---|---|---|---|
 | 오른다리 | `003E00315550530B20303731` | `/dev/canable1` | `canr` | STM32F072 (128K) |
-| 왼다리 | `004100375034570520323530` | `/dev/canable0` | `canl` | 확인 전 |
+| 왼다리 | `004100375034570520323530` | `/dev/canable0` | `canl` | STM32F072 (128K) |
 
 기판 뒷면 이름은 `LC_CANABLE_PRO` 임. CANable Pro(절연형)를 따라 만든 보드이고,
 원래 CANable 펌웨어(`canable-fw`, F042 용 빌드)가 F072 칩에서 그대로 돌고 있음.
@@ -351,8 +355,8 @@ gs_usb 는 꽂는 순서대로 `can1`, `can2` 처럼 번호 이름을 붙임. �
 udevadm info -a -p /sys/class/net/can1 | grep -m1 'ATTRS{serial}'
 ```
 
-오른다리는 펌웨어를 바꾼 뒤에도 시리얼이 **그대로**였음 (`003E00315550530B20303731`).
-candleLight 도 칩 고유 번호로 시리얼을 만들기 때문으로 봄. 왼다리도 확인할 것.
+두 어댑터 모두 펌웨어를 바꾼 뒤에도 시리얼이 **그대로**였음. candleLight 도 칩 고유
+번호로 시리얼을 만들기 때문으로 봄.
 
 ```
 # /etc/udev/rules.d/70-candlelight.rules
@@ -360,7 +364,7 @@ SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606
 SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="004100375034570520323530", NAME="canl"
 ```
 
-오른다리 줄은 넣었음. 왼다리 줄은 왼다리를 바꾼 뒤 추가함.
+두 줄 다 넣었음 (10-15). 아래는 왼다리 줄을 넣은 명령임.
 
 ```bash
 echo 'SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="004100375034570520323530", NAME="canl"' | sudo tee -a /etc/udev/rules.d/70-candlelight.rules
