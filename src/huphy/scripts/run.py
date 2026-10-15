@@ -130,6 +130,10 @@ SPECS = {
 ANKLE_MOTORS = ("ankle_a", "ankle_b")
 """`--gain-scale` 의 두 번째 숫자가 걸리는 모터. `robot.yaml` 의 모터 이름임."""
 
+LOG_SKIP_S = 0.0
+"""`--log-skip` 기본값. **정책 시작 부분은 버리지 않음** -- 정책이 켜진 직후가 가장 많이
+보는 구간임. 연결 직후의 느린 첫 주기들은 접근 구간에 들어가 이미 빠짐."""
+
 WEIGHTS_DIR = Path("config/policies")
 """이름으로 찾을 때 보는 곳. `--weights` 로 덮어쓸 수 있음."""
 
@@ -344,6 +348,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--log-skip", type=float, default=LOG_SKIP_S, metavar="SEC",
+        help=(
+            f"지연 기록에서 정책 시작 뒤 이 초만큼을 버림. 기본 {LOG_SKIP_S:g} (안 버림). "
+            "접근·대기·감쇠 정지 구간은 늘 빠짐"
+        ),
+    )
+    p.add_argument(
         "--allow-uncalibrated", action="store_true",
         help="실측 전에도 토크를 넣음",
     )
@@ -410,6 +421,19 @@ def _save_log(log: "policy_log.PolicyLog", args) -> None:
         return
     note = f", 기록 실패 {log.errors}회" if log.errors else ""
     print(f"  정책 기록: {path}  ({len(log)}줄{note})")
+
+
+def _resume_on_first_call(motion, latency: "latency_log.LatencyLog"):
+    """정책이 처음 불릴 때 지연 기록을 켬. 그 뒤로는 그대로 넘김."""
+    started = [False]
+
+    def wrapped(t, observation):
+        if not started[0]:
+            started[0] = True
+            latency.resume()
+        return motion(t, observation)
+
+    return wrapped
 
 
 def _save_latency(latency: "latency_log.LatencyLog", args) -> None:
@@ -620,10 +644,15 @@ def main(argv=None) -> int:
     )
     if log is not None:
         policy_motion = log.wrap_motion(policy_motion)
-    # 접근 구간부터 잼 -- 통신은 정책이 켜졌는지와 무관함.
+    # 정책이 도는 동안만 잼. 꺼 둔 채 시작해 정책이 처음 불릴 때 켜고, 감쇠 정지에
+    # 들어가면 끔. 접근·대기·정지 구간은 빠짐. --log-skip 을 주면 앞을 더 자름.
     latency = None
     if args.log is not None:
-        latency = latency_log.LatencyLog(drain_ms=args.drain_ms, hz=args.hz).attach(leg)
+        latency = latency_log.LatencyLog(
+            drain_ms=args.drain_ms, hz=args.hz, skip_s=args.log_skip, active=False,
+        ).attach(leg)
+        loop.on_settle = latency.on_settle
+        policy_motion = _resume_on_first_call(policy_motion, latency)
     motion = staged(
         approach(target_pose, start_pose, args.approach),
         args.approach,

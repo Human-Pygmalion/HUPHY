@@ -290,6 +290,13 @@ class ControlLoop:
         건드리는 일은 반드시 여기서 해야 함. 다른 스레드에서 하면 루프와 동시에 버스를
         씀. 예외가 나면 루프를 세움 (안전 쪽).
         """
+        self.on_settle: Optional[Callable[[bool], None]] = None
+        """감쇠(`_settle`) 시작에 `True`, 끝에 `False` 로 부름.
+
+        기록기가 감쇠 구간을 빼는 데 씀 (`LatencyLog.on_settle`). 정지할 때와 studio 가
+        관찰로 바꿀 때 둘 다 지나감. 예외는 삼킴 -- 관측 때문에 정지 절차가 멈추면 안 됨.
+        """
+
     def __repr__(self) -> str:
         return f"ControlLoop({self.robot.id}, {self.hz:.0f}Hz, {self.mode.value})"
 
@@ -471,11 +478,23 @@ class ControlLoop:
         damp = getattr(self.robot, "damp", None)
         if not callable(damp):
             return
-        cycles = max(1, round(DAMPING_S * self.hz))
-        for _ in range(cycles):
-            self.robot.send(damp())
-            self.robot.collect()
-            time.sleep(self.period_s)
+        self._notify_settle(True)
+        try:
+            cycles = max(1, round(DAMPING_S * self.hz))
+            for _ in range(cycles):
+                self.robot.send(damp())
+                self.robot.collect()
+                time.sleep(self.period_s)
+        finally:
+            self._notify_settle(False)
+
+    def _notify_settle(self, starting: bool) -> None:
+        if self.on_settle is None:
+            return
+        try:
+            self.on_settle(starting)
+        except Exception as e:  # noqa: BLE001 - 관측이 정지 절차를 막으면 안 됨
+            logger.warning("%s on_settle 실패 (무시함): %s", self.robot.id, e)
 
     # ---- 주기 -------------------------------------------------------------
     def _sleep_until(self, deadline: float) -> None:

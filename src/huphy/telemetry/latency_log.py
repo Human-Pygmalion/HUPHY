@@ -39,13 +39,51 @@ import numpy as np
 class LatencyLog:
     """여러 버스의 지연을 관절 이름으로 모음."""
 
-    def __init__(self, *, drain_ms: Optional[float] = None, hz: Optional[float] = None) -> None:
+    def __init__(
+        self,
+        *,
+        drain_ms: Optional[float] = None,
+        hz: Optional[float] = None,
+        skip_s: float = 0.0,
+        active: bool = True,
+    ) -> None:
         self.drain_ms = drain_ms
         self.hz = hz
+        self.skip_s = max(0.0, float(skip_s))
+        """켜진 뒤 첫 송신부터 이 초만큼은 세지 않음. 연결 직후 첫 주기들이 느려서
+        (수신 스레드·USB 가 막 돌기 시작함) 최대값을 끌어올리는 것을 뺌."""
         self.joints: List[str] = []
         self.sent: Dict[str, int] = {}
         self.samples: Dict[str, List[Tuple[float, float, bool]]] = {}
         self._t0 = time.monotonic()
+        self._active = bool(active)
+        self._armed_at: Optional[float] = None
+        self._counted: Dict[str, bool] = {}
+        """관절 -> 마지막 송신을 셌는지. **센 송신의 응답만 셈** -- 켜고 끄는 경계에서
+        송신만 세고 응답은 안 세면 가짜 유실이 생김."""
+
+    # ---- 켜고 끄기 ---------------------------------------------------------
+    def resume(self) -> None:
+        """기록을 켬. 그 뒤 첫 송신부터 `skip_s` 를 다시 셈."""
+        if not self._active:
+            self._active = True
+            self._armed_at = None
+
+    def pause(self) -> None:
+        """기록을 끔. 감쇠 정지처럼 재고 싶지 않은 구간 앞에서 부름."""
+        self._active = False
+
+    def on_settle(self, starting: bool) -> None:
+        """`ControlLoop.on_settle` 에 그대로 붙임. 감쇠 동안만 끔."""
+        self.pause() if starting else self.resume()
+
+    def _recording(self) -> bool:
+        if not self._active:
+            return False
+        now = time.monotonic()
+        if self._armed_at is None:
+            self._armed_at = now
+        return now - self._armed_at >= self.skip_s
 
     # ---- 붙이기 -----------------------------------------------------------
     def attach(self, robot: Any) -> "LatencyLog":
@@ -132,14 +170,20 @@ class _BusSink:
 
     def sent(self, mid: int) -> None:
         name = self.names.get(mid)
-        if name is not None:
+        if name is None:
+            return
+        counted = self.log._recording()
+        self.log._counted[name] = counted
+        if counted:
             self.log.sent[name] += 1
 
     def received(self, mid: int, latency_s: float, late: bool) -> None:
         name = self.names.get(mid)
-        if name is not None:
-            t = time.monotonic() - self.log._t0
-            self.log.samples[name].append((t, latency_s * 1000.0, late))
+        if name is None or not self.log._counted.get(name):
+            return
+        self.log._counted[name] = False      # 응답 하나만 셈. 중복 수신은 버림
+        t = time.monotonic() - self.log._t0
+        self.log.samples[name].append((t, latency_s * 1000.0, late))
 
 
 def _row(name: str, lat: Iterable[float], sent: int, late: int, lost: int) -> str:

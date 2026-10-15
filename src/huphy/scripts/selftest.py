@@ -108,6 +108,9 @@ logger = logging.getLogger("huphy.selftest")
 QUIT_KEY = "\x11"
 """Ctrl-Q. 터미널이 흘려보내는 문자라 raw 모드에서만 읽힘."""
 
+LOG_SKIP_S = 2.0
+"""`--log-skip` 기본값. 연결 직후 첫 주기들은 수신 스레드·USB 가 막 돌기 시작해 느림."""
+
 DEFAULT_APPROACH_S = 3.0
 DEFAULT_MARGIN_DEG = 5.0
 DEFAULT_PERIOD_S = 6.0
@@ -794,6 +797,16 @@ def _add_common(parser, *, suppress: bool) -> None:
         ),
     )
     parser.add_argument(
+        "--log-skip",
+        type=float,
+        default=default(LOG_SKIP_S),
+        metavar="SEC",
+        help=(
+            f"지연 기록에서 첫 송신 뒤 이 초만큼은 버림. 기본 {LOG_SKIP_S:g}. "
+            "감쇠 정지 구간은 늘 빠짐"
+        ),
+    )
+    parser.add_argument(
         "--live",
         nargs="?",
         const=live.DEFAULT_PORT,
@@ -958,7 +971,11 @@ def main(argv=None) -> int:
     args.track = None
     watchers = []
     if args.log is not None:
-        latency = latency_log.LatencyLog(drain_ms=args.drain_ms, hz=hz).attach(machine)
+        # 첫 --log-skip 초는 버리고, 감쇠(정지·관찰 전환) 동안은 끔.
+        latency = latency_log.LatencyLog(
+            drain_ms=args.drain_ms, hz=hz, skip_s=args.log_skip,
+        ).attach(machine)
+        loop.on_settle = latency.on_settle
         args.track = track_log.TrackLog(robot=machine)
         watchers.append(args.track)
     server = None
