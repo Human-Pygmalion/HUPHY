@@ -1,7 +1,7 @@
 {
   "name": "walk",
   "ankle_space": "ab",
-  "repeat": 1,
+  "repeat": 0,
   "keyframes": [
     {
       "pose": {
@@ -27,8 +27,8 @@
         "left_leg/hip_roll": 0.0,
         "left_leg/hip_yaw": 0.0,
         "left_leg/knee": -6.0,
-        "left_leg/ankle_a": 0.0,
-        "left_leg/ankle_b": 0.0,
+        "left_leg/ankle_a": 12.0,
+        "left_leg/ankle_b": -11.4,
         "right_leg/hip_pitch": -38.0,
         "right_leg/hip_roll": 0.5,
         "right_leg/hip_yaw": 0.0,

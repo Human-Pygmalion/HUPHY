@@ -1,0 +1,43 @@
+{
+  "name": "ankle",
+  "ankle_space": "ab",
+  "repeat": 0,
+  "keyframes": [
+    {
+      "pose": {
+        "left_leg/hip_pitch": 4.3,
+        "left_leg/hip_roll": 0.2,
+        "left_leg/hip_yaw": -2.1,
+        "left_leg/knee": -6.0,
+        "left_leg/ankle_a": 9.9,
+        "left_leg/ankle_b": -11.4,
+        "right_leg/hip_pitch": -2.8,
+        "right_leg/hip_roll": -1.8,
+        "right_leg/hip_yaw": 2.8,
+        "right_leg/knee": 6.0,
+        "right_leg/ankle_a": -32.0,
+        "right_leg/ankle_b": 30.0
+      },
+      "move_s": 2.0,
+      "hold_s": 0.0
+    },
+    {
+      "pose": {
+        "left_leg/hip_pitch": 4.3,
+        "left_leg/hip_roll": 0.2,
+        "left_leg/hip_yaw": -2.1,
+        "left_leg/knee": -6.0,
+        "left_leg/ankle_a": 9.9,
+        "left_leg/ankle_b": -11.4,
+        "right_leg/hip_pitch": -2.8,
+        "right_leg/hip_roll": -1.8,
+        "right_leg/hip_yaw": 2.8,
+        "right_leg/knee": 6.0,
+        "right_leg/ankle_a": 20.0,
+        "right_leg/ankle_b": -27.0
+      },
+      "move_s": 2.0,
+      "hold_s": 0.0
+    }
+  ]
+}
