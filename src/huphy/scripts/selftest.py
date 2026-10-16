@@ -93,8 +93,8 @@ from ..robots.leg import (
     ANKLE_JOINTS,
     ANKLE_MOTORS,
     ANKLE_SPACE_MOTOR,
-    SEND_BURST,
     SEND_MODES,
+    SEND_SEQ,
     SINGLE_JOINTS,
     Leg,
 )
@@ -760,11 +760,11 @@ def _add_common(parser, *, suppress: bool) -> None:
     parser.add_argument(
         "--send-mode",
         choices=SEND_MODES,
-        default=default(SEND_BURST),
+        default=default(SEND_SEQ),
         help=(
-            "명령을 버스에 내는 방식. burst=6개를 연달아 보내고 모음 (기본), "
-            "seq=한 모터씩 보내고 응답을 받은 뒤 다음. RobStride 응답은 모든 모터가 "
-            "같은 CAN id 라 burst 에서 응답이 겹치면 둘 다 깨짐 -- seq 는 안 겹침"
+            "명령을 버스에 내는 방식. seq=한 모터씩 보내고 응답을 받은 뒤 다음 (기본), "
+            "burst=6개를 연달아 보내고 모음. RobStride 응답은 모든 모터가 같은 CAN id 라 "
+            "burst 에서 응답이 겹치면 둘 다 깨짐 -- docs/can_communication.md"
         ),
     )
     parser.add_argument(

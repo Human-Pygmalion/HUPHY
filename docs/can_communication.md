@@ -301,7 +301,12 @@ burst (기존)                              seq (지금)
 | `Biped._seq_run` | 두 다리가 다 `seq` 면 i 번째끼리 엇갈려 보냄. 한 다리가 실패해도 나머지는 계속 |
 | `--send-mode` | `huphy-test`, `huphy-run`. `build_leg(send_mode=...)` |
 
-**기본은 아직 `burst` 임.** 실물 확인을 더 하고 `seq` 로 바꿀 예정. 그때까지는 붙여서 씀.
+**기본은 `seq` 임** (2026-10-16 부터). `huphy-test`, `huphy-run`, `huphy-bringup` 이 지나는
+`build_leg` 의 기본값이고, 예전 방식은 `--send-mode burst` 로 고름. `Leg` 클래스 자체의
+기본은 `burst` 로 남겨 둠 -- 가짜 버스로 도는 테스트들이 그것을 전제로 짜여 있음.
+`huphy-commission` 은 `RobStrideBus.refresh_states` 를 바로 써서 여전히 몰아서 보냄
+(한 번씩 상태를 읽는 용도라 주기 문제는 없지만, 여러 모터를 한꺼번에 scan 하면 가끔
+빠질 수 있음).
 
 ### 다른 해법 -- 모터마다 응답 id 를 다르게
 
@@ -329,16 +334,16 @@ ip -details link show canr        # can state ERROR-ACTIVE, bitrate 1000000
 ### 실행
 
 ```bash
-huphy-test --robot --hz 100 --drain-ms 4 --send-mode seq zero --log
+huphy-test --robot --hz 100 --drain-ms 4 zero --log          # seq 가 기본
 huphy-run  --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt \
-           --hz 50 --drain-ms 4 --send-mode seq --log
+           --hz 50 --drain-ms 4 --log
 ```
 
 ### 끝 집계에서 볼 것
 
 | 칸 | 정상 | 아니면 |
 |---|---|---|
-| 무응답 주기 | 0 % 근처 | `--send-mode seq` 인지, 채널이 올라왔는지 |
+| 무응답 주기 | 0 % 근처 | `--send-mode burst` 로 돌리지 않았는지, 채널이 올라왔는지 |
 | 버스오류 | 0 근처 | burst 로 돌았는지, 배선·종단(60 Ω)·절연 어댑터 GND |
 | 밀림 | 0 | 주기에 비해 `--drain-ms` 가 큰지 |
 
@@ -468,7 +473,7 @@ sudo ip link set canl down && sudo ip link set canl type can bitrate 1000000 loo
 
 ## 8. 남은 일
 
-- [ ] `--send-mode` 기본값을 `seq` 로
+- [x] `--send-mode` 기본값을 `seq` 로 (10-16)
 - [ ] udev 로 어댑터를 꽂으면 1 Mbps 로 자동으로 올리기 (지금은 꽂을 때마다 `ip link set ... up`)
 - [ ] 커널 업데이트 때 gs_usb 6.1 백포트 다시 빌드 (3절)
 - [ ] (선택) 모터마다 호스트 id 를 다르게 -- 몰아서 보내도 안전해짐

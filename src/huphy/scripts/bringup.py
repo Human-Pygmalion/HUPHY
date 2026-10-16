@@ -53,7 +53,7 @@ from ..motors.base import Gains
 from ..motors.canbus import CanBus, bring_up_hint
 from ..motors.robstride.bus import RobStrideBus
 from ..robots.biped import Biped
-from ..robots.leg import ANKLE_JOINTS, SEND_BURST, SINGLE_JOINTS, Leg
+from ..robots.leg import ANKLE_JOINTS, SEND_SEQ, SINGLE_JOINTS, Leg
 from ..sensors import make_imus
 from . import table
 from .commission import CONFIG_NAME, _find_config, _pick_limb
@@ -82,7 +82,7 @@ def build_leg(
     reader: bool = False,
     imus: Optional[List[object]] = None,
     drain_s: Optional[float] = None,
-    send_mode: str = SEND_BURST,
+    send_mode: str = SEND_SEQ,
 ) -> Leg:
     """설정에서 다리 하나를 만듦.
 
@@ -109,6 +109,10 @@ def build_leg(
 
     `drain_s` 는 응답을 기다리는 최대 시간임. 안 주면 버스 기본값(2ms). 양다리는
     다리마다 따로 기다리므로 두 다리 다 응답이 늦으면 최악 두 배가 됨.
+
+    `send_mode` 기본은 `seq` (모터마다 보내고 응답을 받은 뒤 다음). `Leg` 자체의 기본은
+    `burst` 로 남겨 둠 -- 진입점은 다 여기를 지나므로 실물은 `seq` 로 돎.
+    `docs/can_communication.md` 4절.
     """
     if gains is not None:
         limb = replace(
