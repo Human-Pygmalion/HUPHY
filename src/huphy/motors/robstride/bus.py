@@ -145,6 +145,12 @@ class RobStrideBus(MotorsBus):
         """
         self._sent_at: Dict[int, float] = {}
         self._prev_sent_at: Dict[int, float] = {}
+        self.late_counts: Dict[int, int] = {mid: 0 for mid in self.motors}
+        """모터별 누적. 이번 명령보다 **먼저 도착해 있던** (= 직전 주기의) 응답을 받은 횟수.
+
+        그 주기에는 응답이 없던 것이므로 `collect` 는 그 모터를 무응답으로 돌려줌.
+        늦게 온 응답이라 상태 캐시에는 반영하지만 "이번 주기에 답함" 으로 세지 않음.
+        """
 
     def __repr__(self) -> str:
         return f"RobStrideBus({self.bus.channel}, 모터 {len(self.motors)}개)"
@@ -233,8 +239,7 @@ class RobStrideBus(MotorsBus):
             )
             for mid, c in commands.items()
         ]
-        if self.latency is not None:
-            self._note_sent(commands)
+        self._note_sent(commands)
         return self.bus.send_many(frames)
 
     def _note_sent(self, commands: Mapping[int, MitCommand]) -> None:
@@ -245,13 +250,15 @@ class RobStrideBus(MotorsBus):
         프레임이 기다리는 시간도 그 안에 들어가야 함.
 
         직전 시각도 들고 있음 -- 다음 주기에 늦게 들어온 응답을 그 명령에 맞추려고.
+        지연 기록기가 없어도 남김 -- 늦은 응답을 가려내는 데(`_absorb`) 필요함.
         """
         now = time.monotonic()
         for mid in commands:
             if mid in self._sent_at:
                 self._prev_sent_at[mid] = self._sent_at[mid]
             self._sent_at[mid] = now
-            self.latency.sent(mid)
+            if self.latency is not None:
+                self.latency.sent(mid)
 
     def _note_received(self, mid: int, stamp: float) -> None:
         """응답 하나의 지연을 남김.
@@ -307,7 +314,16 @@ class RobStrideBus(MotorsBus):
         return seen
 
     def _absorb(self, frames: Iterable[CanFrame]) -> Set[int]:
-        """응답 프레임을 해석해 캐시에 넣음. 해석된 모터 id 를 반환함."""
+        """응답 프레임을 해석해 캐시에 넣음. **이번 명령에 대한 응답을 준** 모터 id 를 반환함.
+
+        도착 시각이 이번 송신보다 앞선 프레임은 직전 주기 명령의 늦은 응답임. 상태
+        캐시에는 넣되(최신 값임) 반환하는 집합에는 넣지 않음 -- 제어 입장에서 그
+        주기는 응답이 없었던 것이므로 무응답으로 집계되어야 함. 안 그러면 한 주기
+        밀려 온 응답이 다음 주기의 "정상" 으로 둔갑해 유실이 통계에서 사라짐.
+
+        수신 스레드가 없으면 도착 시각이 수거 시각이라 늦은 것을 가릴 수 없음 (전부
+        이번 응답으로 봄).
+        """
         seen: Set[int] = set()
         now = time.monotonic()
         for f in frames:
@@ -326,7 +342,11 @@ class RobStrideBus(MotorsBus):
                 temp_c=temp,
                 stamp=now,
             )
-            seen.add(mid)
+            sent = self._sent_at.get(mid)
+            if sent is not None and f.stamp and f.stamp < sent:
+                self.late_counts[mid] += 1
+            else:
+                seen.add(mid)
             if self.latency is not None:
                 self._note_received(mid, f.stamp)
         return seen

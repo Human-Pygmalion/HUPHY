@@ -166,13 +166,17 @@ def report(robot: Any, stats: Any, *, drain_s: Optional[float] = None) -> str:
             continue
         for motor, value in counts().items():
             if value.get("missed", 0):
-                missed.append((_name(robot, part, motor), value["missed"], value["asked"]))
+                missed.append(
+                    (_name(robot, part, motor), value["missed"], value["asked"], value.get("late", 0))
+                )
     lines.append("")
     if missed:
-        lines.append("  " + table.header(("모터", 22, "<"), ("빠짐", 7), ("명령", 7), ("비율", 7)))
-        for name, miss, asked in sorted(missed, key=lambda row: -row[1]):
+        lines.append("  " + table.header(("모터", 22, "<"), ("빠짐", 7), ("그중늦음", 8), ("명령", 7), ("비율", 7)))
+        for name, miss, asked, late in sorted(missed, key=lambda row: -row[1]):
             share = miss / asked * 100.0 if asked else 0.0
-            lines.append(f"  {table.cell(name, 22, align='<')} {miss:7d} {asked:7d} {share:6.1f}%")
+            lines.append(
+                f"  {table.cell(name, 22, align='<')} {miss:7d} {late:8d} {asked:7d} {share:6.1f}%"
+            )
     else:
         lines.append("  모터별 무응답  없음")
 

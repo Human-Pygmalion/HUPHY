@@ -847,16 +847,21 @@ class Leg(Robot):
                 self._miss_streak[motor_id] = 0
 
     def link_counts(self) -> Dict[str, Dict[str, int]]:
-        """모터별 누적. 모터 이름 -> `{asked, missed}`.
+        """모터별 누적. 모터 이름 -> `{asked, missed, late}`.
 
             asked    명령(또는 상태 조회)을 보낸 횟수
-            missed   그중 응답이 없던 횟수
+            missed   그중 그 주기 안에 응답이 없던 횟수 (늦게 온 것 포함)
+            late     missed 중 응답이 나중에 도착한 횟수. 도착은 했으니 완전 유실은 아님
 
         **연결한 뒤부터 셈.** 연결 직후의 상태 조회도 들어감. 실행이 끝난 뒤 어느
         모터가 얼마나 빠졌는지 보는 데 씀 -- 텔레메트리 없이도 볼 수 있게.
         """
         return {
-            name: {"asked": self._asked[motor.id], "missed": self._missed[motor.id]}
+            name: {
+                "asked": self._asked[motor.id],
+                "missed": self._missed[motor.id],
+                "late": getattr(self.bus, "late_counts", {}).get(motor.id, 0),
+            }
             for name, motor in self.config.motors.items()
         }
 
