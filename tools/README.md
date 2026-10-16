@@ -5,7 +5,9 @@ tools/
 ├── policy_viewer.html    정책 입출력 기록을 재생하듯 봄
 ├── latency_viewer.html   관절별 응답 지연 히스토그램
 │   (실시간 뷰어)          huphy-test / huphy-run --live -- 도는 동안 목표·실측
-└── imu_viewer.py         정책이 받는 IMU 값을 실시간으로 보고 단위·좌표계를 검사
+├── imu_viewer.py         정책이 받는 IMU 값을 실시간으로 보고 단위·좌표계를 검사
+├── make_sequences.py     studio 시퀀스(스쿼트, 정적 보행)를 계산으로 만들고 한계를 검사
+└── sequence_preview.html 그 시퀀스를 막대 그림으로 재생 (make_sequences.py 가 채워 씀)
 ```
 
 **셋 다 외부 라이브러리가 없음.** 로봇(Jetson)에서 인터넷 없이 열려야 해서임. html 은
@@ -186,3 +188,70 @@ python3 tools/imu_viewer.py check [--seconds 45] [--url http://127.0.0.1:8765]
 **IMU 포트는 한 프로세스만 열 수 있음.** `serve` 가 떠 있으면 `check --url` 로 거기서
 값을 받고, 정책 실행 중에는 둘 다 못 씀. 부착 방향(정지 상태에서 가속도계와 대조)은
 `huphy-imu check` 가 따로 봄.
+
+---
+
+## `make_sequences.py` · `sequence_preview.html`
+
+`huphy-test --robot studio` 에서 재생할 시퀀스를 **계산으로** 만듦. 손으로 자세를 찍는
+대신 "발을 어디에, 얼마나 들고, 골반을 얼마나 옮길지" 로 정하고 관절각은 역기구학으로
+구함.
+
+```bash
+python3 tools/make_sequences.py                                   # config/sequences/sim_*.json 을 씀
+python3 tools/make_sequences.py --check                           # 쓰지 않고 표만 찍음
+python3 tools/make_sequences.py --preview logs/seq_preview.html   # 미리보기도 같이 씀
+python3 tools/make_sequences.py --lift 0.08 --step 0.12           # 걷기 발 높이 / 보폭 (m)
+python3 tools/make_sequences.py --roll-sign -1                    # 발목 roll 보정 방향 뒤집기
+```
+
+| 시퀀스 | 단계 | 시간 |
+|---|---|---|
+| `sim_roll_check` | 준비 -> 골반 왼쪽 3도 -> 가운데 -> 오른쪽 3도 -> 가운데 | 19.5 s |
+| `sim_squat` | 준비(무릎 20) -> 반(45) -> 깊게(70) -> 반 -> 준비, 3회. 발목은 깊을수록 발판 수평보다 덜 젖힘 (깊게에서 10도) | 14.1 s x 3 |
+| `sim_walk` | 준비(무릎 30) -> 걸음마다 체중 이동 -> 발 들기 -> 내딛기 -> 내려놓기 -> 가운데로, 4걸음 -> 두 발 모음 | 39.2 s |
+
+키프레임마다 `label` 에 단계 이름이 있음 (studio 는 읽을 때 무시함). 기존 `walk.json` 등
+손으로 만든 시퀀스는 안 건드림.
+
+### 모델
+
+    허벅지 = 정강이 = 0.39 m       발목 기하 실측(무릎 -> 발목 393 mm). 허벅지는 같다고 가정
+    발판 수평                       ankle_pitch = knee - hip  (발목 모터각은 AnkleKinematics.solve_ik)
+    좌우 체중 이동                  hip_roll 로 골반을 디딤발 위로 (발 간격 0.20 m 가정 -> 7.6도),
+                                   발목 roll 로 발판을 되돌림
+
+정책 기준자세(엉덩이 10, 무릎 20)의 발목 모터각을 FK 로 풀면 pitch 8.8도 -- 이 모델의 10도와
+거의 맞음.
+
+**물리 시뮬이 아니라 기구학임.** 관절이 한계 안인지, 발이 어디 놓이는지, 발판이 수평인지만
+계산함. 무게중심과 넘어짐은 안 봄. **처음에는 매달거나 잡은 채로 돌릴 것.**
+
+### 검사
+
+모든 키프레임에서 관절 한계(`command_margin_deg` 3도 안쪽), 발목 도달 범위(pitch ±40,
+roll ±25), 모터각을 봄. 하나라도 넘으면 파일을 안 씀. 걷기에서 보폭을 키우면 **뒷발을 들 때
+발목 pitch 가 먼저 한계에 닿음** (발 0.08 m 들 때 보폭 0.14 m 에서 39.9도, 0.16 m 는 거부).
+
+**발목 roll 부호와 hip_roll 방향은 확인되지 않은 가정임** (docs/issues.md #13). 걷기 전에
+`sim_roll_check` 를 돌려 골반이 실제로 그쪽으로 가는지, 발바닥이 바닥에 붙어 있는지 볼 것.
+발 모서리가 들리면 `--roll-sign -1` 로 다시 만듦.
+
+### 미리보기 (`sequence_preview.html`)
+
+`--preview <경로>` 로 만든 파일을 브라우저로 열면 시퀀스를 막대 그림으로 재생함.
+
+| 화면 | 무엇 |
+|---|---|
+| 옆에서 (앞이 오른쪽) | 골반을 고정하고 허벅지·정강이·발판. 파랑 왼다리, 주황 오른다리, 갈색 선이 바닥. 무릎 높이·발 앞뒤·발판 수평을 봄 |
+| 뒤에서 (로봇 왼쪽이 왼쪽) | 골반 막대와 기운 다리. 체중 이동 때 골반이 디딤발 위로 가는지 봄 |
+| 지금 관절 | 양다리 엉덩이·무릎·발목 pitch (굽힘 크기, 도), 골반 기울기 |
+| 단계 | 키프레임 목록과 이동·유지 시간. 재생 중인 단계를 강조 |
+
+키프레임 사이는 studio 처럼 이동 시간 동안 선형 보간하고 유지 시간만큼 멈춤 -- 타이밍이
+실제 재생과 같음. 첫 키프레임은 그 자세에서 바로 시작함 (studio 는 지금 자세에서 옮겨 감).
+
+안 보여주는 것: 중력·무게중심(골반이 공중에 고정된 그림), 발목 roll(발판은 늘 수평으로
+그림), 모터 추종 오차. 원본 html 을 직접 열면 빈 화면임 -- `make_sequences.py` 가 계산
+결과를 넣어 씀.
+

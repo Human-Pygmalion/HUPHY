@@ -1,0 +1,102 @@
+{
+  "name": "sim_roll_check",
+  "ankle_space": "ab",
+  "repeat": 1,
+  "keyframes": [
+    {
+      "label": "1 준비 (무릎 30)",
+      "pose": {
+        "left_leg/hip_pitch": 15.0,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -30.0,
+        "left_leg/ankle_a": -10.9,
+        "left_leg/ankle_b": 17.71,
+        "right_leg/hip_pitch": -15.0,
+        "right_leg/hip_roll": 0.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 30.0,
+        "right_leg/ankle_a": 10.9,
+        "right_leg/ankle_b": -17.71
+      },
+      "move_s": 2.5,
+      "hold_s": 1.0
+    },
+    {
+      "label": "2 골반 왼쪽 3도 -- 발바닥 확인",
+      "pose": {
+        "left_leg/hip_pitch": 15.0,
+        "left_leg/hip_roll": 3.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -30.0,
+        "left_leg/ankle_a": -14.26,
+        "left_leg/ankle_b": 14.28,
+        "right_leg/hip_pitch": -15.0,
+        "right_leg/hip_roll": 3.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 30.0,
+        "right_leg/ankle_a": 14.26,
+        "right_leg/ankle_b": -14.28
+      },
+      "move_s": 2.0,
+      "hold_s": 3.0
+    },
+    {
+      "label": "3 가운데",
+      "pose": {
+        "left_leg/hip_pitch": 15.0,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -30.0,
+        "left_leg/ankle_a": -10.9,
+        "left_leg/ankle_b": 17.71,
+        "right_leg/hip_pitch": -15.0,
+        "right_leg/hip_roll": 0.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 30.0,
+        "right_leg/ankle_a": 10.9,
+        "right_leg/ankle_b": -17.71
+      },
+      "move_s": 2.0,
+      "hold_s": 1.0
+    },
+    {
+      "label": "4 골반 오른쪽 3도 -- 발바닥 확인",
+      "pose": {
+        "left_leg/hip_pitch": 15.0,
+        "left_leg/hip_roll": -3.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -30.0,
+        "left_leg/ankle_a": -7.61,
+        "left_leg/ankle_b": 21.22,
+        "right_leg/hip_pitch": -15.0,
+        "right_leg/hip_roll": -3.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 30.0,
+        "right_leg/ankle_a": 7.61,
+        "right_leg/ankle_b": -21.22
+      },
+      "move_s": 2.0,
+      "hold_s": 3.0
+    },
+    {
+      "label": "5 가운데",
+      "pose": {
+        "left_leg/hip_pitch": 15.0,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -30.0,
+        "left_leg/ankle_a": -10.9,
+        "left_leg/ankle_b": 17.71,
+        "right_leg/hip_pitch": -15.0,
+        "right_leg/hip_roll": 0.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 30.0,
+        "right_leg/ankle_a": 10.9,
+        "right_leg/ankle_b": -17.71
+      },
+      "move_s": 2.0,
+      "hold_s": 1.0
+    }
+  ]
+}

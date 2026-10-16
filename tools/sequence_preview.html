@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sequence Preview</title>
+<!--
+  tools/make_sequences.py --preview <경로> 가 이 파일에 계산 결과를 넣어 씀. 직접 열면 빈 화면.
+  모델은 make_sequences.py 와 같음 (허벅지 = 정강이, 발판 수평, 좌우는 골반 기울기).
+  키프레임 사이는 studio 처럼 이동 시간 동안 선형 보간, 그 뒤 유지 시간만큼 멈춤.
+-->
+<style>
+:root { --bg:#f6f7f9; --panel:#fff; --fg:#1d2330; --muted:#6b7385; --line:#e2e5eb; --grid:#eef0f4;
+  --left:#2f6fed; --right:#e8590c; --ground:#8a6d3b; --accent:#2f6fed; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg:#12151b; --panel:#1a1e26; --fg:#e4e7ee; --muted:#8a93a6; --line:#2a303c; --grid:#232833;
+  --left:#6b9bff; --right:#ff922b; --ground:#c9a66b; --accent:#6b9bff; } }
+:root[data-theme="dark"] { --bg:#12151b; --panel:#1a1e26; --fg:#e4e7ee; --muted:#8a93a6; --line:#2a303c;
+  --grid:#232833; --left:#6b9bff; --right:#ff922b; --ground:#c9a66b; --accent:#6b9bff; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45 system-ui, -apple-system, "Noto Sans KR", sans-serif; }
+header, .controls { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; padding:10px 16px;
+  background:var(--panel); border-bottom:1px solid var(--line); }
+h1 { font-size:15px; margin:0; }
+.muted { color:var(--muted); }
+button, select { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; }
+button.primary { background:var(--accent); color:#fff; border-color:var(--accent); min-width:64px; }
+input[type=range] { flex:1; min-width:160px; accent-color:var(--accent); }
+main { padding:12px 16px; display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+@media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+.card h2 { font-size:12px; margin:0 0 4px; color:var(--muted); font-weight:600; }
+canvas { width:100%; height:360px; display:block; }
+.label { font-size:15px; font-weight:600; }
+.legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin:0 4px 0 10px; vertical-align:-1px; }
+table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; font-size:12px; }
+th, td { padding:3px 6px; border-bottom:1px solid var(--grid); text-align:right; white-space:nowrap; }
+th:first-child, td:first-child { text-align:left; }
+ol { margin:4px 0; padding-left:20px; max-height:220px; overflow:auto; }
+li.now { color:var(--accent); font-weight:600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>시퀀스 미리보기</h1>
+  <select id="seq"></select>
+  <span class="muted" id="meta"></span>
+  <span class="legend muted"><i style="background:var(--left)"></i>왼다리<i style="background:var(--right)"></i>오른다리</span>
+</header>
+<div class="controls">
+  <button class="primary" id="play">재생</button>
+  <select id="speed"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>
+  <input type="range" id="seek" min="0" max="1000" value="0">
+  <span id="time" style="font-variant-numeric:tabular-nums">0.0 s</span>
+</div>
+<div style="padding:8px 16px 0"><span class="label" id="now"></span></div>
+<main>
+  <div class="card"><h2>옆에서 (앞이 오른쪽) -- 골반 고정, 갈색 선이 바닥</h2><canvas id="side"></canvas></div>
+  <div class="card"><h2>뒤에서 (로봇의 왼쪽이 왼쪽) -- 골반 기울기로 체중 이동</h2><canvas id="back"></canvas></div>
+  <div class="card"><h2>지금 관절 (굽힘 크기, 도)</h2><table id="table"></table></div>
+  <div class="card"><h2>단계</h2><ol id="steps"></ol></div>
+</main>
+<script>
+"use strict";
+const DATA = /*DATA*/null;
+const $ = (id) => document.getElementById(id);
+const S = { seq: null, t: 0, total: 0, playing: false, last: 0, segs: [] };
+
+if (!DATA) { document.body.insertAdjacentHTML("beforeend", "<p style='padding:16px'>tools/make_sequences.py --preview 로 만든 파일을 여세요.</p>"); }
+else {
+  DATA.sequences.forEach((s, i) => $("seq").add(new Option(s.name, i)));
+  $("seq").onchange = () => pick(+$("seq").value);
+  pick(0);
+}
+
+function pick(i) {
+  S.seq = DATA.sequences[i]; S.t = 0; S.segs = [];
+  let t = 0, prev = S.seq.frames[0];
+  S.seq.frames.forEach((f, k) => {               // 첫 프레임은 그 자세에서 시작 (studio 는 지금 자세에서 옮겨 감)
+    const move = k === 0 ? 0 : f.move;
+    S.segs.push({ k, from: k === 0 ? f : prev, to: f, t0: t, move, hold: f.hold });
+    t += move + f.hold; prev = f;
+  });
+  S.total = t;
+  $("meta").textContent = `키프레임 ${S.seq.frames.length}개 · ${t.toFixed(1)} s`;
+  $("steps").innerHTML = S.seq.frames.map((f) => `<li>${f.label} <span class="muted">(${f.move}s + ${f.hold}s)</span></li>`).join("");
+  render();
+}
+
+const lerp = (a, b, u) => a + (b - a) * u;
+function state(t) {
+  let seg = S.segs[S.segs.length - 1];
+  for (const s of S.segs) if (t < s.t0 + s.move + s.hold) { seg = s; break; }
+  const u = seg.move > 0 ? Math.min(1, Math.max(0, (t - seg.t0) / seg.move)) : 1;
+  const legs = {};
+  for (const leg of ["left_leg", "right_leg"]) {
+    const a = seg.from.legs[leg], b = seg.to.legs[leg];
+    legs[leg] = { hip: lerp(a.hip, b.hip, u), knee: lerp(a.knee, b.knee, u), pitch: lerp(a.pitch, b.pitch, u) };
+  }
+  return { k: seg.k, legs, phi: lerp(seg.from.phi, seg.to.phi, u), height: lerp(seg.from.height, seg.to.height, u) };
+}
+
+const R = (d) => d * Math.PI / 180;
+function legPoints(l) {                           // 골반 기준 (앞 x, 아래 z)
+  const L = DATA.leg_l, h = R(l.hip), sh = R(l.hip - l.knee), foot = R(l.hip - l.knee + l.pitch);
+  const knee = [L * Math.sin(h), L * Math.cos(h)];
+  const ankle = [knee[0] + L * Math.sin(sh), knee[1] + L * Math.cos(sh)];
+  // 발판: 발목에서 앞 0.14, 뒤 0.05. foot 가 0 이면 수평. + 는 발끝이 올라감
+  const toe = [ankle[0] + 0.14 * Math.cos(foot), ankle[1] - 0.14 * Math.sin(foot) + 0.03];
+  const heel = [ankle[0] - 0.05 * Math.cos(foot), ankle[1] + 0.05 * Math.sin(foot) + 0.03];
+  return { knee, ankle, toe, heel };
+}
+
+function setup(cv) {
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== W * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  return { g, W, H };
+}
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+function render() {
+  if (!S.seq) return;
+  const st = state(S.t);
+  // ---- 옆 ----
+  { const { g, W, H } = setup($("side"));
+    const sc = (H - 40) / 0.95, ox = W / 2, oy = 20;
+    const P = (p) => [ox + p[0] * sc, oy + p[1] * sc];
+    const groundY = oy + (st.height + 0.03) * sc;
+    g.strokeStyle = css("--ground"); g.lineWidth = 2; g.beginPath(); g.moveTo(10, groundY); g.lineTo(W - 10, groundY); g.stroke();
+    g.fillStyle = css("--fg"); g.beginPath(); g.arc(ox, oy, 6, 0, 7); g.fill();
+    for (const [leg, col] of [["right_leg", "--right"], ["left_leg", "--left"]]) {
+      const p = legPoints(st.legs[leg]);
+      g.strokeStyle = css(col); g.lineWidth = 6; g.lineCap = "round"; g.globalAlpha = leg === "right_leg" ? 0.75 : 1;
+      g.beginPath(); g.moveTo(...P([0, 0])); g.lineTo(...P(p.knee)); g.lineTo(...P(p.ankle)); g.stroke();
+      g.lineWidth = 5; g.beginPath(); g.moveTo(...P(p.heel)); g.lineTo(...P(p.toe)); g.stroke();
+      g.globalAlpha = 1;
+    }
+  }
+  // ---- 뒤 ----
+  { const { g, W, H } = setup($("back"));
+    const sc = (H - 40) / 0.95, ox = W / 2, oy = 20, hw = DATA.hip_w / 2, phi = R(st.phi);
+    const groundY = oy + (st.height + 0.03) * sc;
+    g.strokeStyle = css("--ground"); g.lineWidth = 2; g.beginPath(); g.moveTo(10, groundY); g.lineTo(W - 10, groundY); g.stroke();
+    // 골반이 phi 만큼 왼쪽(화면 왼쪽)으로 -> 발은 골반 기준 오른쪽으로 감
+    g.strokeStyle = css("--fg"); g.lineWidth = 8; g.beginPath(); g.moveTo(ox - hw * sc, oy); g.lineTo(ox + hw * sc, oy); g.stroke();
+    for (const [leg, col, side] of [["left_leg", "--left", -1], ["right_leg", "--right", 1]]) {
+      const l = st.legs[leg], L = DATA.leg_l;
+      const len = L * Math.cos(R(l.hip)) + L * Math.cos(R(l.hip - l.knee));
+      const hx = ox + side * hw * sc, fx = hx + Math.sin(phi) * len * sc, fy = oy + Math.cos(phi) * len * sc;
+      g.strokeStyle = css(col); g.lineWidth = 6; g.lineCap = "round";
+      g.beginPath(); g.moveTo(hx, oy); g.lineTo(fx, fy); g.stroke();
+      g.lineWidth = 5; g.beginPath(); g.moveTo(fx - 0.05 * sc, fy + 0.03 * sc); g.lineTo(fx + 0.05 * sc, fy + 0.03 * sc); g.stroke();
+    }
+    g.fillStyle = css("--muted"); g.font = "12px system-ui"; g.fillText(`골반 기울기 ${st.phi.toFixed(1)}°`, 12, H - 10);
+  }
+  // ---- 표 / 단계 ----
+  const row = (n, l) => `<tr><td>${n}</td><td>${l.hip.toFixed(1)}</td><td>${l.knee.toFixed(1)}</td><td>${l.pitch.toFixed(1)}</td></tr>`;
+  $("table").innerHTML = "<tr><th></th><th>엉덩이</th><th>무릎</th><th>발목 pitch</th></tr>" + row("왼다리", st.legs.left_leg) + row("오른다리", st.legs.right_leg)
+    + `<tr><td>골반 기울기</td><td colspan=3>${st.phi.toFixed(1)}° (+ 왼쪽)</td></tr>`;
+  $("now").textContent = S.seq.frames[st.k].label;
+  [...$("steps").children].forEach((li, i) => li.className = i === st.k ? "now" : "");
+  $("time").textContent = `${S.t.toFixed(1)} / ${S.total.toFixed(1)} s`;
+  $("seek").value = S.total ? Math.round(1000 * S.t / S.total) : 0;
+}
+
+function tick(ts) {
+  if (!S.playing) return;
+  S.t += (ts - S.last) / 1000 * +$("speed").value; S.last = ts;
+  if (S.t >= S.total) { S.t = S.total; S.playing = false; $("play").textContent = "재생"; }
+  render(); if (S.playing) requestAnimationFrame(tick);
+}
+$("play").onclick = () => { S.playing = !S.playing; $("play").textContent = S.playing ? "정지" : "재생";
+  if (S.playing) { if (S.t >= S.total) S.t = 0; S.last = performance.now(); requestAnimationFrame(tick); } };
+$("seek").oninput = (e) => { S.t = S.total * e.target.value / 1000; render(); };
+window.addEventListener("resize", render);
+</script>
+</body>
+</html>

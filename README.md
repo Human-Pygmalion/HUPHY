@@ -564,6 +564,12 @@ huphy-test --robot studio             # 웹에서 토크·게인·자세·동작
 목표각과 이동 시간으로 자세 실행, 키프레임을 엮어 반복 재생하고 `config/sequences/`
 에 저장. 자세한 것은 [scripts/README.md](src/huphy/scripts/README.md).
 
+스쿼트·정적 보행 시퀀스는 계산으로 만들어 둠 (`sim_roll_check`, `sim_squat`, `sim_walk`).
+`python3 tools/make_sequences.py --preview logs/seq_preview.html` 로 다시 만들고 막대
+그림으로 미리 볼 수 있음. 모델·검사·미리보기 화면은
+[tools/README.md](tools/README.md#make_sequencespy--sequence_previewhtml). **걷기 전에
+`sim_roll_check` 부터** -- 발목 roll 부호가 가정임.
+
 **Ctrl-Q 를 누를 때까지** 계속함. 사람이 답을 고르는 자리가 없어서 다리를 보거나
 그래프를 보는 데 손을 쓸 수 있음. `bringup` 이 한 관절씩 게인을 찾는 자리라면
 여기는 **찾은 게인으로 다리 전체가 버티는지** 보는 자리임.

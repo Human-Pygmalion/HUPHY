@@ -1,0 +1,102 @@
+{
+  "name": "sim_squat",
+  "ankle_space": "ab",
+  "repeat": 3,
+  "keyframes": [
+    {
+      "label": "1 준비 (기준자세, 무릎 20)",
+      "pose": {
+        "left_leg/hip_pitch": 10.0,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -20.0,
+        "left_leg/ankle_a": -6.09,
+        "left_leg/ankle_b": 12.9,
+        "right_leg/hip_pitch": -10.0,
+        "right_leg/hip_roll": 0.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 20.0,
+        "right_leg/ankle_a": 6.09,
+        "right_leg/ankle_b": -12.9
+      },
+      "move_s": 2.5,
+      "hold_s": 1.0
+    },
+    {
+      "label": "2 내려가기 반 (무릎 45)",
+      "pose": {
+        "left_leg/hip_pitch": 22.5,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -45.0,
+        "left_leg/ankle_a": -13.33,
+        "left_leg/ankle_b": 20.13,
+        "right_leg/hip_pitch": -22.5,
+        "right_leg/hip_roll": 0.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 45.0,
+        "right_leg/ankle_a": 13.33,
+        "right_leg/ankle_b": -20.13
+      },
+      "move_s": 2.0,
+      "hold_s": 0.3
+    },
+    {
+      "label": "3 깊게 (무릎 70)",
+      "pose": {
+        "left_leg/hip_pitch": 35.0,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -70.0,
+        "left_leg/ankle_a": -20.68,
+        "left_leg/ankle_b": 27.47,
+        "right_leg/hip_pitch": -35.0,
+        "right_leg/hip_roll": 0.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 70.0,
+        "right_leg/ankle_a": 20.68,
+        "right_leg/ankle_b": -27.47
+      },
+      "move_s": 2.0,
+      "hold_s": 1.0
+    },
+    {
+      "label": "4 올라오기 반 (무릎 45)",
+      "pose": {
+        "left_leg/hip_pitch": 22.5,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -45.0,
+        "left_leg/ankle_a": -13.33,
+        "left_leg/ankle_b": 20.13,
+        "right_leg/hip_pitch": -22.5,
+        "right_leg/hip_roll": 0.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 45.0,
+        "right_leg/ankle_a": 13.33,
+        "right_leg/ankle_b": -20.13
+      },
+      "move_s": 2.0,
+      "hold_s": 0.3
+    },
+    {
+      "label": "5 기준자세 (무릎 20)",
+      "pose": {
+        "left_leg/hip_pitch": 10.0,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -20.0,
+        "left_leg/ankle_a": -6.09,
+        "left_leg/ankle_b": 12.9,
+        "right_leg/hip_pitch": -10.0,
+        "right_leg/hip_roll": 0.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 20.0,
+        "right_leg/ankle_a": 6.09,
+        "right_leg/ankle_b": -12.9
+      },
+      "move_s": 2.0,
+      "hold_s": 1.0
+    }
+  ]
+}
