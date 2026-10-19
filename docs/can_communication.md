@@ -321,6 +321,13 @@ burst (기존)                              seq (지금)
 ### 채널 올리기
 
 ```bash
+huphy-can up          # 아래 셋을 대신 함. 내렸다가 올려서 막힌 큐도 비움
+huphy-can status      # 상태·오류 카운터·막힌 큐·gs_usb echo 오류
+```
+
+손으로:
+
+```bash
 sudo ip link set canr up type can bitrate 1000000
 sudo ip link set canl up type can bitrate 1000000
 ip -details link show canr        # can state ERROR-ACTIVE, bitrate 1000000

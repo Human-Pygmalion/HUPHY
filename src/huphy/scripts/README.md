@@ -229,10 +229,11 @@ right_leg.knee (id=10) 를 +5.0도 움직였다 되돌림.
 ```
 can1 (socketcan) 를 열 수 없음: ...
 채널이 올라와 있는지 확인할 것:
-  USB 어댑터 (slcand, -s8 = 1 Mbps):
-    sudo slcand -o -c -s8 /dev/<어댑터> can1 && sudo ip link set can1 up
-  네이티브 CAN:
+  huphy-can up       (robot.yaml 의 채널을 1 Mbps 로 올림. 상태는 huphy-can status)
+  손으로 -- gs_usb(candleLight)·네이티브 CAN:
     sudo ip link set can1 up type can bitrate 1000000
+  손으로 -- slcan 어댑터 (slcand, -s8 = 1 Mbps):
+    sudo slcand -o -c -s8 /dev/<어댑터> can1 && sudo ip link set can1 up
   확인: ip -details link show can1
 ```
 
@@ -709,6 +710,21 @@ ankle_pitch ankle_roll  AnkleEnvelope 의 시험 범위
 
 Ctrl-Q 는 `QuitWatcher` 가 별도 스레드에서 봄. 터미널을 cbreak 로 바꾸고 빠져나올 때
 되돌림. 화면이 아니면 켜지 않고 Ctrl-C 로 끊음.
+
+---
+
+## `can.py` -- `huphy-can`
+
+CAN 채널을 올리고 내리고 상태를 봄. 채널 이름은 `robot.yaml` 에서 읽음.
+
+| | 하는 일 |
+|---|---|
+| `up` | `ip link set <ch> down` 다음 `up type can bitrate 1000000`. slcand 가 떠 있으면 먼저 끔. 막힌 송신 큐도 비워짐 |
+| `down` | 내림 |
+| `status` | lsusb 의 candleLight 개수, gs_usb 로드 여부, 채널별 링크·CAN 상태·비트레이트·error-warning/passive/bus-off·막힌 큐, 최근 10분 gs_usb echo 오류. 손볼 것이 있으면 종료 코드 1 |
+
+root 가 아니면 `sudo` 를 붙여 부름. 암호는 sudo 가 터미널에서 물음 -- 이 코드는 암호를
+받지 않음. `--channel canr` 로 하나만, `--config` 로 다른 하드웨어 버전.
 
 ---
 

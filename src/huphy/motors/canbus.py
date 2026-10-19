@@ -81,19 +81,22 @@ DEFAULT_INTERFACE = "socketcan"
 def bring_up_hint(channels: Iterable[str]) -> str:
     """채널을 올리는 명령. 연결에 실패했을 때 진입점들이 찍음.
 
-    **두 방식을 같이 찍음.** 채널 이름(`can1`, `canr`)으로는 USB 어댑터인지 네이티브
-    인지 알 수 없음 -- 0.5 는 USB 어댑터를 `can1` 로 올렸고 1.0 은 `canr` 로 올림.
-    USB 쪽은 `ip link` 에 `bitrate` 를 못 넘기고 속도를 `slcand -s8` 로 줌. 어느
-    어댑터(`/dev/canableN`)가 어느 채널인지는 루트 README 의 1.0 명령을 볼 것.
+    먼저 `huphy-can up` (설정의 채널을 내렸다가 1 Mbps 로 올림). 손으로 할 때는 지금
+    쓰는 gs_usb·네이티브 방식(`ip link ... bitrate`)을 먼저, 예전 slcan 방식을 뒤에 찍음
+    -- 채널 이름(`can1`, `canr`)으로는 어댑터 종류를 알 수 없어서 둘 다 냄.
     """
     names = list(dict.fromkeys(channels))
-    lines = ["채널이 올라와 있는지 확인할 것:", "  USB 어댑터 (slcand, -s8 = 1 Mbps):"]
+    lines = [
+        "채널이 올라와 있는지 확인할 것:",
+        "  huphy-can up       (robot.yaml 의 채널을 1 Mbps 로 올림. 상태는 huphy-can status)",
+        "  손으로 -- gs_usb(candleLight)·네이티브 CAN:",
+    ]
+    lines += [f"    sudo ip link set {ch} up type can bitrate 1000000" for ch in names]
+    lines.append("  손으로 -- slcan 어댑터 (slcand, -s8 = 1 Mbps):")
     lines += [
         f"    sudo slcand -o -c -s8 /dev/<어댑터> {ch} && sudo ip link set {ch} up"
         for ch in names
     ]
-    lines.append("  네이티브 CAN:")
-    lines += [f"    sudo ip link set {ch} up type can bitrate 1000000" for ch in names]
     lines.append("  확인: " + "  ".join(f"ip -details link show {ch}" for ch in names))
     return "\n".join(lines)
 

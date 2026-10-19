@@ -248,6 +248,19 @@ PYTHONPATH=src python3 -m pytest tests -q
 
 ## 4. CAN 채널 올리기
 
+```bash
+huphy-can up        # robot.yaml 의 채널(1.0 이면 canr, canl)을 내렸다가 1 Mbps 로 올림
+huphy-can down      # 끝나고 내림
+huphy-can status    # 어댑터·채널 상태·오류 카운터·막힌 송신 큐·드라이버 오류
+```
+
+어댑터를 뽑았다 꽂거나 재부팅하면 채널이 내려간 상태(`STOPPED`)로 돌아오므로 다시
+`huphy-can up`.
+
+sudo 가 필요한 부분은 명령이 `sudo` 를 붙여 부르고 암호는 터미널에서 물음. `up` 은 늘
+내렸다가 올림 -- 모터 전원이 꺼진 채 보내서 송신 큐가 막혔을 때(`No buffer space
+available`, `ERROR-PASSIVE`)도 이걸로 풀림. 아래는 이 명령이 하는 일을 손으로 하는 법임.
+
 **속도는 커널이 정함.** 파이썬이 바꿀 수 없으므로 채널을 올릴 때 넣어야 함.
 
 채널 이름은 `config/robot.yaml` 의 `channel` 을 따름.

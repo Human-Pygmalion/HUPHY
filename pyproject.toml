@@ -23,6 +23,7 @@ huphy-imu = "huphy.scripts.imu:main"
 huphy-bringup = "huphy.scripts.bringup:main"
 huphy-test = "huphy.scripts.selftest:main"
 huphy-run = "huphy.scripts.run:main"
+huphy-can = "huphy.scripts.can:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
