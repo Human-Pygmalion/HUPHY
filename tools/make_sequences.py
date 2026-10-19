@@ -31,6 +31,7 @@
     왼다리     hip_pitch = +hip    knee = -knee    (거울)
     hip_roll   양 다리 같은 부호가 같은 쪽으로 기움 -- 오른다리 +79 / 왼다리 -79 가
                벌림(외전)이라, +phi 면 골반이 왼쪽으로 감 (오른다리 벌림, 왼다리 모음)
+               다리 벌림 spread 는 반대 부호: 오른다리 +spread, 왼다리 -spread
     발목       pitch/roll 을 `AnkleKinematics.solve_ik` 로 모터각 a/b 로 바꿈. 왼다리는
                거울상 기하 (`Leg` 과 같음)
 
@@ -137,24 +138,45 @@ class Pose:
     """골반 기준 두 발의 (앞, 높이) 와 골반의 좌우 기울기 phi (도, + = 골반이 왼쪽으로)."""
 
     def __init__(self, height: float, left=(0.0, 0.0), right=(0.0, 0.0), phi: float = 0.0,
-                 ankle_down: float = 0.0):
+                 ankle_down: float = 0.0, spread: float = 0.0, ankle_roll=None,
+                 ankle_pitch=None):
         self.height = height
         self.feet = {"left_leg": left, "right_leg": right}     # (x, 들어올림)
         self.phi = phi
         self.ankle_down = ankle_down
         """발판 수평에서 발목 pitch 를 이만큼 덜 젖힘 (도). 0 이면 발판 수평."""
+        self.spread = spread
+        """다리마다 바깥으로 벌리는 hip_roll (도). 발목 roll 로 되돌려 발판은 수평."""
+        self.ankle_roll = ankle_roll
+        """주면 발목 roll 을 이 값(도)으로 고정함 -- 골반 기울기·벌림 보정을 안 함."""
+        self.ankle_pitch = ankle_pitch
+        """주면 발목 pitch 를 이 값(도)으로 고정함 -- 다리 자세와 상관없이."""
+        self.ankle_up: Dict[str, float] = {}
+        """다리별로 고정 발목 pitch 에 더 젖히는 양 (도, + = 발끝이 올라감)."""
 
     def joints(self, roll_sign: float) -> Tuple[Dict[str, float], Dict[str, dict]]:
         out: Dict[str, float] = {}
         info: Dict[str, dict] = {}
         for leg, (x, lift) in self.feet.items():
-            hip, knee, pitch = leg_ik(x, self.height - lift)
+            # 벌린 만큼 다리 평면이 기울어, 같은 골반 높이에 다리가 1/cos 만큼 길어야 함.
+            reach = (self.height - lift) / math.cos(math.radians(self.spread))
+            hip, knee, pitch = leg_ik(x, reach)
             pitch -= self.ankle_down
+            if self.ankle_pitch is not None:
+                pitch = self.ankle_pitch + self.ankle_up.get(leg, 0.0)
             # 골반이 phi 만큼 기울면 다리도 같이 기움 -> 발판을 반대로 되돌림. 왼다리는
             # 거울상 기하라 같은 물리 방향이 반대 부호임.
+            #
+            # 벌림은 좌우 거울 동작이라 hip_roll 은 오른 +, 왼 - 이고, 되돌리는 발목 roll
+            # 도 거울이어야 함 -- 발목 roll 도 거울 규약이라 (A_SIDE_DOWN_DEG 와 같음)
+            # leg_sign 이 한 번만 붙음.
             leg_sign = 1.0 if leg == "right_leg" else -1.0
-            roll = -roll_sign * leg_sign * self.phi + leg_sign * A_SIDE_DOWN_DEG
-            out.update(_joint(leg, hip, knee, pitch, roll, self.phi))
+            hip_roll = self.phi + leg_sign * self.spread
+            roll = (-roll_sign * leg_sign * (self.phi + self.spread)
+                    + leg_sign * A_SIDE_DOWN_DEG)
+            if self.ankle_roll is not None:
+                roll = leg_sign * self.ankle_roll
+            out.update(_joint(leg, hip, knee, pitch, roll, hip_roll))
             info[leg] = {"x": x, "lift": lift, "hip": hip, "knee": knee, "pitch": pitch, "roll": roll}
         return out, info
 
@@ -167,15 +189,35 @@ def lateral_phi(shift: float, height: float) -> float:
 # ---------------------------------------------------------------------------
 # 시퀀스
 # ---------------------------------------------------------------------------
-def squat(ankle_down: float = 10.0) -> Tuple[str, int, List[Tuple[str, Pose, float, float]]]:
-    """기준자세 -> 반 -> 깊게 -> 반 -> 기준자세. 엉덩이는 늘 발 바로 위.
+SQUAT_ANKLE_DOWN = 15.0
+"""스쿼트 가장 깊은 자세에서 발목을 덜 젖히는 양 (도). 10 에서 올림 (10-19, 몸이 앞으로 쏠림)."""
+
+FLAT_ANKLE_DOWN = 5.0
+"""모델의 발판 수평보다 발목을 이만큼 펴야 실물 발바닥이 평평함 (도). 스쿼트 준비 자세에서
+찾은 값 (10-19). 모델 각도가 실물과 어긋나는 몫이라 걷기에도 모든 키프레임에 같이 걸음."""
+
+SQUAT_ANKLE_DOWN_START = FLAT_ANKLE_DOWN
+"""스쿼트 준비 자세(무릎 20)에서 발목을 펴는 양 (도). 0 이면 발판 수평으로 당겨져 있음 (10-19)."""
+
+SQUAT_SPREAD = 3.0
+"""스쿼트에서 다리마다 바깥으로 벌리는 hip_roll (도). 0 에서 올림 (10-19).
+3 도면 발이 한쪽에 약 4 cm 씩 바깥으로 감."""
+
+
+def squat(ankle_down: float = SQUAT_ANKLE_DOWN, spread: float = SQUAT_SPREAD,
+          ankle_down_start: float = SQUAT_ANKLE_DOWN_START,
+          ) -> Tuple[str, int, List[Tuple[str, Pose, float, float]]]:
+    """기준자세 -> 반 -> 깊게 -> 반 -> 기준자세. 엉덩이는 늘 발 바로 위 (앞뒤).
 
     `ankle_down` 은 가장 깊은 자세(무릎 70)에서 발목을 발판 수평보다 덜 젖히는 양 (도).
-    준비 자세(무릎 20)에서 0 이고 깊이에 비례해 늘어남 -- 발끝이 그만큼 내려가는 쪽.
+    준비 자세(무릎 20)에서 `ankle_down_start` 이고 깊이에 비례해 `ankle_down` 까지 늘어남
+    -- 발끝이 그만큼 내려가는 쪽, 즉 정강이가 뒤로 서서 몸이 뒤로 감.
+
+    `spread` 는 다리마다 바깥으로 벌리는 hip_roll (도). 모든 키프레임에 같게 걸림.
     """
     def at(knee: float) -> Pose:
-        down = ankle_down * (knee - 20.0) / (70.0 - 20.0)
-        return Pose(2 * LEG_L * math.cos(math.radians(knee / 2)), ankle_down=down)
+        down = ankle_down_start + (ankle_down - ankle_down_start) * (knee - 20.0) / (70.0 - 20.0)
+        return Pose(2 * LEG_L * math.cos(math.radians(knee / 2)), ankle_down=down, spread=spread)
     return "sim_squat", 3, [
         ("1 준비 (기준자세, 무릎 20)", at(20), 2.5, 1.0),
         ("2 내려가기 반 (무릎 45)", at(45), 2.0, 0.3),
@@ -185,69 +227,117 @@ def squat(ankle_down: float = 10.0) -> Tuple[str, int, List[Tuple[str, Pose, flo
     ]
 
 
-def walk(step: float = 0.13, lift: float = 0.08, knee0: float = 30.0, steps: int = 4):
-    """정적 보행. 늘 한 발 위에 골반을 둔 채 다른 발을 옮김 -- 느리고 단계가 분명함.
+def squat_start_ankle_pitch() -> float:
+    """스쿼트 준비 자세(무릎 20)의 발목 pitch (도). 실물에서 발바닥이 평평한 각도."""
+    _, info = squat()[2][0][1].joints(1.0)
+    return info["right_leg"]["pitch"]
 
-        A 준비        두 발 모음, 무릎 knee0 로 낮춤 (발 들 여유)
-        B 체중 이동   골반을 디딤발 위로 (hip_roll)
+
+WALK_LIFT = 0.15
+"""걸을 때 발을 드는 높이 (m). 0.08 에서 올림 (10-19, 무릎을 앞으로 더 들어야 함)."""
+
+
+WALK_TOE_UP = 5.0
+"""내딛기(D) 때 흔들발 발목을 더 젖히는 양 (도). 발끝이 올라감 (10-19)."""
+
+WALK_SPREAD = 4.0
+"""걸을 때 다리마다 바깥으로 벌리는 hip_roll (도). 0 에서 올림 (10-19)."""
+
+
+WALK_SWAY = 4.0
+"""체중 이동 때 골반 좌우 기울기 (도). 예전에는 골반을 디딤발 바로 위까지 옮기도록
+계산해 11.6 도였음 -- 너무 흔들어서 줄임 (10-19)."""
+
+
+def walk(step: float = 0.13, lift: float = WALK_LIFT, knee0: float = 30.0,
+         spread: float = WALK_SPREAD, sway: float = WALK_SWAY, toe_up: float = WALK_TOE_UP):
+    """정적 보행 세 개. 늘 한 발로 선 채 다른 발을 옮김 -- 느리고 단계가 분명함.
+
+        sim_walk_start   두 발 모음 -> 왼발 한 걸음. 1번        (A, 왼발 B~F)
+        sim_walk         오른발 한 걸음 + 왼발 한 걸음. 무한 반복 (B~F x 2)
+        sim_walk_stop    뒷발을 끌어와 두 발 모음. 1번          (Z)
+
+    한 걸음은
+
+        B 체중 이동   골반을 디딤발 쪽으로 (hip_roll)
         C 발 들기     흔들발을 lift 만큼
         D 내딛기      흔들발을 앞으로 (공중)
         E 내려놓기    흔들발을 바닥에
         F 가운데로    골반을 두 발 사이로 (앞으로 반 걸음, 기울기 0)
-        ... 반대쪽으로 B~F 반복 ...
-        Z 마무리      뒷발을 끌어와 두 발 모음 -> 준비 자세
+
+    **`sim_walk` 는 끝 자세가 첫 자세의 바로 앞 자세임** -- 왼발이 반 걸음 앞, 오른발이
+    반 걸음 뒤. 그래서 studio 가 처음으로 돌아가도 발이 끌리지 않음. 두 발 모음에서
+    바로 반복을 틀면 첫 체중 이동에서 오른발이 바닥을 끌고 뒤로 감 -- `sim_walk_start`
+    를 먼저 틀 것.
+
+    `spread` 는 다리마다 바깥으로 벌리는 hip_roll (도).
+
+    `sway` 는 체중 이동 때 골반 좌우 기울기 (도). 골반이 디딤발 바로 위까지 가지는
+    않음 -- 거기까지 가려면 `lateral_phi(HIP_WIDTH / 2, H) + spread` 가 필요함.
+
+    **발목은 모든 키프레임에서 스쿼트 준비 자세와 같은 모터각으로 고정함** (pitch
+    `squat_start_ankle_pitch()`, roll 0). 다리 자세에 따라 바꾸지 않음. 예외는 내딛기(D)
+    의 흔들발 하나 -- `toe_up` 만큼 더 젖혀 발끝을 올림. 내려놓기(E)에서 고정 각도로 돌아옴.
     """
     H = 2 * LEG_L * math.cos(math.radians(knee0 / 2))
-    phi = lateral_phi(HIP_WIDTH / 2, H)
-    frames: List[Tuple[str, Pose, float, float]] = []
+    ankle = squat_start_ankle_pitch()
 
-    def add(label, pose, move, hold=0.0):
-        frames.append((label, pose, move, hold))
+    def base() -> Pose:
+        return Pose(H, ankle_pitch=ankle, ankle_roll=0.0, spread=spread)
 
-    add("A 준비 (두 발 모음, 무릎 %.0f)" % knee0, Pose(H), 2.5, 1.0)
-    # 상태: 발 위치는 골반 기준. back = 뒤에 있는 발, 처음엔 둘 다 0.
-    feet = {"left_leg": 0.0, "right_leg": 0.0}
-    stance, swing = "left_leg", "right_leg"
-    for n in range(1, steps + 1):
-        tag = f"{n}걸음 {'오른' if swing == 'right_leg' else '왼'}발"
+    def one_step(frames, feet, stance, swing, tag):
+        """디딤발 stance 로 서서 swing 을 한 걸음 옮김. 걸음 뒤의 발 위치를 냄 (골반 기준 앞)."""
         side = 1.0 if stance == "left_leg" else -1.0       # 골반을 디딤발 쪽으로
         # 골반을 디딤발 위로 앞뒤도 맞춤: 디딤발 x 를 0 으로 만들도록 전체를 옮김
-        off = feet[stance]
-        f = {k: v - off for k, v in feet.items()}
+        f = {k: v - feet[stance] for k, v in feet.items()}
 
-        def pose(sw_x, sw_lift, ph):
-            p = Pose(H, phi=ph)
+        def pose(sw_x, sw_lift, up=0.0):
+            p = base()
+            p.phi = side * sway
+            p.ankle_up[swing] = up
             p.feet[stance] = (f[stance], 0.0)
             p.feet[swing] = (sw_x, sw_lift)
             return p
-        add(f"{tag} B 체중 이동", pose(f[swing], 0.0, side * phi), 1.5, 0.3)
-        add(f"{tag} C 발 들기", pose(f[swing], lift, side * phi), 1.0, 0.0)
-        add(f"{tag} D 내딛기", pose(step, lift, side * phi), 1.2, 0.0)
-        add(f"{tag} E 내려놓기", pose(step, 0.0, side * phi), 1.0, 0.2)
+        frames.append((f"{tag} B 체중 이동", pose(f[swing], 0.0), 1.5, 0.3))
+        frames.append((f"{tag} C 발 들기", pose(f[swing], lift), 1.0, 0.0))
+        frames.append((f"{tag} D 내딛기", pose(step, lift, toe_up), 1.2, 0.0))
+        frames.append((f"{tag} E 내려놓기", pose(step, 0.0), 1.0, 0.2))
         # 가운데로: 골반을 두 발 가운데로, 기울기 0
         mid = step / 2
-        p = Pose(H)
+        p = base()
         p.feet[stance] = (f[stance] - mid, 0.0)
         p.feet[swing] = (step - mid, 0.0)
-        add(f"{tag} F 가운데로", p, 1.5, 0.3)
-        feet = {stance: f[stance] - mid, swing: step - mid}
-        stance, swing = swing, stance
-    # 마무리: 지금 디딤발(앞발) 위로 옮기고 뒷발을 끌어옴
-    side = 1.0 if stance == "left_leg" else -1.0
-    off = feet[stance]
-    f = {k: v - off for k, v in feet.items()}
+        frames.append((f"{tag} F 가운데로", p, 1.5, 0.3))
+        return {stance: f[stance] - mid, swing: step - mid}
 
-    def pose_end(sw_x, sw_lift, ph):
-        p = Pose(H, phi=ph)
-        p.feet[stance] = (0.0, 0.0)
+    # 시작: 두 발 모음 -> 오른발로 서서 왼발 한 걸음. 끝나면 왼발 앞, 오른발 뒤.
+    start: List[Tuple[str, Pose, float, float]] = [
+        ("A 준비 (두 발 모음, 무릎 %.0f)" % knee0, base(), 2.5, 1.0)]
+    looped = one_step(start, {"left_leg": 0.0, "right_leg": 0.0}, "right_leg", "left_leg", "시작 왼발")
+
+    # 반복: 오른발 -> 왼발. 끝 발 위치가 시작과 같아야 이어짐.
+    loop: List[Tuple[str, Pose, float, float]] = []
+    feet = one_step(loop, looped, "left_leg", "right_leg", "오른발")
+    feet = one_step(loop, feet, "right_leg", "left_leg", "왼발")
+    assert all(abs(feet[k] - looped[k]) < 1e-9 for k in feet), "반복 끝 자세가 시작과 다름"
+
+    # 멈춤: 앞발(왼발)로 서서 뒷발(오른발)을 끌어와 두 발 모음.
+    stance, swing = "left_leg", "right_leg"
+    back = feet[swing] - feet[stance]
+
+    def pose_end(sw_x, sw_lift):
+        p = base()
+        p.phi = sway
         p.feet[swing] = (sw_x, sw_lift)
         return p
-    add("Z 마무리 체중 이동", pose_end(f[swing], 0.0, side * phi), 1.5, 0.3)
-    add("Z 뒷발 들기", pose_end(f[swing], lift, side * phi), 1.0)
-    add("Z 뒷발 모으기", pose_end(0.0, lift, side * phi), 1.2)
-    add("Z 내려놓기", pose_end(0.0, 0.0, side * phi), 1.0, 0.2)
-    add("Z 가운데로 (두 발 모음)", Pose(H), 1.5, 1.0)
-    return "sim_walk", 1, frames
+    stop = [
+        ("Z 체중 이동", pose_end(back, 0.0), 1.5, 0.3),
+        ("Z 뒷발 들기", pose_end(back, lift), 1.0, 0.0),
+        ("Z 뒷발 모으기", pose_end(0.0, lift), 1.2, 0.0),
+        ("Z 내려놓기", pose_end(0.0, 0.0), 1.0, 0.2),
+        ("Z 가운데로 (두 발 모음)", base(), 1.5, 1.0),
+    ]
+    return [("sim_walk_start", 1, start), ("sim_walk", 0, loop), ("sim_walk_stop", 1, stop)]
 
 
 def roll_check(knee0: float = 30.0, deg: float = 3.0):
@@ -295,6 +385,7 @@ def build(seq, roll_sign: float, verbose: bool, preview: list = None) -> dict:
         )
         pv["frames"].append({
             "label": label, "move": move, "hold": hold, "phi": pose.phi, "height": pose.height,
+            "spread": pose.spread,
             "legs": {leg: {k: info[leg][k] for k in ("hip", "knee", "pitch", "lift", "x")} for leg in info},
         })
         keyframes.append({
@@ -328,22 +419,35 @@ def main(argv=None) -> int:
                     help="발목 roll 보정 방향. sim_roll_check 에서 발 모서리가 들리면 -1")
     ap.add_argument("--out", type=Path, default=ROOT / "config" / "sequences")
     ap.add_argument("--preview", type=Path, help="막대 그림 미리보기 html 을 이 경로에 씀")
-    ap.add_argument("--lift", type=float, default=0.08,
-                    help="걸을 때 발을 드는 높이 (m). 클수록 무릎이 높이 올라감. 기본 0.08")
+    ap.add_argument("--squat-ankle-down", type=float, default=SQUAT_ANKLE_DOWN,
+                    help=f"스쿼트 가장 깊은 자세에서 발목을 펴는 양 (도). 클수록 몸이 뒤로. 기본 {SQUAT_ANKLE_DOWN:g}")
+    ap.add_argument("--squat-ankle-down-start", type=float, default=SQUAT_ANKLE_DOWN_START,
+                    help=f"스쿼트 준비 자세(무릎 20)에서 발목을 펴는 양 (도). 기본 {SQUAT_ANKLE_DOWN_START:g}")
+    ap.add_argument("--squat-spread", type=float, default=SQUAT_SPREAD,
+                    help=f"스쿼트에서 다리마다 바깥으로 벌리는 hip_roll (도). 기본 {SQUAT_SPREAD:g}")
+    ap.add_argument("--walk-toe-up", type=float, default=WALK_TOE_UP,
+                    help=f"내딛을 때 흔들발 발목을 더 젖히는 양 (도). 기본 {WALK_TOE_UP:g}")
+    ap.add_argument("--walk-spread", type=float, default=WALK_SPREAD,
+                    help=f"걸을 때 다리마다 바깥으로 벌리는 hip_roll (도). 기본 {WALK_SPREAD:g}")
+    ap.add_argument("--walk-sway", type=float, default=WALK_SWAY,
+                    help=f"걸을 때 체중 이동의 골반 기울기 (도). 기본 {WALK_SWAY:g}")
+    ap.add_argument("--lift", type=float, default=WALK_LIFT,
+                    help=f"걸을 때 발을 드는 높이 (m). 클수록 무릎이 높이 올라감. 기본 {WALK_LIFT:g}")
     ap.add_argument("--step", type=float, default=0.13,
-                    help="한 걸음에 나아가는 거리 (m). 기본 0.13. 발을 0.08 들 때 0.14 를 넘으면 "
-                         "뒷발을 들 때 발목 pitch 가 범위(40도)를 넘음")
+                    help="한 걸음에 나아가는 거리 (m). 기본 0.13")
     args = ap.parse_args(argv)
 
     # 모델 확인: 기준자세의 발 위치와 발목
     x, z = leg_fk(10.0, 20.0)
     print(f"모델 확인  기준자세(엉덩이 10, 무릎 20) -> 발 앞 {x * 1000:+.1f}mm, 엉덩이 높이 {z:.3f}m, "
           f"발판 수평 발목 pitch {20 - 10:.1f}도 (정책 기준자세의 FK: 8.8도)")
-    print(f"걷기 골반 기울기 {lateral_phi(HIP_WIDTH / 2, 2 * LEG_L * math.cos(math.radians(15))):.1f}도 "
-          f"(발 간격 {HIP_WIDTH:.2f}m 의 반만큼 옆으로), 발목 roll 부호 {args.roll_sign:+.0f}")
+    print(f"걷기 골반 기울기 {args.walk_sway:g}도, 다리 벌림 {args.walk_spread:g}도, "
+          f"발목 roll 부호 {args.roll_sign:+.0f}")
 
     previews: list = []
-    for seq in (roll_check(), squat(), walk(step=args.step, lift=args.lift)):
+    seqs = [roll_check(), squat(args.squat_ankle_down, args.squat_spread, args.squat_ankle_down_start)]
+    seqs += walk(step=args.step, lift=args.lift, spread=args.walk_spread, sway=args.walk_sway, toe_up=args.walk_toe_up)
+    for seq in seqs:
         body = build(seq, args.roll_sign, verbose=True, preview=previews)
         if not args.check:
             path = args.out / f"{body['name']}.json"

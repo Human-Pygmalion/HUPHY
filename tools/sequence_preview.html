@@ -97,7 +97,8 @@ function state(t) {
     const a = seg.from.legs[leg], b = seg.to.legs[leg];
     legs[leg] = { hip: lerp(a.hip, b.hip, u), knee: lerp(a.knee, b.knee, u), pitch: lerp(a.pitch, b.pitch, u) };
   }
-  return { k: seg.k, legs, phi: lerp(seg.from.phi, seg.to.phi, u), height: lerp(seg.from.height, seg.to.height, u) };
+  return { k: seg.k, legs, phi: lerp(seg.from.phi, seg.to.phi, u), height: lerp(seg.from.height, seg.to.height, u),
+    spread: lerp(seg.from.spread || 0, seg.to.spread || 0, u) };
 }
 
 const R = (d) => d * Math.PI / 180;
@@ -147,7 +148,9 @@ function render() {
     for (const [leg, col, side] of [["left_leg", "--left", -1], ["right_leg", "--right", 1]]) {
       const l = st.legs[leg], L = DATA.leg_l;
       const len = L * Math.cos(R(l.hip)) + L * Math.cos(R(l.hip - l.knee));
-      const hx = ox + side * hw * sc, fx = hx + Math.sin(phi) * len * sc, fy = oy + Math.cos(phi) * len * sc;
+      // 벌림은 다리마다 바깥쪽 (화면 왼쪽 다리는 왼쪽, 오른쪽 다리는 오른쪽)
+      const a = phi + side * R(st.spread || 0);
+      const hx = ox + side * hw * sc, fx = hx + Math.sin(a) * len / Math.cos(R(st.spread || 0)) * sc, fy = oy + Math.cos(a) * len / Math.cos(R(st.spread || 0)) * sc;
       g.strokeStyle = css(col); g.lineWidth = 6; g.lineCap = "round";
       g.beginPath(); g.moveTo(hx, oy); g.lineTo(fx, fy); g.stroke();
       g.lineWidth = 5; g.beginPath(); g.moveTo(fx - 0.05 * sc, fy + 0.03 * sc); g.lineTo(fx + 0.05 * sc, fy + 0.03 * sc); g.stroke();

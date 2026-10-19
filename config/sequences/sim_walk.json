@@ -1,501 +1,197 @@
 {
   "name": "sim_walk",
   "ankle_space": "ab",
-  "repeat": 1,
+  "repeat": 0,
   "keyframes": [
     {
-      "label": "A 준비 (두 발 모음, 무릎 30)",
+      "label": "오른발 B 체중 이동",
       "pose": {
-        "left_leg/hip_pitch": 15.0,
+        "left_leg/hip_pitch": 14.47,
         "left_leg/hip_roll": 0.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -10.9,
-        "left_leg/ankle_b": 17.71,
-        "right_leg/hip_pitch": -15.0,
-        "right_leg/hip_roll": 0.0,
+        "left_leg/knee": -28.94,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -0.96,
+        "right_leg/hip_roll": 8.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 30.0,
-        "right_leg/ankle_a": 10.9,
-        "right_leg/ankle_b": -17.71
-      },
-      "move_s": 2.5,
-      "hold_s": 1.0
-    },
-    {
-      "label": "1걸음 오른발 B 체중 이동",
-      "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -19.51,
-        "left_leg/ankle_b": 9.2,
-        "right_leg/hip_pitch": -15.0,
-        "right_leg/hip_roll": 7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 30.0,
-        "right_leg/ankle_a": 19.51,
-        "right_leg/ankle_b": -9.2
+        "right_leg/knee": 21.45,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
       },
       "move_s": 1.5,
       "hold_s": 0.3
     },
     {
-      "label": "1걸음 오른발 C 발 들기",
+      "label": "오른발 C 발 들기",
       "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 7.56,
+        "left_leg/hip_pitch": 14.47,
+        "left_leg/hip_roll": 0.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -19.51,
-        "left_leg/ankle_b": 9.2,
-        "right_leg/hip_pitch": -30.3,
-        "right_leg/hip_roll": 7.56,
+        "left_leg/knee": -28.94,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -25.38,
+        "right_leg/hip_roll": 8.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 60.61,
-        "right_leg/ankle_a": 34.54,
-        "right_leg/ankle_b": -24.3
+        "right_leg/knee": 75.03,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
       },
       "move_s": 1.0,
       "hold_s": 0.0
     },
     {
-      "label": "1걸음 오른발 D 내딛기",
+      "label": "오른발 D 내딛기",
       "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 7.56,
+        "left_leg/hip_pitch": 14.47,
+        "left_leg/hip_roll": 0.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -19.51,
-        "left_leg/ankle_b": 9.2,
-        "right_leg/hip_pitch": -39.37,
-        "right_leg/hip_roll": 7.56,
+        "left_leg/knee": -28.94,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -49.64,
+        "right_leg/hip_roll": 8.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 56.88,
-        "right_leg/ankle_a": 21.95,
-        "right_leg/ankle_b": -11.65
+        "right_leg/knee": 75.03,
+        "right_leg/ankle_a": 9.02,
+        "right_leg/ankle_b": -9.04
       },
       "move_s": 1.2,
       "hold_s": 0.0
     },
     {
-      "label": "1걸음 오른발 E 내려놓기",
+      "label": "오른발 E 내려놓기",
       "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 7.56,
+        "left_leg/hip_pitch": 14.47,
+        "left_leg/hip_roll": 0.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -19.51,
-        "left_leg/ankle_b": 9.2,
-        "right_leg/hip_pitch": -21.21,
-        "right_leg/hip_roll": 7.56,
+        "left_leg/knee": -28.94,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -20.49,
+        "right_leg/hip_roll": 8.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 22.84,
-        "right_leg/ankle_a": 6.74,
-        "right_leg/ankle_b": 3.61
+        "right_leg/knee": 21.45,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
       },
       "move_s": 1.0,
       "hold_s": 0.2
     },
     {
-      "label": "1걸음 오른발 F 가운데로",
+      "label": "오른발 F 가운데로",
       "pose": {
-        "left_leg/hip_pitch": 9.25,
-        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_pitch": 8.7,
+        "left_leg/hip_roll": -4.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -28.37,
-        "left_leg/ankle_a": -14.9,
-        "left_leg/ankle_b": 21.7,
-        "right_leg/hip_pitch": -19.11,
+        "left_leg/knee": -27.25,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -18.54,
+        "right_leg/hip_roll": 4.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 27.25,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
+      },
+      "move_s": 1.5,
+      "hold_s": 0.3
+    },
+    {
+      "label": "왼발 B 체중 이동",
+      "pose": {
+        "left_leg/hip_pitch": 0.96,
+        "left_leg/hip_roll": -8.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -21.45,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -14.47,
         "right_leg/hip_roll": 0.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 28.37,
-        "right_leg/ankle_a": 5.37,
-        "right_leg/ankle_b": -12.19
+        "right_leg/knee": 28.94,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
       },
       "move_s": 1.5,
       "hold_s": 0.3
     },
     {
-      "label": "2걸음 왼발 B 체중 이동",
+      "label": "왼발 C 발 들기",
       "pose": {
-        "left_leg/hip_pitch": 1.63,
-        "left_leg/hip_roll": -7.56,
+        "left_leg/hip_pitch": 25.38,
+        "left_leg/hip_roll": -8.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -22.84,
-        "left_leg/ankle_a": -8.9,
-        "left_leg/ankle_b": 32.9,
-        "right_leg/hip_pitch": -15.0,
-        "right_leg/hip_roll": -7.56,
+        "left_leg/knee": -75.03,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -14.47,
+        "right_leg/hip_roll": 0.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 30.0,
-        "right_leg/ankle_a": 2.71,
-        "right_leg/ankle_b": -26.73
-      },
-      "move_s": 1.5,
-      "hold_s": 0.3
-    },
-    {
-      "label": "2걸음 왼발 C 발 들기",
-      "pose": {
-        "left_leg/hip_pitch": 17.52,
-        "left_leg/hip_roll": -7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -56.88,
-        "left_leg/ankle_a": -27.48,
-        "left_leg/ankle_b": 51.58,
-        "right_leg/hip_pitch": -15.0,
-        "right_leg/hip_roll": -7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 30.0,
-        "right_leg/ankle_a": 2.71,
-        "right_leg/ankle_b": -26.73
+        "right_leg/knee": 28.94,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
       },
       "move_s": 1.0,
       "hold_s": 0.0
     },
     {
-      "label": "2걸음 왼발 D 내딛기",
+      "label": "왼발 D 내딛기",
       "pose": {
-        "left_leg/hip_pitch": 39.37,
-        "left_leg/hip_roll": -7.56,
+        "left_leg/hip_pitch": 49.64,
+        "left_leg/hip_roll": -8.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -56.88,
-        "left_leg/ankle_a": -5.21,
-        "left_leg/ankle_b": 29.22,
-        "right_leg/hip_pitch": -15.0,
-        "right_leg/hip_roll": -7.56,
+        "left_leg/knee": -75.03,
+        "left_leg/ankle_a": -9.02,
+        "left_leg/ankle_b": 9.04,
+        "right_leg/hip_pitch": -14.47,
+        "right_leg/hip_roll": 0.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 30.0,
-        "right_leg/ankle_a": 2.71,
-        "right_leg/ankle_b": -26.73
+        "right_leg/knee": 28.94,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
       },
       "move_s": 1.2,
       "hold_s": 0.0
     },
     {
-      "label": "2걸음 왼발 E 내려놓기",
+      "label": "왼발 E 내려놓기",
       "pose": {
-        "left_leg/hip_pitch": 21.21,
-        "left_leg/hip_roll": -7.56,
+        "left_leg/hip_pitch": 20.49,
+        "left_leg/hip_roll": -8.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -22.84,
-        "left_leg/ankle_a": 10.32,
-        "left_leg/ankle_b": 13.73,
-        "right_leg/hip_pitch": -15.0,
-        "right_leg/hip_roll": -7.56,
+        "left_leg/knee": -21.45,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -14.47,
+        "right_leg/hip_roll": 0.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 30.0,
-        "right_leg/ankle_a": 2.71,
-        "right_leg/ankle_b": -26.73
+        "right_leg/knee": 28.94,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
       },
       "move_s": 1.0,
       "hold_s": 0.2
     },
     {
-      "label": "2걸음 왼발 F 가운데로",
+      "label": "왼발 F 가운데로",
       "pose": {
-        "left_leg/hip_pitch": 19.11,
-        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_pitch": 18.54,
+        "left_leg/hip_roll": -4.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -28.37,
-        "left_leg/ankle_a": -5.37,
-        "left_leg/ankle_b": 12.19,
-        "right_leg/hip_pitch": -9.25,
-        "right_leg/hip_roll": 0.0,
+        "left_leg/knee": -27.25,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -8.7,
+        "right_leg/hip_roll": 4.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 28.37,
-        "right_leg/ankle_a": 14.9,
-        "right_leg/ankle_b": -21.7
+        "right_leg/knee": 27.25,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
       },
       "move_s": 1.5,
       "hold_s": 0.3
-    },
-    {
-      "label": "3걸음 오른발 B 체중 이동",
-      "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -19.51,
-        "left_leg/ankle_b": 9.2,
-        "right_leg/hip_pitch": -1.63,
-        "right_leg/hip_roll": 7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 22.84,
-        "right_leg/ankle_a": 25.55,
-        "right_leg/ankle_b": -15.27
-      },
-      "move_s": 1.5,
-      "hold_s": 0.3
-    },
-    {
-      "label": "3걸음 오른발 C 발 들기",
-      "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -19.51,
-        "left_leg/ankle_b": 9.2,
-        "right_leg/hip_pitch": -17.52,
-        "right_leg/hip_roll": 7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 56.88,
-        "right_leg/ankle_a": 43.72,
-        "right_leg/ankle_b": -33.5
-      },
-      "move_s": 1.0,
-      "hold_s": 0.0
-    },
-    {
-      "label": "3걸음 오른발 D 내딛기",
-      "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -19.51,
-        "left_leg/ankle_b": 9.2,
-        "right_leg/hip_pitch": -39.37,
-        "right_leg/hip_roll": 7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 56.88,
-        "right_leg/ankle_a": 21.95,
-        "right_leg/ankle_b": -11.65
-      },
-      "move_s": 1.2,
-      "hold_s": 0.0
-    },
-    {
-      "label": "3걸음 오른발 E 내려놓기",
-      "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -19.51,
-        "left_leg/ankle_b": 9.2,
-        "right_leg/hip_pitch": -21.21,
-        "right_leg/hip_roll": 7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 22.84,
-        "right_leg/ankle_a": 6.74,
-        "right_leg/ankle_b": 3.61
-      },
-      "move_s": 1.0,
-      "hold_s": 0.2
-    },
-    {
-      "label": "3걸음 오른발 F 가운데로",
-      "pose": {
-        "left_leg/hip_pitch": 9.25,
-        "left_leg/hip_roll": 0.0,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -28.37,
-        "left_leg/ankle_a": -14.9,
-        "left_leg/ankle_b": 21.7,
-        "right_leg/hip_pitch": -19.11,
-        "right_leg/hip_roll": 0.0,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 28.37,
-        "right_leg/ankle_a": 5.37,
-        "right_leg/ankle_b": -12.19
-      },
-      "move_s": 1.5,
-      "hold_s": 0.3
-    },
-    {
-      "label": "4걸음 왼발 B 체중 이동",
-      "pose": {
-        "left_leg/hip_pitch": 1.63,
-        "left_leg/hip_roll": -7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -22.84,
-        "left_leg/ankle_a": -8.9,
-        "left_leg/ankle_b": 32.9,
-        "right_leg/hip_pitch": -15.0,
-        "right_leg/hip_roll": -7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 30.0,
-        "right_leg/ankle_a": 2.71,
-        "right_leg/ankle_b": -26.73
-      },
-      "move_s": 1.5,
-      "hold_s": 0.3
-    },
-    {
-      "label": "4걸음 왼발 C 발 들기",
-      "pose": {
-        "left_leg/hip_pitch": 17.52,
-        "left_leg/hip_roll": -7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -56.88,
-        "left_leg/ankle_a": -27.48,
-        "left_leg/ankle_b": 51.58,
-        "right_leg/hip_pitch": -15.0,
-        "right_leg/hip_roll": -7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 30.0,
-        "right_leg/ankle_a": 2.71,
-        "right_leg/ankle_b": -26.73
-      },
-      "move_s": 1.0,
-      "hold_s": 0.0
-    },
-    {
-      "label": "4걸음 왼발 D 내딛기",
-      "pose": {
-        "left_leg/hip_pitch": 39.37,
-        "left_leg/hip_roll": -7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -56.88,
-        "left_leg/ankle_a": -5.21,
-        "left_leg/ankle_b": 29.22,
-        "right_leg/hip_pitch": -15.0,
-        "right_leg/hip_roll": -7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 30.0,
-        "right_leg/ankle_a": 2.71,
-        "right_leg/ankle_b": -26.73
-      },
-      "move_s": 1.2,
-      "hold_s": 0.0
-    },
-    {
-      "label": "4걸음 왼발 E 내려놓기",
-      "pose": {
-        "left_leg/hip_pitch": 21.21,
-        "left_leg/hip_roll": -7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -22.84,
-        "left_leg/ankle_a": 10.32,
-        "left_leg/ankle_b": 13.73,
-        "right_leg/hip_pitch": -15.0,
-        "right_leg/hip_roll": -7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 30.0,
-        "right_leg/ankle_a": 2.71,
-        "right_leg/ankle_b": -26.73
-      },
-      "move_s": 1.0,
-      "hold_s": 0.2
-    },
-    {
-      "label": "4걸음 왼발 F 가운데로",
-      "pose": {
-        "left_leg/hip_pitch": 19.11,
-        "left_leg/hip_roll": 0.0,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -28.37,
-        "left_leg/ankle_a": -5.37,
-        "left_leg/ankle_b": 12.19,
-        "right_leg/hip_pitch": -9.25,
-        "right_leg/hip_roll": 0.0,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 28.37,
-        "right_leg/ankle_a": 14.9,
-        "right_leg/ankle_b": -21.7
-      },
-      "move_s": 1.5,
-      "hold_s": 0.3
-    },
-    {
-      "label": "Z 마무리 체중 이동",
-      "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -19.51,
-        "left_leg/ankle_b": 9.2,
-        "right_leg/hip_pitch": -1.63,
-        "right_leg/hip_roll": 7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 22.84,
-        "right_leg/ankle_a": 25.55,
-        "right_leg/ankle_b": -15.27
-      },
-      "move_s": 1.5,
-      "hold_s": 0.3
-    },
-    {
-      "label": "Z 뒷발 들기",
-      "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -19.51,
-        "left_leg/ankle_b": 9.2,
-        "right_leg/hip_pitch": -17.52,
-        "right_leg/hip_roll": 7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 56.88,
-        "right_leg/ankle_a": 43.72,
-        "right_leg/ankle_b": -33.5
-      },
-      "move_s": 1.0,
-      "hold_s": 0.0
-    },
-    {
-      "label": "Z 뒷발 모으기",
-      "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -19.51,
-        "left_leg/ankle_b": 9.2,
-        "right_leg/hip_pitch": -30.3,
-        "right_leg/hip_roll": 7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 60.61,
-        "right_leg/ankle_a": 34.54,
-        "right_leg/ankle_b": -24.3
-      },
-      "move_s": 1.2,
-      "hold_s": 0.0
-    },
-    {
-      "label": "Z 내려놓기",
-      "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 7.56,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -19.51,
-        "left_leg/ankle_b": 9.2,
-        "right_leg/hip_pitch": -15.0,
-        "right_leg/hip_roll": 7.56,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 30.0,
-        "right_leg/ankle_a": 19.51,
-        "right_leg/ankle_b": -9.2
-      },
-      "move_s": 1.0,
-      "hold_s": 0.2
-    },
-    {
-      "label": "Z 가운데로 (두 발 모음)",
-      "pose": {
-        "left_leg/hip_pitch": 15.0,
-        "left_leg/hip_roll": 0.0,
-        "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -30.0,
-        "left_leg/ankle_a": -10.9,
-        "left_leg/ankle_b": 17.71,
-        "right_leg/hip_pitch": -15.0,
-        "right_leg/hip_roll": 0.0,
-        "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 30.0,
-        "right_leg/ankle_a": 10.9,
-        "right_leg/ankle_b": -17.71
-      },
-      "move_s": 1.5,
-      "hold_s": 1.0
     }
   ]
 }

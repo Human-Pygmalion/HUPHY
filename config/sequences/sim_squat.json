@@ -6,18 +6,18 @@
     {
       "label": "1 준비 (기준자세, 무릎 20)",
       "pose": {
-        "left_leg/hip_pitch": 10.0,
-        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_pitch": 9.54,
+        "left_leg/hip_roll": -3.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -20.0,
-        "left_leg/ankle_a": -6.09,
-        "left_leg/ankle_b": 12.9,
-        "right_leg/hip_pitch": -10.0,
-        "right_leg/hip_roll": 0.0,
+        "left_leg/knee": -19.09,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -9.54,
+        "right_leg/hip_roll": 3.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 20.0,
-        "right_leg/ankle_a": 6.09,
-        "right_leg/ankle_b": -12.9
+        "right_leg/knee": 19.09,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
       },
       "move_s": 2.5,
       "hold_s": 1.0
@@ -25,18 +25,18 @@
     {
       "label": "2 내려가기 반 (무릎 45)",
       "pose": {
-        "left_leg/hip_pitch": 22.5,
-        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_pitch": 22.31,
+        "left_leg/hip_roll": -3.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -45.0,
-        "left_leg/ankle_a": -13.33,
-        "left_leg/ankle_b": 20.13,
-        "right_leg/hip_pitch": -22.5,
-        "right_leg/hip_roll": 0.0,
+        "left_leg/knee": -44.62,
+        "left_leg/ankle_a": -11.67,
+        "left_leg/ankle_b": 11.69,
+        "right_leg/hip_pitch": -22.31,
+        "right_leg/hip_roll": 3.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 45.0,
-        "right_leg/ankle_a": 13.33,
-        "right_leg/ankle_b": -20.13
+        "right_leg/knee": 44.62,
+        "right_leg/ankle_a": 11.67,
+        "right_leg/ankle_b": -11.69
       },
       "move_s": 2.0,
       "hold_s": 0.3
@@ -44,18 +44,18 @@
     {
       "label": "3 깊게 (무릎 70)",
       "pose": {
-        "left_leg/hip_pitch": 35.0,
-        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_pitch": 34.89,
+        "left_leg/hip_roll": -3.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -70.0,
-        "left_leg/ankle_a": -20.68,
-        "left_leg/ankle_b": 27.47,
-        "right_leg/hip_pitch": -35.0,
-        "right_leg/hip_roll": 0.0,
+        "left_leg/knee": -69.78,
+        "left_leg/ankle_a": -19.0,
+        "left_leg/ankle_b": 19.02,
+        "right_leg/hip_pitch": -34.89,
+        "right_leg/hip_roll": 3.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 70.0,
-        "right_leg/ankle_a": 20.68,
-        "right_leg/ankle_b": -27.47
+        "right_leg/knee": 69.78,
+        "right_leg/ankle_a": 19.0,
+        "right_leg/ankle_b": -19.02
       },
       "move_s": 2.0,
       "hold_s": 1.0
@@ -63,18 +63,18 @@
     {
       "label": "4 올라오기 반 (무릎 45)",
       "pose": {
-        "left_leg/hip_pitch": 22.5,
-        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_pitch": 22.31,
+        "left_leg/hip_roll": -3.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -45.0,
-        "left_leg/ankle_a": -13.33,
-        "left_leg/ankle_b": 20.13,
-        "right_leg/hip_pitch": -22.5,
-        "right_leg/hip_roll": 0.0,
+        "left_leg/knee": -44.62,
+        "left_leg/ankle_a": -11.67,
+        "left_leg/ankle_b": 11.69,
+        "right_leg/hip_pitch": -22.31,
+        "right_leg/hip_roll": 3.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 45.0,
-        "right_leg/ankle_a": 13.33,
-        "right_leg/ankle_b": -20.13
+        "right_leg/knee": 44.62,
+        "right_leg/ankle_a": 11.67,
+        "right_leg/ankle_b": -11.69
       },
       "move_s": 2.0,
       "hold_s": 0.3
@@ -82,18 +82,18 @@
     {
       "label": "5 기준자세 (무릎 20)",
       "pose": {
-        "left_leg/hip_pitch": 10.0,
-        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_pitch": 9.54,
+        "left_leg/hip_roll": -3.0,
         "left_leg/hip_yaw": 0.0,
-        "left_leg/knee": -20.0,
-        "left_leg/ankle_a": -6.09,
-        "left_leg/ankle_b": 12.9,
-        "right_leg/hip_pitch": -10.0,
-        "right_leg/hip_roll": 0.0,
+        "left_leg/knee": -19.09,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -9.54,
+        "right_leg/hip_roll": 3.0,
         "right_leg/hip_yaw": 0.0,
-        "right_leg/knee": 20.0,
-        "right_leg/ankle_a": 6.09,
-        "right_leg/ankle_b": -12.9
+        "right_leg/knee": 19.09,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
       },
       "move_s": 2.0,
       "hold_s": 1.0

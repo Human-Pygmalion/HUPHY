@@ -1,0 +1,102 @@
+{
+  "name": "sim_walk_stop",
+  "ankle_space": "ab",
+  "repeat": 1,
+  "keyframes": [
+    {
+      "label": "Z 체중 이동",
+      "pose": {
+        "left_leg/hip_pitch": 14.47,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -28.94,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -0.96,
+        "right_leg/hip_roll": 8.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 21.45,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
+      },
+      "move_s": 1.5,
+      "hold_s": 0.3
+    },
+    {
+      "label": "Z 뒷발 들기",
+      "pose": {
+        "left_leg/hip_pitch": 14.47,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -28.94,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -25.38,
+        "right_leg/hip_roll": 8.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 75.03,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
+      },
+      "move_s": 1.0,
+      "hold_s": 0.0
+    },
+    {
+      "label": "Z 뒷발 모으기",
+      "pose": {
+        "left_leg/hip_pitch": 14.47,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -28.94,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -39.15,
+        "right_leg/hip_roll": 8.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 78.3,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
+      },
+      "move_s": 1.2,
+      "hold_s": 0.0
+    },
+    {
+      "label": "Z 내려놓기",
+      "pose": {
+        "left_leg/hip_pitch": 14.47,
+        "left_leg/hip_roll": 0.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -28.94,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -14.47,
+        "right_leg/hip_roll": 8.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 28.94,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
+      },
+      "move_s": 1.0,
+      "hold_s": 0.2
+    },
+    {
+      "label": "Z 가운데로 (두 발 모음)",
+      "pose": {
+        "left_leg/hip_pitch": 14.47,
+        "left_leg/hip_roll": -4.0,
+        "left_leg/hip_yaw": 0.0,
+        "left_leg/knee": -28.94,
+        "left_leg/ankle_a": -4.27,
+        "left_leg/ankle_b": 4.28,
+        "right_leg/hip_pitch": -14.47,
+        "right_leg/hip_roll": 4.0,
+        "right_leg/hip_yaw": 0.0,
+        "right_leg/knee": 28.94,
+        "right_leg/ankle_a": 4.27,
+        "right_leg/ankle_b": -4.28
+      },
+      "move_s": 1.5,
+      "hold_s": 1.0
+    }
+  ]
+}
