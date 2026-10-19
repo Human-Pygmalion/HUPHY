@@ -39,6 +39,7 @@
 | 10-15 | 왼다리 candleLight 쓰기 (4-2) | `1d50:606f`. **시리얼 그대로** (`004100375034570520323530`) |
 | 10-15 | 왼다리 이름 고정 (5) | `70-candlelight.rules` 에 줄 추가 -> `canl` |
 | 10-15 | 양다리 채널 올리기 (6) | `canr`/`canl` 둘 다 `state ERROR-ACTIVE`, `bitrate 1000000`. `slcand` 안 씀 |
+| 10-19 | 선 재작업 -> **어댑터와 다리가 맞바뀜** | `canr` 에서 모터 1, 2 가, `canl` 에서 7~10 이 응답. 규칙의 이름을 맞바꿈 (5절 "선을 다시 했을 때"). 지금은 `003E...` = 왼다리 `canl`, `0041...` = 오른다리 `canr` |
 | | 모터 응답 (`scan`) | 다음 차례 |
 | | 효과 확인 (6) | |
 
@@ -213,10 +214,13 @@ $ lsusb
 ID ad50:60c4 Protofusion Labs CANable 9fddea4 github.com/normaldotcom/canable-fw.git
 ```
 
-| | 시리얼 | udev 링크 | 채널 | 칩 |
+| 전환할 때 (10-13~15) | 시리얼 | udev 링크 | 채널 | 칩 |
 |---|---|---|---|---|
 | 오른다리 | `003E00315550530B20303731` | `/dev/canable1` | `canr` | STM32F072 (128K) |
 | 왼다리 | `004100375034570520323530` | `/dev/canable0` | `canl` | STM32F072 (128K) |
+
+**10-19 선 재작업으로 두 어댑터가 서로 반대 다리에 붙음.** 지금은 `0041...` 이 오른다리
+`canr`, `003E...` 가 왼다리 `canl` 임 (5절). 어댑터는 같은 것이라 펌웨어·백업에는 영향 없음.
 
 기판 뒷면 이름은 `LC_CANABLE_PRO` 임. CANable Pro(절연형)를 따라 만든 보드이고,
 원래 CANable 펌웨어(`canable-fw`, F042 용 빌드)가 F072 칩에서 그대로 돌고 있음.
@@ -359,12 +363,13 @@ udevadm info -a -p /sys/class/net/can1 | grep -m1 'ATTRS{serial}'
 번호로 시리얼을 만들기 때문으로 봄.
 
 ```
-# /etc/udev/rules.d/70-candlelight.rules
-SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="003E00315550530B20303731", NAME="canr"
-SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="004100375034570520323530", NAME="canl"
+# /etc/udev/rules.d/70-candlelight.rules  (10-19 기준)
+SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="003E00315550530B20303731", NAME="canl"
+SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="004100375034570520323530", NAME="canr"
 ```
 
-두 줄 다 넣었음 (10-15). 아래는 왼다리 줄을 넣은 명령임.
+10-15 에는 `003E...` 가 `canr` 였고, 10-19 선 재작업 뒤 맞바꿈 (아래 "선을 다시 했을 때").
+아래는 10-15 에 왼다리 줄을 넣은 명령임 (그때 기준).
 
 ```bash
 echo 'SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="004100375034570520323530", NAME="canl"' | sudo tee -a /etc/udev/rules.d/70-candlelight.rules
@@ -378,6 +383,29 @@ ip -br link show type can           # canr, canl 이 보여야 함
 
 기존 `99-mydevice.rules` 의 `canable0` / `canable1` 줄은 tty 용이라 전환 후에는 안
 맞음. 지워도 되고 남겨 둬도 해는 없음.
+
+### 선을 다시 했을 때 -- 어느 어댑터가 어느 다리인지 확인
+
+이름은 어댑터 시리얼로 붙으므로, **선을 바꿔 어댑터가 다른 다리 버스에 붙으면 이름이 다리와
+어긋남.** 연결은 정상이고 모터 id 만 안 맞아 응답이 없음. 채널마다 모터 1~12 를 불러 봄
+(토크를 끄고 힘이 없는 상태 조회만 보냄).
+
+    canr 에서 7~12 (오른다리), canl 에서 1~6 (왼다리) 이 응답해야 함
+
+반대로 나오면 규칙의 `NAME` 둘을 맞바꾸고, 지금 이름도 바꿈 (또는 어댑터를 뽑았다 꽂음).
+
+```bash
+cp /etc/udev/rules.d/70-candlelight.rules ~/70-candlelight.rules.bak
+sudo sed -i 's/NAME="canr"/NAME="__R__"/; s/NAME="canl"/NAME="canr"/; s/NAME="__R__"/NAME="canl"/' \
+    /etc/udev/rules.d/70-candlelight.rules
+sudo udevadm control --reload-rules
+sudo ip link set canr down; sudo ip link set canl down
+sudo ip link set canr name cantmp; sudo ip link set canl name canr; sudo ip link set cantmp name canl
+huphy-can up
+```
+
+10-19 에 이렇게 맞바꿈. 그때 오른다리는 11, 12, 왼다리는 3~6 이 응답하지 않았음 -- 이름이
+아니라 버스 중간 이후 배선·전원 문제임.
 
 ---
 
