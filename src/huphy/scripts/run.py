@@ -635,7 +635,7 @@ def main(argv=None) -> int:
         obs_names = (
             stand.OBS_NAMES if standing else policy.observation_names(spec, order)
         )
-        log = policy_log.PolicyLog(obs_names, order)
+        log = policy_log.PolicyLog(obs_names, order, robot=leg)
         model = log.wrap_model(model)
     policy_motion = (
         stand.motion(model, leg.imus[0])

@@ -66,6 +66,10 @@ class LiveFeed:
     ) -> None:
         self.hz = float(hz)
         self.robot = robot                   # 있으면 목표를 실제로 나간 값으로 (track_log)
+        from .track_log import joint_limits    # 순환 import 를 피함
+
+        self.limits = joint_limits(robot)
+        """관절 가동범위. 화면이 관절 그래프를 정규화하는 데 씀. 로봇이 없으면 빔."""
         self.title = title
         self.name = name
         self.save_dir = Path(save_dir)
@@ -147,6 +151,7 @@ class LiveFeed:
         from . import track_log                # 순환 import 를 피함
 
         log = track_log.TrackLog(order)
+        log.limits = self.limits
         log.imu_cols = self.imu_cols
         log.has_tgt = self.has_tgt
         t0 = rows[0][0]
@@ -192,6 +197,7 @@ class LiveFeed:
             "hz": self.hz,
             "seq": last,
             "cols": self.columns(),
+            "limits": self.limits,
             "rows": rows,
             "rec": self.recording(),
         }

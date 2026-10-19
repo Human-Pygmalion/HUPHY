@@ -6,8 +6,8 @@
     tgt/<관절>         관절 목표각 (도). 실제로 루프에 넘긴 것
     pos/<관절>         그 순간의 실측 관절각 (도)
 
-`tools/policy_viewer.html` 로 열면 재생하듯 볼 수 있음. 헤더가 있는 평범한 CSV
-라서 PlotJuggler 나 pandas 로도 바로 읽힘.
+`tools/policy_viewer.html` 로 열면 재생하듯 볼 수 있음. 첫 줄은 `# limits ...` 가동범위
+줄이고 그 아래가 헤더가 있는 평범한 CSV 임 -- pandas 는 `comment="#"` 로 읽을 것.
 
 
 ## 두 군데를 감쌈
@@ -39,14 +39,18 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 
+from .track_log import joint_limits, write_limits
+
 logger = logging.getLogger(__name__)
 
 
 class PolicyLog:
     """정책 한 번 실행의 입출력 기록."""
 
-    def __init__(self, obs_names: Sequence[str], order: Sequence[str]) -> None:
+    def __init__(self, obs_names: Sequence[str], order: Sequence[str], *, robot: Any = None) -> None:
         self.obs_names = tuple(obs_names)
+        self.limits = joint_limits(robot)
+        """관절 가동범위. 파일 첫 줄(`# limits ...`)로 남아 뷰어가 정규화에 씀."""
         self.order = tuple(order)
         self.columns = (
             ("t",)
@@ -123,6 +127,7 @@ class PolicyLog:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", newline="") as f:
+            write_limits(f, self.limits)
             writer = csv.writer(f)
             writer.writerow(self.columns)
             for row in self.rows:

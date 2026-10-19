@@ -9,6 +9,15 @@
 로 그대로 열림. 목표가 고정(`zero`, `pose`)이면 실측이 거기로 어떻게 다가가고 얼마나
 처지는지가 보임.
 
+## 가동범위 줄
+
+첫 줄이 `#` 로 시작하는 범위 줄임 (`# limits right_leg/knee=6:114 ...`). 뷰어가 관절
+그래프를 가동범위로 정규화하는 데 씀. pandas 로 읽을 때는 `comment="#"` 을 줄 것.
+
+    모터 관절   캘리브레이션의 limits_deg
+    발목 관절   ankle_pitch/ankle_roll 은 IK 시험 범위 (`AnkleEnvelope`)
+
+
 ## 목표는 실제로 나간 값
 
 `robot` 을 주면 `tgt` 는 motion 이 낸 값이 아니라 `robot.last_sent` 임 -- 안전 가드가
@@ -45,7 +54,7 @@ import csv
 import logging
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +99,7 @@ class TrackLog:
     def __init__(self, order: Optional[Sequence[str]] = None, *, robot: Any = None) -> None:
         self.order: Optional[tuple] = tuple(order) if order is not None else None
         self.robot = robot
+        self.limits = joint_limits(robot)
         self.imu_cols: Optional[tuple] = None
         self.has_tgt = True                  # 첫 줄에서 정해짐. 관찰만 받으면 False
         self.rows: List[List[float]] = []
@@ -154,11 +164,45 @@ class TrackLog:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", newline="") as f:
+            write_limits(f, self.limits)
             writer = csv.writer(f)
             writer.writerow(self.columns)
             for row in self.rows:
                 writer.writerow(f"{v:.6g}" for v in row)
         return path
+
+
+def joint_limits(robot: Any) -> Dict[str, Tuple[float, float]]:
+    """관절 이름 -> (최소, 최대) 도. 기록의 열 이름과 같은 이름을 씀.
+
+    양다리(`Biped`)면 `right_leg/knee`, 다리 하나면 `knee`. 한계가 안 정해진 관절은
+    빠짐. 실패해도 빈 사전 -- 범위 줄이 없을 뿐 기록은 그대로 남아야 함.
+    """
+    out: Dict[str, Tuple[float, float]] = {}
+    if robot is None:
+        return out
+    try:
+        parts = getattr(robot, "parts", None)
+        legs = [(p.id + "/", p) for p in parts] if parts else [("", robot)]
+        for prefix, leg in legs:
+            config = getattr(leg, "config", None)
+            for name, motor in (getattr(config, "motors", None) or {}).items():
+                if motor.limits_deg is not None:
+                    out[prefix + name] = (float(motor.limits_deg[0]), float(motor.limits_deg[1]))
+            envelope = getattr(getattr(leg, "kinematics", None), "envelope", None)
+            if envelope is not None:
+                out[prefix + "ankle_pitch"] = tuple(map(float, envelope.pitch_deg))
+                out[prefix + "ankle_roll"] = tuple(map(float, envelope.roll_deg))
+    except Exception as e:                    # 관측이 기록을 막으면 안 됨
+        logger.warning("가동범위를 못 읽음 (범위 줄 없이 씀): %s", e)
+        return {}
+    return out
+
+
+def write_limits(f, limits: Dict[str, Tuple[float, float]]) -> None:
+    """`# limits 이름=최소:최대 ...` 한 줄. 범위가 없으면 안 씀."""
+    if limits:
+        f.write("# limits " + " ".join(f"{k}={lo:g}:{hi:g}" for k, (lo, hi) in limits.items()) + "\n")
 
 
 def columns(order: Optional[Sequence[str]], imu_cols: Optional[Sequence[str]], has_tgt: bool) -> tuple:

@@ -89,6 +89,7 @@ th { color: var(--muted); font-weight: 500; }
     <option value="10">창 10 s</option><option value="30">창 30 s</option><option value="0">전체</option>
   </select>
   <label class="row"><input type="checkbox" id="yfit"> y 창 기준</label>
+  <label class="row" title="관절별 추종 그래프의 y 축을 모터 가동범위(최소~최대)로 고정함. 눈금은 실제 각도"><input type="checkbox" id="lnorm" checked> 가동범위 정규화</label>
 </div>
 
 <div id="drop">CSV 파일을 여기로 끌어다 놓거나 <b>파일 열기</b>를 누르세요.</div>
@@ -123,8 +124,32 @@ const S = { cols: [], data: null, n: 0, t: null, idx: 0, playing: false, joints:
 const $ = (id) => document.getElementById(id);
 
 // ---- 읽기 ---------------------------------------------------------------
+// 가동범위가 안 적힌 예전 기록에 쓰는 값. robot_v1.0 캘리브레이션 limits_deg 와 발목 IK
+// 시험 범위(AnkleEnvelope). 새 기록은 첫 줄 "# limits ..." 의 값을 씀.
+const DEFAULT_LIMITS = {
+  "right_leg/hip_pitch": [-112.75, 17.75], "right_leg/hip_roll": [-19.5, 79.5], "right_leg/hip_yaw": [-40.5, 40.5],
+  "right_leg/knee": [6, 114], "right_leg/ankle_a": [-61.88, 61.88], "right_leg/ankle_b": [-61.88, 61.88],
+  "left_leg/hip_pitch": [-17.75, 112.75], "left_leg/hip_roll": [-79.5, 19.5], "left_leg/hip_yaw": [-40.5, 40.5],
+  "left_leg/knee": [-114, -6], "left_leg/ankle_a": [-61.88, 61.88], "left_leg/ankle_b": [-61.88, 61.88],
+  "right_leg/ankle_pitch": [-40, 40], "right_leg/ankle_roll": [-25, 25],
+  "left_leg/ankle_pitch": [-40, 40], "left_leg/ankle_roll": [-25, 25],
+};
+
+function parseLimits(lines) {         // "# limits right_leg/knee=6:114 ..." -> {name: [lo, hi]}
+  const out = {};
+  lines.filter((l) => l.startsWith("# limits ")).forEach((l) => l.slice(9).trim().split(/\s+/).forEach((kv) => {
+    const [k, v] = kv.split("="); if (!v) return;
+    const [lo, hi] = v.split(":").map(parseFloat); if (isFinite(lo) && isFinite(hi) && hi > lo) out[k] = [lo, hi];
+  }));
+  return out;
+}
+
+function limitOf(j) { return S.limits[j] || DEFAULT_LIMITS[j] || null; }
+
 function parseCsv(text) {
-  const lines = text.split(/\r?\n/).filter((l) => l.length);
+  const all = text.split(/\r?\n/).filter((l) => l.length);
+  const limits = parseLimits(all.filter((l) => l.startsWith("#")));
+  const lines = all.filter((l) => !l.startsWith("#"));
   const cols = lines[0].split(",");
   const n = lines.length - 1;
   const data = cols.map(() => new Float64Array(n));
@@ -132,7 +157,7 @@ function parseCsv(text) {
     const cells = lines[r + 1].split(",");
     for (let c = 0; c < cols.length; c++) data[c][r] = cells[c] === undefined ? NaN : parseFloat(cells[c]);
   }
-  return { cols, data, n };
+  return { cols, data, n, limits };
 }
 
 function jointOf(col) {            // "obs/q/right_leg/knee" -> "right_leg/knee", "act/knee" -> "knee"
@@ -141,7 +166,9 @@ function jointOf(col) {            // "obs/q/right_leg/knee" -> "right_leg/knee"
 }
 
 function load(name, text) {
-  const { cols, data, n } = parseCsv(text);
+  const { cols, data, n, limits } = parseCsv(text);
+  S.limits = limits;
+  S.limitSrc = Object.keys(limits).length ? "파일" : "기본값(v1.0)";
   if (cols[0] !== "t" || n < 2) { alert("huphy-run / huphy-test --log 형식이 아님 (첫 칸이 t 여야 함)"); return; }
   // 관절 목록은 act/ 에서. huphy-test 기록(track_*.csv)은 정책 칸이 없어 tgt/ 에서,
   // watch 기록(토크 없이 손으로)은 목표도 없어 pos/ 에서.
@@ -187,7 +214,7 @@ function load(name, text) {
     defaults.includes(k) || /^imu\/[^/]+\/(att|gyro)$/.test(k)));
 
   const dur = S.t[n - 1] - S.t[0];
-  $("meta").textContent = `${name} · ${n}줄 · ${dur.toFixed(1)} s · 평균 ${((n - 1) / dur).toFixed(1)} Hz`;
+  $("meta").textContent = `가동범위 ${S.limitSrc} · ${name} · ${n}줄 · ${dur.toFixed(1)} s · 평균 ${((n - 1) / dur).toFixed(1)} Hz`;
   $("seek").max = n - 1; $("seek").value = 0;
   ["controls", "main"].forEach((id) => $(id).classList.remove("hidden"));
   $("drop").classList.add("hidden");
@@ -317,16 +344,30 @@ function drawChart(ch, a, b, i0, i1, C, fit) {
   if (ch.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
   if (!isFinite(lo)) { lo = -1; hi = 1; }
   if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
-  const padY = (hi - lo) * 0.08; lo -= padY; hi += padY;
+  // 가동범위 정규화: y 축을 그 모터의 최소~최대로 고정함. 눈금은 실제 각도.
+  const lim = ch.joint && $("lnorm").checked ? limitOf(ch.joint) : null;
+  if (lim) { lo = lim[0]; hi = lim[1]; }
+  const padY = (hi - lo) * (lim ? 0.05 : 0.08); lo -= padY; hi += padY;
   const X = (t) => PAD.l + ((t - a) / (b - a || 1)) * pw;
   const Y = (v) => PAD.t + (1 - (v - lo) / (hi - lo)) * ph;
 
   // 격자와 눈금
   g.font = "11px system-ui, sans-serif"; g.fillStyle = C("--muted"); g.strokeStyle = C("--grid"); g.lineWidth = 1;
-  const ystep = niceStep((hi - lo) / (H < 150 ? 3 : 4));
-  for (let v = Math.ceil(lo / ystep) * ystep; v <= hi; v += ystep) {
-    const y = Math.round(Y(v)) + 0.5; g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(W - PAD.r, y); g.stroke();
-    g.textAlign = "right"; g.fillText(fmt(v), PAD.l - 6, y + 4);
+  if (lim) {
+    [0, 0.25, 0.5, 0.75, 1].forEach((f) => {
+      const v = lim[0] + f * (lim[1] - lim[0]), y = Math.round(Y(v)) + 0.5;
+      g.strokeStyle = f === 0 || f === 1 ? C("--muted") : C("--grid");
+      g.setLineDash(f === 0 || f === 1 ? [3, 3] : []);
+      g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(W - PAD.r, y); g.stroke();
+      g.textAlign = "right"; g.fillText(fmt(v), PAD.l - 6, y + 4);
+    });
+    g.setLineDash([]); g.strokeStyle = C("--grid");
+  } else {
+    const ystep = niceStep((hi - lo) / (H < 150 ? 3 : 4));
+    for (let v = Math.ceil(lo / ystep) * ystep; v <= hi; v += ystep) {
+      const y = Math.round(Y(v)) + 0.5; g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(W - PAD.r, y); g.stroke();
+      g.textAlign = "right"; g.fillText(fmt(v), PAD.l - 6, y + 4);
+    }
   }
   const xstep = niceStep((b - a) / Math.max(2, Math.floor(pw / 110)));
   for (let t = Math.ceil(a / xstep) * xstep; t <= b; t += xstep) {
@@ -338,7 +379,7 @@ function drawChart(ch, a, b, i0, i1, C, fit) {
   g.fillStyle = C("--fg"); g.textAlign = "center";
   g.fillText("시간 (s)", PAD.l + pw / 2, H - 3);
   g.save(); g.translate(12, PAD.t + ph / 2); g.rotate(-Math.PI / 2);
-  g.fillText(ch.joint ? "각도 (deg)" : (ch.panel && ch.panel.unit) || "값", 0, 0);
+  g.fillText(lim ? "각도 (deg, 가동범위)" : ch.joint ? "각도 (deg)" : (ch.panel && ch.panel.unit) || "값", 0, 0);
   g.restore(); g.fillStyle = C("--muted");
   if (ch.zero && lo < 0 && hi > 0) {
     const y = Math.round(Y(0)) + 0.5; g.strokeStyle = C("--muted"); g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(W - PAD.r, y); g.stroke();
@@ -426,7 +467,7 @@ function tick(ts) {
 
 $("play").onclick = () => setPlaying(!S.playing);
 $("seek").oninput = (e) => { setPlaying(false); seekTo(+e.target.value); };
-$("win").onchange = render; $("yfit").onchange = render;
+$("win").onchange = render; $("yfit").onchange = render; $("lnorm").onchange = render;
 window.addEventListener("resize", render);
 window.addEventListener("keydown", (e) => {
   if (!S.data || e.target.tagName === "SELECT") return;
