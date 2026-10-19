@@ -89,6 +89,11 @@ logger = logging.getLogger(__name__)
 OVERRUN_RATIO = 1.5
 """목표 주기의 이 배를 넘으면 밀린 것으로 셈. 100Hz 에서 15ms."""
 
+TIMING_WARMUP_S = 2.0
+"""처음 이 초 동안은 밀림과 최악 주기를 세지 않음. 연결 직후 첫 주기들은 수신 스레드·USB 가
+막 돌기 시작해 느림 -- 세면 실제로 도는 동안의 주기를 가림. 주기 수와 평균 Hz 는 다 셈.
+지연 기록의 `huphy-test --log-skip` 기본값(2초)과 같은 이유."""
+
 DAMPING_S = 5.0
 """멈출 때 `damp` 를 보내는 시간 (초). 힘이 갑자기 빠지지 않게, 위치를 붙잡지
 않고 속도만 죽여서 서서히 멈추게 함."""
@@ -205,9 +210,10 @@ class LoopStats:
 
     cycles: int = 0
     overruns: int = 0
-    """목표 주기를 크게 넘긴 횟수."""
+    """목표 주기를 크게 넘긴 횟수. 처음 `TIMING_WARMUP_S` 초는 빼고 셈."""
 
     worst_dt_ms: float = 0.0
+    """가장 길었던 주기 (ms). 처음 `TIMING_WARMUP_S` 초는 빼고 봄."""
     total_s: float = 0.0
     missing_cycles: int = 0
     """무응답 모터가 하나라도 있었던 주기 수."""
@@ -398,7 +404,7 @@ class ControlLoop:
                         break
                 self.step(motion, t)
                 self._record(dt_ms)
-                self._note_timing(dt_ms)
+                self._note_timing(dt_ms, t)
 
                 self._sleep_until(cycle_start + self.period_s)
         finally:
@@ -514,12 +520,14 @@ class ControlLoop:
         else:
             time.sleep(remaining)
 
-    def _note_timing(self, dt_ms: float) -> None:
+    def _note_timing(self, dt_ms: float, t: float = float("inf")) -> None:
         self.stats.cycles += 1
+        # 첫 주기는 직전이 없어 dt 가 0에 가까움. 연결 직후 몇 초는 느림 (TIMING_WARMUP_S).
+        if self.stats.cycles <= 1 or t < TIMING_WARMUP_S:
+            return
         if dt_ms > self.stats.worst_dt_ms:
             self.stats.worst_dt_ms = dt_ms
-        # 첫 주기는 직전이 없어 dt 가 0에 가까움. 세지 않음.
-        if self.stats.cycles > 1 and dt_ms > self.period_s * 1000.0 * OVERRUN_RATIO:
+        if dt_ms > self.period_s * 1000.0 * OVERRUN_RATIO:
             self.stats.overruns += 1
             if self.stats.overruns == 1:
                 logger.warning(

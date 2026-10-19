@@ -30,6 +30,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..control.loop import TIMING_WARMUP_S
+
 from . import table
 
 CAN_FIELDS: Tuple[Tuple[str, str], ...] = (
@@ -117,7 +119,7 @@ def report(robot: Any, stats: Any, *, drain_s: Optional[float] = None) -> str:
     lines.append(
         f"  주기       {stats.cycles}회 {stats.total_s:.1f}초  "
         f"평균 {stats.mean_hz:.1f}Hz{target}  "
-        f"밀림 {stats.overruns}회  최악 {stats.worst_dt_ms:.1f}ms"
+        f"밀림 {stats.overruns}회  최악 {stats.worst_dt_ms:.1f}ms  (처음 {TIMING_WARMUP_S:g}초 제외)"
     )
     lines.append(
         "  수거 대기  "
