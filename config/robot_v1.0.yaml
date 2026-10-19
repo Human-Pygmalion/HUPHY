@@ -75,10 +75,6 @@ limbs:
     # 모터를 갈았으므로 0.5 의 실측값을 쓸 수 없음 -- sign/offset/limits 가 전부
     # 조립 결과라 무효임. limits_deg 가 null 이면 Motor.is_configured 가 False 라
     # 제어 진입이 막힘. commission 절차를 처음부터 다시 밟을 것 (루트 README 5번).
-    #
-    # kp/kd 는 관절 묶음별 사양값임. hip_pitch/hip_roll/knee 가 RS04, hip_yaw 와
-    # 발목(ankle_a/ankle_b, 실물의 crank_A/crank_B)이 RS03. knee 만 kp 가 따로 높음.
-    # 처음 만질 때는 huphy-bringup --gain-scale 0.1 로 낮춰 시작할 것 (이슈 #9).
     motors:
       hip_pitch: {id: 7,  model: RS04, kp: 135.0,   kd: 6.0}
       hip_roll:  {id: 8,  model: RS04, kp: 135.0,   kd: 6.0}
