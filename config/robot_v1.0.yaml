@@ -80,12 +80,12 @@ limbs:
     # 발목(ankle_a/ankle_b, 실물의 crank_A/crank_B)이 RS03. knee 만 kp 가 따로 높음.
     # 처음 만질 때는 huphy-bringup --gain-scale 0.1 로 낮춰 시작할 것 (이슈 #9).
     motors:
-      hip_pitch: {id: 7,  model: RS04, kp: 150.0,   kd: 6.0}
-      hip_roll:  {id: 8,  model: RS04, kp: 150.0,   kd: 6.0}
-      hip_yaw:   {id: 9,  model: RS03, kp: 150.0,   kd: 6.0}
-      knee:      {id: 10, model: RS04, kp: 220.0,   kd: 6.0}
-      ankle_a:   {id: 11, model: RS03, kp: 22.266,  kd: 1.414}
-      ankle_b:   {id: 12, model: RS03, kp: 22.266,  kd: 1.414}
+      hip_pitch: {id: 7,  model: RS04, kp: 135.0,   kd: 6.0}
+      hip_roll:  {id: 8,  model: RS04, kp: 135.0,   kd: 6.0}
+      hip_yaw:   {id: 9,  model: RS03, kp: 75.0,   kd: 4.0}
+      knee:      {id: 10, model: RS04, kp: 130.0,   kd: 6.0}
+      ankle_a:   {id: 11, model: RS03, kp: 60.0,  kd: 2.7}
+      ankle_b:   {id: 12, model: RS03, kp: 60.0,  kd: 2.7}
 
   left_leg:
     kind: leg
@@ -96,9 +96,9 @@ limbs:
     calibration: calibration/left_leg_v1.0.json
 
     motors:
-      hip_pitch: {id: 1,  model: RS04, kp: 150.0,   kd: 6.0}
-      hip_roll:  {id: 2,  model: RS04, kp: 150.0,   kd: 6.0}
-      hip_yaw:   {id: 3,  model: RS03, kp: 150.0,   kd: 6.0}
-      knee:      {id: 4,  model: RS04, kp: 220.0,   kd: 6.0}
-      ankle_a:   {id: 5,  model: RS03, kp: 22.266,  kd: 1.414}
-      ankle_b:   {id: 6,  model: RS03, kp: 22.266,  kd: 1.414}
+      hip_pitch: {id: 1,  model: RS04, kp: 135.0,   kd: 6.0}
+      hip_roll:  {id: 2,  model: RS04, kp: 135.0,   kd: 6.0}
+      hip_yaw:   {id: 3,  model: RS03, kp: 75.0,   kd: 4.0}
+      knee:      {id: 4, model: RS04, kp: 130.0,   kd: 6.0}
+      ankle_a:   {id: 5, model: RS03, kp: 60.0,  kd: 2.7}
+      ankle_b:   {id: 6, model: RS03, kp: 60.0,  kd: 2.7}
