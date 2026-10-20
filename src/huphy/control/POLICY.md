@@ -1,11 +1,19 @@
 # 정책 실행 — 지금까지 만든 것
 
+> **지워짐 (2026-10-20).** 아래 문서가 설명하는 `balance`/`hopping`/`stand`
+> 정책과 `control/policy.py`의 `observation_vector`/`BALANCE`/`HOPPING`,
+> `control/stand.py` 전체는 더 이상 돌리지 않아 코드에서 지웠음.
+> **`control/generalized_walk.py`가 지금부터의 정식 정책임** (44칸 입력,
+> 12관절 출력, 양다리 전용. `huphy-run --vx --wz`). 아래 2장~8장은 그 정책들을
+> 만들던 당시의 설계 기록으로 **역사적 참고용으로만** 남겨 둠 — 지금 `huphy-run
+> --help`와 다름.
+
 **임시 상태임.** 정책 하나를 제어 루프에 태워 돌리는 데까지 만들었음. 상태 기계와
 토크 가드가 없어서 **사람이 지켜보며 돌려야 함.**
 
 ```
-있음   관찰 -> 모델 입력 벡터        src/huphy/control/policy.py
-있음   모델 출력 -> 관절 목표        src/huphy/control/policy.py
+있음   관찰 -> 모델 입력 벡터        src/huphy/control/generalized_walk.py
+있음   모델 출력 -> 관절 목표        src/huphy/control/generalized_walk.py
 있음   .pt 파일 -> 부를 수 있는 함수  src/huphy/control/rsl_rl.py
 있음   실행 파일                     src/huphy/scripts/run.py
 없음   상태 기계
@@ -14,7 +22,17 @@
 
 ---
 
-## 0. 실행
+## 0. 실행 (지금)
+
+```bash
+huphy-run --vx 0.5 --wz 0.0
+```
+
+가중치는 `config/policies/generalized_walk.pt`를 기본으로 씀. 다른 파일은
+`--weights`로. 아래 "0. 실행"(옛 버전)부터 8장까지는 지워진 `balance`/`hopping`/
+`stand` 얘기임.
+
+## 0-구. 실행 (옛 버전, 지워짐)
 
 ```bash
 huphy-run --limb right_leg --policy balance

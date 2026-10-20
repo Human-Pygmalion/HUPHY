@@ -19,7 +19,7 @@ import pytest
 
 pytest.importorskip("huphy_ros", reason="PYTHONPATH 에 ros/huphy_ros 가 없음")
 
-from huphy.control import stand                       # noqa: E402
+from huphy.control import generalized_walk as stand                       # noqa: E402
 from huphy_ros import convert                         # noqa: E402
 from huphy_ros.bridge import CommandBridge            # noqa: E402
 

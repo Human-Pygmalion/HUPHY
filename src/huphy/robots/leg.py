@@ -123,6 +123,12 @@ MIT 프레임은 하나고 칸이 다섯임 (q, dq, kp, kd, tau_ff). 두 가지 
 
 모터 각도에 게인을 걸면 로드 지렛대 비가 자세마다 달라 발목이 내는 강성이 자세마다
 달라짐. 관절 토크를 만들어 야코비안으로 내리면 그 비가 보정됨.
+
+**`ANKLE_TORQUE` 는 지금 CLI 진입점이 없음 (2026-10-20).** 예전 `huphy-run
+--ankle-output torque` (`balance`/`hopping` 전용)가 지워지면서 이 분기를
+호출하는 명령줄이 없어짐 -- 이 클래스 코드는 그대로 작동하고 `build_leg(...,
+ankle_output="torque")` 로 파이썬에서 직접 부르면 여전히 됨. 발목 토크 출력을
+쓰는 정책이 생기면 `scripts/run.py`에 이 플래그를 다시 노출시킬 것.
 """
 
 SEND_BURST = "burst"

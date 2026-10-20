@@ -5,47 +5,42 @@
 `config/policies/` 의 **진짜 가중치 파일**을 읽음. 형식이 바뀌면 여기서 걸림.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from huphy.control import policy, rsl_rl
+from huphy.control import generalized_walk, rsl_rl
 
 REPO = Path(__file__).resolve().parent.parent
-WEIGHTS = {
-    "balance": (REPO / "config" / "policies" / "balance.pt", policy.BALANCE),
-    "hopping": (REPO / "config" / "policies" / "hopping.pt", policy.HOPPING),
-}
+WEIGHTS = REPO / "config" / "policies" / "generalized_walk.pt"
+SPEC = generalized_walk.SPEC
 
 
-@pytest.fixture(params=sorted(WEIGHTS))
-def loaded(request):
-    path, spec = WEIGHTS[request.param]
-    return rsl_rl.load(path, spec=spec), spec
+@pytest.fixture(scope="module")
+def loaded():
+    return rsl_rl.load(WEIGHTS, spec=SPEC)
 
 
 # ===========================================================================
 # 읽기
 # ===========================================================================
 class TestLoad:
-    def test_the_files_are_in_the_repo(self):
-        for path, _ in WEIGHTS.values():
-            assert path.is_file(), f"{path} 가 없음"
+    def test_the_file_is_in_the_repo(self):
+        assert WEIGHTS.is_file(), f"{WEIGHTS} 가 없음"
 
     def test_input_matches_the_spec(self, loaded):
-        model, spec = loaded
-        assert model.obs_dim == spec.obs_dim
+        assert loaded.obs_dim == SPEC.obs_dim
 
-    def test_output_is_six_joints(self, loaded):
-        model, _ = loaded
-        assert model.action_dim == policy.ACTION_DIM
+    def test_output_is_twelve_joints(self, loaded):
+        assert loaded.action_dim == len(generalized_walk.ORDER)
 
     def test_a_mismatched_spec_is_refused(self):
-        """이름을 잘못 주면 신경망이 엉뚱한 자리의 숫자를 읽음."""
-        path, _ = WEIGHTS["hopping"]
-        with pytest.raises(ValueError, match="26개인데 balance"):
-            rsl_rl.load(path, spec=policy.BALANCE)
+        """입력 개수가 다른 규격을 주면 신경망이 엉뚱한 자리의 숫자를 읽음."""
+        wrong = replace(SPEC, obs_dim=SPEC.obs_dim + 1, name="wrong")
+        with pytest.raises(ValueError, match=f"{SPEC.obs_dim}개인데 wrong"):
+            rsl_rl.load(WEIGHTS, spec=wrong)
 
     def test_a_non_checkpoint_is_refused(self, tmp_path):
         import zipfile
@@ -54,7 +49,7 @@ class TestLoad:
         with zipfile.ZipFile(broken, "w") as z:
             z.writestr("x/other.bin", b"0000")
         with pytest.raises(ValueError, match="data.pkl"):
-            rsl_rl.load(broken, spec=policy.BALANCE)
+            rsl_rl.load(broken, spec=SPEC)
 
 
 # ===========================================================================
@@ -62,40 +57,33 @@ class TestLoad:
 # ===========================================================================
 class TestForward:
     def test_it_runs(self, loaded):
-        model, spec = loaded
-        out = model(np.zeros(spec.obs_dim, dtype=np.float32))
-        assert out.shape == (policy.ACTION_DIM,)
+        out = loaded(np.zeros(SPEC.obs_dim, dtype=np.float32))
+        assert out.shape == (len(generalized_walk.ORDER),)
 
     def test_the_output_is_finite(self, loaded):
-        model, spec = loaded
         for scale in (0.0, 1.0, -1.0, 5.0):
-            out = model(np.full(spec.obs_dim, scale, dtype=np.float32))
+            out = loaded(np.full(SPEC.obs_dim, scale, dtype=np.float32))
             assert np.all(np.isfinite(out))
 
     def test_it_is_deterministic(self, loaded):
         """학습 때의 탐색용 분포는 안 씀. 같은 입력이면 같은 출력임."""
-        model, spec = loaded
-        vector = np.linspace(-1.0, 1.0, spec.obs_dim, dtype=np.float32)
-        assert model(vector) == pytest.approx(model(vector))
+        vector = np.linspace(-1.0, 1.0, SPEC.obs_dim, dtype=np.float32)
+        assert loaded(vector) == pytest.approx(loaded(vector))
 
     def test_different_inputs_give_different_outputs(self, loaded):
-        model, spec = loaded
-        a = model(np.zeros(spec.obs_dim, dtype=np.float32))
-        b = model(np.ones(spec.obs_dim, dtype=np.float32))
+        a = loaded(np.zeros(SPEC.obs_dim, dtype=np.float32))
+        b = loaded(np.ones(SPEC.obs_dim, dtype=np.float32))
         assert not np.allclose(a, b)
 
     def test_normalization_is_applied(self, loaded):
-        """평균을 그대로 넣으면 정규화 후가 0 임. 정규화를 빼면 다른 값이 나옴."""
-        model, spec = loaded
-        zeros = model(np.zeros(spec.obs_dim, dtype=np.float32))
-        # mean 을 넣으면 (x-mean)/std = 0 이라, 0을 넣은 것과 달라야 함
-        # (mean 이 0이 아닌 항목이 있으므로)
-        assert not np.allclose(zeros, model(np.ones(spec.obs_dim, dtype=np.float32)))
+        """정규화가 빠지면 0 벡터와 1 벡터가 같은 답을 낼 리가 없음(평균이 0이
+        아닌 항목이 있으므로) -- 이게 그 반대(서로 다름)를 확인함."""
+        zeros = loaded(np.zeros(SPEC.obs_dim, dtype=np.float32))
+        assert not np.allclose(zeros, loaded(np.ones(SPEC.obs_dim, dtype=np.float32)))
 
     def test_a_wrong_length_input_is_an_error(self, loaded):
-        model, spec = loaded
         with pytest.raises(ValueError):
-            model(np.zeros(spec.obs_dim + 1, dtype=np.float32))
+            loaded(np.zeros(SPEC.obs_dim + 1, dtype=np.float32))
 
 
 class TestElu:
@@ -122,42 +110,35 @@ class TestElu:
 # 정책과 이어 붙이기
 # ===========================================================================
 class TestWithPolicy:
-    def test_a_loaded_model_drives_a_motion(self):
-        """읽은 것을 그대로 `policy_motion` 에 넣을 수 있어야 함."""
+    def test_a_loaded_model_drives_a_motion(self, loaded):
+        """읽은 것을 그대로 `generalized_walk.motion` 에 넣을 수 있어야 함."""
         from huphy.sensors.base import ImuState
-
-        path, spec = WEIGHTS["balance"]
-        model = rsl_rl.load(path, spec=spec)
 
         class FakeImu:
             def read(self):
                 return ImuState(is_valid=True)
 
-        observation = {}
-        for joint in policy.JOINT_ORDER:
-            observation[f"{joint}.pos"] = 0.0
-            observation[f"{joint}.vel"] = 0.0
+        observation = {
+            f"{joint}.pos": generalized_walk.DEFAULT_POSE_DEG[joint]
+            for joint in generalized_walk.ORDER
+        }
 
-        motion = policy.policy_motion(model, FakeImu(), spec=spec)
+        motion = generalized_walk.motion(loaded, FakeImu())
         targets = motion(0.0, observation)
-        assert set(targets) == set(policy.JOINT_ORDER)
+        assert set(targets) == set(generalized_walk.ORDER)
         assert all(np.isfinite(v) for v in targets.values())
 
 
 class TestActionDim:
-    def test_matching_output_passes(self):
-        """다리 하나 모델은 6칸을 냄."""
-        path, spec = WEIGHTS["balance"]
-        model = rsl_rl.load(path, spec=spec, action_dim=6)
-        assert model.action_dim == 6
+    def test_matching_output_passes(self, loaded):
+        model = rsl_rl.load(WEIGHTS, spec=SPEC, action_dim=12)
+        assert model.action_dim == 12
 
     def test_a_mismatched_output_is_refused(self):
-        """다리 하나 모델에 양다리 순서(12)를 붙이면 모터를 켜기 전에 멈춤."""
-        with pytest.raises(ValueError, match="출력이 6개인데 관절 순서는 12개"):
-            path, spec = WEIGHTS["balance"]
-            rsl_rl.load(path, spec=spec, action_dim=12)
+        """출력 개수와 관절 순서 길이가 다르면 모터를 켜기 전에 멈춤."""
+        with pytest.raises(ValueError, match="출력이 12개인데 관절 순서는 6개"):
+            rsl_rl.load(WEIGHTS, spec=SPEC, action_dim=6)
 
     def test_omitting_it_skips_the_check(self):
         """기존 호출부는 그대로 통과함."""
-        path, spec = WEIGHTS["balance"]
-        assert rsl_rl.load(path, spec=spec).action_dim == 6
+        assert rsl_rl.load(WEIGHTS, spec=SPEC).action_dim == 12

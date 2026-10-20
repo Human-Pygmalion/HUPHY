@@ -682,7 +682,7 @@ motion 이 안 불리므로 기록기(`track_log.ObservationTap`)를 루프의 �
 
 ```bash
 huphy-test --robot --hz 100 --drain-ms 4 zero
-huphy-run --robot --policy balance --drain-ms 4
+huphy-run --vx 0.5 --drain-ms 4
 ```
 
 기본 2ms. 다 오면 즉시 빠져나가므로 정상 주기에는 이만큼 쓰지 않음.
@@ -730,37 +730,26 @@ root 가 아니면 `sudo` 를 붙여 부름. 암호는 sudo 가 터미널에서 
 
 ## `run.py`
 
-학습한 정책으로 움직임. `selftest` 와 **같은 다리·같은 루프**를 쓰고, 매 주기 관절
-목표를 내는 것만 다름.
+학습한 걷기 정책(`generalized_walk`)으로 움직임. `selftest` 와 **같은 다리·같은
+루프**를 쓰고, 매 주기 관절 목표를 내는 것만 다름.
+
+**정책은 하나뿐임.** 예전 `balance`/`hopping`/`stand`(`--policy` 선택지,
+`control/stand.py`)는 지워짐 — 양다리 12관절, 입력 44, 출력 12
+(`control/generalized_walk.py`)로 고정임.
 
 ```bash
-huphy-run --limb right_leg --policy balance
-huphy-run --robot --policy balance --weights runs/biped.pt
-huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt
+huphy-run --vx 0.5 --wz 0.0
+huphy-run --vx 1.0 --weights runs/other_checkpoint.pt
 ```
 
-| `--policy` | 입력 | 출력 | 관찰을 만드는 곳 |
-|---|---|---|---|
-| `balance` | 24 | 6 | `control/policy.py` |
-| `hopping` | 26 | 6 | `control/policy.py` |
-| `stand` | 45 | 12 | `control/stand.py` |
+`.pt` 에는 신경망만 들어 있음. `action_scale` 과 관찰 구성은
+`control/generalized_walk.py`가 정하고, **파일의 입력·출력 개수(44/12)가 그
+규격과 다르면 모터를 켜기 전에 멈춤** (`rsl_rl.load`).
 
-`.pt` 에는 신경망만 들어 있음. `action_scale` 과 관찰 구성은 `--policy` 이름이
-정하고, **파일의 입력·출력 개수가 그 규격과 다르면 모터를 켜기 전에 멈춤**
-(`rsl_rl.load`).
-
-`stand` 만 경로가 갈림 — 관찰 레이아웃이 0.5 모델들과 겹치지 않아 모듈이 따로임.
-`main()` 의 `standing` 이 갈림길이고 세 군데에서 갈림.
-
-| | `balance` / `hopping` | `stand` |
-|---|---|---|
-| 관절 순서 | `policy.BIPED_ORDERS` (왼다리 먼저) | `stand.ORDER` (오른다리 먼저) |
-| 접근 자세 | 영자세 | `stand.DEFAULT_POSE_DEG` (살짝 웅크림) |
-| 관찰 | `policy.observation_vector` | `stand.observation_vector` |
-
-`stand` 는 `--robot --ankle-space ab --ankle-output position` 고정임. 다른 조합은
-`_check_standing` 이 **CAN 을 열기 전에** 거부함 -- `Leg` 에 맡기면 첫 주기에
-걸리는데 그때는 이미 토크가 들어간 뒤임.
+관절 순서는 `generalized_walk.ORDER`(오른다리 먼저), 접근 자세는
+`generalized_walk.DEFAULT_POSE_DEG`(살짝 웅크림), 관찰은
+`generalized_walk.observation_vector`. 속도 명령(`--vx`/`--wz`)은 실행 내내
+고정값임 -- 매 주기 새로 읽지 않음.
 
 시작은 세 단계임 (`staged`). `--approach` 초에 걸쳐 시작 자세로 옮김 → 그 자세로
 대기 → **Enter** 를 누르면 정책. **Ctrl-Q** 로 멈춤 (`huphy-test` 와 같은 키). 끝나면
@@ -774,6 +763,8 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 
 | | 기본 | 무엇 |
 |---|---|---|
+| `--vx` | `0.0` | 앞뒤 속도 명령(m/s). 실행 내내 고정 |
+| `--wz` | `0.0` | 회전 속도 명령(rad/s). 실행 내내 고정 |
 | `--hz` | `50` | 모터 전송 주기. 50 의 정수 배. 정책은 늘 50Hz (`held`) |
 | `--drain-ms` | `2` | 응답 대기. slcan(1.0) 이면 `--hz 50 --drain-ms 4` |
 | `--gain-scale A [B]` | `1.0` | kp/kd 배율. 하나면 전체, 둘이면 나머지 A · 발목(`ANKLE_MOTORS`) B |
@@ -781,9 +772,16 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 | `--live [PORT]` | 끔 | 도는 동안 관절 목표·실측을 브라우저로. 포트를 안 주면 8770 |
 
 **게인 배율은 `build_leg` 가 함** -- `gain_scale` 이 전체 배율이고 `joint_gain_scale`
-(관절 이름 -> 배율)이 그 관절만 덮어씀. 발목 토크 경로(`--ankle-output torque`)의 관절 PD
-는 모터 게인이 아니라 `ankle_kp`/`ankle_kd` 로 따로 받으므로 `run.py` 가 발목 배율을
-직접 곱함. 시작 화면의 게인 줄은 **모터에 실제로 걸린 값**을 읽어 찍음.
+(관절 이름 -> 배율)이 `ANKLE_MOTORS`(`ankle_a`/`ankle_b`)만 따로 덮어씀. 시작
+화면의 게인 줄은 **모터에 실제로 걸린 값**을 읽어 찍음.
+
+**`--ankle-output`(torque)은 지금 `run.py`에 CLI로 없음 — `Leg` 쪽 기능은 그대로
+있지만 띄울 진입점이 없는 상태임.** 예전 `balance`/`hopping`만 `rp` 발목 공간에서
+이 플래그(관절 공간 PD를 야코비안으로 모터에 내리는 경로, `ankle_kp`/`ankle_kd`)
+를 썼는데, 그 정책들이 지워지면서 `run.py`가 더 이상 `build_leg(ankle_output=...)`
+를 안 넘김 -- 코드(`robots/leg.py`의 `ANKLE_TORQUE` 분기)는 안 지웠지만, 지금은
+아무 명령줄도 이 경로를 호출하지 않음. 발목 토크 출력을 쓰는 정책이 다시 생기면
+`run.py`에 이 플래그만 되살리면 됨.
 
 ### 기록 (`--log`)
 

@@ -933,22 +933,21 @@ huphy-test --robot --hz 200 --drain-ms 4 zero      # 주기·수거 대기를 �
 
 Ctrl-Q 까지 계속함. 끝나면 실패 집계를 찍음. 자세한 것은 [6번](#6-동작-확인).
 
-### 정책 실행 — 학습한 모델로 움직임
+### 정책 실행 — 학습한 걷기 정책으로 움직임
+
+**정책은 `generalized_walk` 하나뿐임.** 예전에 있던 `balance`/`hopping`/`stand`는
+더 이상 돌리지 않아 지웠음 — `control/generalized_walk.py`가 지금부터의 정식
+입출력 규격임(44칸 입력, 12관절 출력, 양다리 전용). 속도 명령(`vx`, `wz`)은
+실행할 때 고정값으로 줌.
 
 ```bash
-huphy-run --limb right_leg --policy balance                        # 다리 하나
-huphy-run --limb right_leg --policy balance --ankle-output torque  # 발목을 토크로
-huphy-run --robot --policy balance --weights runs/biped.pt         # 양다리 12칸
+huphy-run --vx 0.5 --wz 0.0                       # 앞으로 0.5m/s
 
-# 1.0 서기 — 양다리 12관절, 발목은 크랭크 직접
-huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt
+# 정책 입출력을 logs/policy_generalized_walk_<시각>.csv 로 남김 (폴더 지정: --log 경로)
+huphy-run --vx 0.5 --log
 
-# 정책 입출력을 logs/policy_<이름>_<시각>.csv 로 남김 (폴더 지정: --log 경로)
-huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt --log
-
-# slcan(1.0) 에서 권장 -- 50Hz, 수거 대기 4ms, 게인 나머지 0.5배 · 발목 0.8배
-huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt \
-          --hz 50 --drain-ms 4 --gain-scale 0.5 0.8 --log
+# 권장 -- 50Hz, 수거 대기 4ms, 게인 나머지 0.5배 · 발목 0.8배
+huphy-run --vx 0.5 --hz 50 --drain-ms 4 --gain-scale 0.5 0.8 --log
 ```
 
 `--log` 파일은 모델이 본 관찰(정규화 전), 모델 출력, 관절 목표각·실측각을 정책
@@ -966,45 +965,30 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 안 남음.
 
 `.pt` 에는 신경망만 들어 있고 `action_scale` 이나 관찰 구성은 안 들어 있음. 그건
-`--policy` 이름이 정함. **파일의 입력·출력 개수가 그 규격과 다르면 모터를 켜기 전에
-멈춤.**
+`control/generalized_walk.py`가 정함. **파일의 입력·출력 개수가 그 규격(입력
+44, 출력 12)과 다르면 모터를 켜기 전에 멈춤.**
 
-| `--policy` | 입력 | 출력 | 어디에 |
-|---|---|---|---|
-| `balance` | 24 | 6 | 0.5 한다리 |
-| `hopping` | 26 | 6 | 0.5 한다리. 위상 2칸 |
-| `stand` | 45 | 12 | 1.0 양다리 |
-
-**`stand` 만 관찰을 만드는 코드가 다름** (`control/stand.py`). 관절 속도를 안 받고
-위치를 두 프레임 받으며, 기준 자세가 0 이 아님. 그래서 `--robot --ankle-space ab`
-로 고정이고 다른 조합은 시작 전에 거부함.
-
-접근 자세도 갈림 — `balance`/`hopping` 은 영자세이고 `stand` 는 **기준 자세**임
-(엉덩이 10도, 무릎 20도로 살짝 웅크린 자세). 0 에서 시작하면 정책이 켜지는 순간
-그 차이를 한 번에 메우려 함.
+관찰은 관절 속도를 안 받고 위치를 두 프레임(`q(t-1)`, `q(t)`) 받으며, 기준
+자세가 0 이 아님(엉덩이 10도, 무릎 20도로 살짝 웅크린 자세). 0 에서 시작하면
+정책이 켜지는 순간 그 차이를 한 번에 메우려 함.
 
 `--approach` 초에 걸쳐 그 자세로 옮긴 뒤 **Enter 를 눌러야** 정책이 시작됨. Ctrl-Q
 로 멈추고 (`huphy-test` 와 같은 키. Ctrl-C 도 됨), 멈출 때 `kp=0` 으로 속도를 죽인 뒤 토크를 끊음 (붙잡지 않음).
 
 | | 무엇 |
 |---|---|
-| `--policy` | **필수.** 어느 규격인지. 관찰 개수와 `action_scale` 이 여기서 정해짐 |
-| `--weights` | 기본값은 `config/policies/<정책이름>.pt` |
-| `--ankle-space rp` | 모델이 발목을 무엇으로 내는지. `rp` 발판 자세 / `ab` 모터 각도 |
-| `--ankle-output position` | 발목에 각도를 보낼지 토크를 보낼지. `torque` 는 `rp` 에서만 |
-| `--robot` | 양다리 모델(12칸). 왼다리 6개 → 오른다리 6개 순서 |
-| `--hz 50` | 모터 전송 주기. **50 의 정수 배**만 받음. 정책은 늘 50Hz 로만 불리고 그 사이 주기는 직전 목표를 다시 보냄. slcan 에서는 50 |
+| `--vx` | 앞뒤 속도 명령(m/s). 실행 내내 고정값. 기본 0.0 |
+| `--wz` | 회전 속도 명령(rad/s). 실행 내내 고정값. 기본 0.0 |
+| `--weights` | 기본값은 `config/policies/generalized_walk.pt` |
+| `--hz 50` | 모터 전송 주기. **50 의 정수 배**만 받음. 정책은 늘 50Hz 로만 불리고 그 사이 주기는 직전 목표를 다시 보냄 |
 | `--gain-scale A [B]` | kp/kd 배율. 숫자 하나면 전체, 둘이면 **나머지 A · 발목 B** (`ankle_a`/`ankle_b`). 0 초과 1 이하. 시작 화면에 실제로 걸린 값이 찍힘 |
 | `--log [DIR]` | 정책 입출력(`policy_*.csv`)과 관절별 응답 지연(`latency_*.csv`)을 남김. 폴더를 안 주면 `logs/` |
 | `--live [PORT]` | 도는 동안 관절 목표·실측을 브라우저로 봄. 기본 포트 8770 ([tools/README.md](tools/README.md)) |
 | `--duration` `--approach` `--drain-ms` `--allow-uncalibrated` | 위와 같음 |
 
 게인을 낮추면 같은 행동에도 관절이 덜 따라가 시뮬과 다르게 움직임. 첫 통전 확인용이고,
-실제로 세울 때는 1.0 으로 돌릴 것.
-
-**`--ankle-space` 를 잘못 골라도 코드가 못 잡음.** 두 공간이 관찰 개수도 행동
-개수도 같아서 가중치 검사를 그냥 통과함. 시작 화면에 어느 쪽인지 찍으므로 눈으로
-확인할 것. 설정 파일로 옮기는 설계는 [`docs/policy_runner.md`](docs/policy_runner.md).
+실제로 세울 때는 1.0 으로 돌릴 것. 게인은 `robot.yaml`을 그대로 씀 — 이 정책이
+학습에서 가정한 사양값이라 덮어쓰지 않음.
 
 IMU 가 없으면 시작 전에 멈춤 — 관찰의 6칸이 IMU 값임 (각속도 3, 중력방향 3).
 각속도는 rad/s 로, 중력방향은 서 있을 때 z 가 −1 이 되게 들어감. **부착 방향은

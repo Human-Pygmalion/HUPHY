@@ -143,29 +143,31 @@ class TestGainPropagation:
                     f"(설정 {motor.gains.kd}, 명령 {cmd.kd})"
                 )
 
-    def test_gain_groups_match_run_py_comment(self, fake_can):
-        """`run.py:152-155` 주석이 적은 관절 묶음별 게인이 실제 robot.yaml 과
-        같은지 직접 대조함. 둘이 어긋나면 화면에 찍히는 설명과 실물에 걸리는
-        값이 달라진 것임 -- 사람이 주석만 보고 튜닝하면 엉뚱한 값을 가정하게 됨."""
+    def test_gain_groups_match_generalized_walk_requirement(self, fake_can):
+        """`generalized_walk.py`가 전제하는 관절 묶음별 게인(학습 쪽 README의
+        "Nominal gains" 표)이 실제 `robot.yaml`과 같은지 직접 대조함. 둘이
+        어긋나면 로봇이 학습 때와 다른 강성으로 움직임.
+
+        값은 2026-10-20 기준(42f3fa9 "1.0 양다리 게인을 실물에서 정한 값으로
+        바꿈") -- 바뀌면 이 표도 같이 갱신할 것.
+        """
         robot = _robot()
         limb = robot.limbs_of_kind("leg")["right_leg"]
         expected = {
-            "hip_pitch": (150.0, 6.0),
-            "hip_roll": (150.0, 6.0),
-            "hip_yaw": (150.0, 6.0),
-            "knee": (220.0, 6.0),
-            "ankle_a": (22.266, 1.414),
-            "ankle_b": (22.266, 1.414),
+            "hip_pitch": (135.0, 6.0),
+            "hip_roll": (135.0, 6.0),
+            "hip_yaw": (75.0, 4.0),
+            "knee": (130.0, 6.0),
+            "ankle_a": (60.0, 2.7),
+            "ankle_b": (60.0, 2.7),
         }
         for name, (kp, kd) in expected.items():
             motor = limb.motors[name]
             assert motor.gains.kp == pytest.approx(kp), (
-                f"{name}: robot.yaml kp={motor.gains.kp}, "
-                f"run.py 주석 기대값={kp}"
+                f"{name}: robot.yaml kp={motor.gains.kp}, 기대값={kp}"
             )
             assert motor.gains.kd == pytest.approx(kd), (
-                f"{name}: robot.yaml kd={motor.gains.kd}, "
-                f"run.py 주석 기대값={kd}"
+                f"{name}: robot.yaml kd={motor.gains.kd}, 기대값={kd}"
             )
 
 
@@ -175,11 +177,11 @@ class TestGainPropagation:
 class TestGainOverride:
     """`build_leg(..., gains=Gains(...))` 가 설정값을 덮어쓰는지.
 
-    `run.py` 는 balance/hopping 에서 `POLICY_KP`/`POLICY_KD` 로 덮어쓰고,
-    stand 는 덮어쓰지 않음 (run.py:140-160). 이 분기 자체는 `run.py` 안의
-    `if not standing: options.update(gains=...)` 한 줄이 전부라 코드로는 갈라져
-    보이지만, `build_leg` 쪽이 실제로 **전부** 덮어쓰는지 확인함 -- 모터 하나만
-    빠지면 그 관절만 학습 게인이 아닌 값으로 움직임.
+    지금 `huphy-run`(`generalized_walk`)은 이 옵션을 안 씀 -- `robot.yaml`이
+    이 정책이 학습에서 가정한 게인 그대로라 덮어쓸 이유가 없음(예전 `balance`/
+    `hopping`은 달랐음, 지금은 지워짐). `build_leg`의 `gains=` 자체는 여전히
+    범용 옵션으로 남아 있고, 쓰일 때 **모터 전부**에 걸리는지만 확인함 -- 모터
+    하나만 빠지면 그 관절만 의도한 게인이 아닌 값으로 움직임.
     """
 
     def test_override_replaces_every_motor(self, fake_can):
@@ -192,7 +194,7 @@ class TestGainOverride:
             assert motor.gains.kd == pytest.approx(0.502)
 
     def test_without_override_config_survives(self, fake_can):
-        """stand 경로 -- gains= 를 안 주면 robot.yaml 값이 그대로 남아야 함."""
+        """`gains=` 를 안 주면(지금 `huphy-run`의 실제 경로) robot.yaml 값이 그대로 남아야 함."""
         robot = _robot()
         limb = robot.limbs_of_kind("leg")["right_leg"]
         leg = build_leg(robot, limb, allow_uncalibrated=True)
@@ -236,9 +238,9 @@ class TestSignAndOffset:
 # 4. IMU 배선 — 못 읽었을 때 정책이 무엇을 보는가
 # ===========================================================================
 class TestImuWiring:
-    """`control/policy.py`/`control/stand.py` 의 `observation_vector` 는
-    `imu_state.is_valid` 나 `age_ms()` 를 **검사하지 않는다** (policy.py:230-235,
-    stand.py:193-197 둘 다 `imu_state.gyro_dps`/`.gravity` 를 바로 읽음).
+    """`control/generalized_walk.py` 의 `observation_vector` 는
+    `imu_state.is_valid` 나 `age_ms()` 를 **검사하지 않는다** -- `imu_state.gyro_dps`/
+    `.gravity` 를 바로 읽음.
 
     그래서 센서가 끊기면 `ImuState()` 기본값(수평·정지와 같은 값)이 **조용히**
     정책 입력에 들어감 -- 에러도 경고도 없음. 이 테스트는 그 동작을 고정해
@@ -246,19 +248,19 @@ class TestImuWiring:
     """
 
     def test_invalid_imu_state_feeds_level_defaults_silently(self):
-        from huphy.control import stand
+        from huphy.control import generalized_walk as gw
 
         never_connected = ImuState()  # is_valid=False, 나머지 전부 기본값
         assert never_connected.is_valid is False
         assert never_connected.gravity == (0.0, 0.0, -1.0)
         assert never_connected.gyro_dps == (0.0, 0.0, 0.0)
 
-        observation = {f"{j}.pos": stand.DEFAULT_POSE_DEG[j] for j in stand.ORDER}
-        previous = [stand.DEFAULT_POSE_DEG[j] for j in stand.ORDER]
+        observation = {f"{j}.pos": gw.DEFAULT_POSE_DEG[j] for j in gw.ORDER}
+        previous = [gw.DEFAULT_POSE_DEG[j] for j in gw.ORDER]
 
         # is_valid=False 인데도 예외 없이 벡터가 나옴 -- 검사가 없다는 뜻.
-        vector = stand.observation_vector(observation, never_connected, [0.0] * 12, previous)
-        assert vector.shape == (stand.OBS_DIM,)
+        vector = gw.observation_vector(observation, never_connected, [0.0] * 12, previous)
+        assert vector.shape == (gw.OBS_DIM,)
 
     def test_loop_link_check_does_not_cover_imu(self):
         """`ControlLoop._check_link` 은 `robot.link_status` 만 봄

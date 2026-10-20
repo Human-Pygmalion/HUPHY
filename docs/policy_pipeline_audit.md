@@ -1,5 +1,14 @@
 # `stand_bi.pt` 실행 파이프라인 감사
 
+> **2026-10-20 — `stand`/`stand_bi.pt`는 지워짐.** `balance`/`hopping`과 함께
+> 더 이상 돌리지 않음 -- `control/generalized_walk.py`(44칸 입력)가 지금의
+> 정식 정책임. 이 문서는 그 전 시점의 감사 기록으로 **역사적 참고용**임 --
+> 아래 파일 경로·커맨드라인은 지금 레포에서 안 돌아감. 당시 발견한 문제(9절)
+> 중 IMU 유효성 검사 없음(9.2), 텔레메트리 미연결(9.1), CAN 버스 결측
+> 현상(9.5)은 **정책과 무관하게 지금도 유효한 발견**임 -- 9.5는
+> [can_communication.md](can_communication.md)에서 이후 원인이 규명되고
+> 고쳐짐.
+
 **작업일**: 2026-10-07. **대상**: `huphy-run --robot --policy stand --ankle-space ab
 --weights config/policies/stand_bi.pt` 가 실제로 도는 전체 경로.
 

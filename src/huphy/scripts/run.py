@@ -1,93 +1,37 @@
-"""정책 실행 — 학습한 모델로 다리를 움직임.
+"""정책 실행 — 학습한 걷기 정책으로 양다리를 움직임.
 
-    huphy-run --limb right_leg --policy balance
-    huphy-run --robot --policy balance --weights runs/biped.pt
-    huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt
+    huphy-run --vx 0.5 --wz 0.0
+    huphy-run --vx 1.0 --weights config/policies/other_checkpoint.pt
 
 브링업과 **같은 다리·같은 루프**를 씀. 다르게 들어가는 것은 매 주기 관절 목표를
 내는 것 하나뿐임 -- 브링업은 사인파 같은 것을 넣고, 여기는 모델을 넣음.
 
-
-## 정책 이름이 규격을 고름
-
-`.pt` 파일에는 신경망만 들어 있고, 모델 출력을 관절 각도로 바꿀 때 곱하는 값
-(`action_scale`)이나 뛰는 위상이 관찰에 붙는지는 안 들어 있음. 그건 학습 설정에만
-있어서 `control/policy.py` 에 적어 두었고, 이름으로 고름.
-
-    balance   입력 24, x0.25
-    hopping   입력 26, x0.5, 위상 2칸
-    stand     입력 45, x0.25, 양다리 12관절
-
-파일의 입력 개수가 그 값과 다르면 **모터를 켜기 전에** 멈춤.
-
-`stand` 만 **관찰을 만드는 코드가 다름** (`control/stand.py`). 속도 칸이 없고 위치
-이력이 둘이고 기준 자세가 0 이 아니라, 0.5 모델들과 레이아웃이 겹치지 않음. 그래서
-`--robot --ankle-space ab` 로 고정이고 다른 조합은 시작 전에 거부함.
+**정책은 `generalized_walk` 하나뿐임.** 과거에 `balance`/`hopping`/`stand`가
+있었는데 더 이상 돌리지 않아서 지웠음 -- `control/generalized_walk.py`가 지금부터의
+정식 입출력 규격임(44칸 입력, 12관절 출력, 양다리 전용).
 
 
-## 발목 공간은 이름이 아니라 인자로 고름
+## 명령(vx, wz)을 실행할 때 고정값으로 줌
 
-모델이 발목을 발판 자세로 내는지 모터 각도로 내는지는 규격에 안 넣었음 --
-`action_scale` 도 `obs_dim` 도 두 공간이 똑같아서, 넣으면 같은 모델이
-`balance_rp`/`balance_ab` 로 둘씩 늘어날 뿐임.
-
-    --ankle-space rp    ankle_pitch, ankle_roll    IK 를 거쳐 모터로
-    --ankle-space ab    ankle_a, ankle_b           그대로 모터로
-
-**어긋나도 코드로는 안 잡힘.** 관찰 개수도 행동 개수도 같아서 가중치 검사를
-그냥 통과함. 사람이 맞게 골라야 하고, 시작 화면에 어느 쪽인지 찍음.
-
-발목 출력은 기본이 위치임. 토크는 관절 공간 PD 를 야코비안으로 내리는 것이라
-`rp` 에서만 쓸 수 있음 -- `ab` 와 같이 주면 시작 전에 멈춤.
+정책 관찰의 마지막 두 칸이 속도 명령임. `--vx`/`--wz`로 주면 그 값이 **실행
+내내 고정**임 -- 매 주기 새로 읽지 않음. 걷는 동안 속도를 바꾸고 싶으면 멈추고
+다른 값으로 다시 실행할 것.
 
 
-## 양다리 — `--robot`
+## 게인은 `robot.yaml`을 그대로 씀
 
-모델이 12칸을 냄. 순서는 학습 쪽과 정한 규격임.
-
-    0-5    left_leg/hip_pitch ... left_leg/ankle_roll
-    6-11   right_leg/hip_pitch ... right_leg/ankle_roll
-
-**왼다리가 먼저임.** `robot.yaml` 의 `limbs` 순서(지금 오른다리가 먼저)와
-무관함 -- 모델 규격은 설정 파일이 아니라 학습이 정하므로 `policy.BIPED_LEGS` 에
-고정해 둠. 이름을 붙인 뒤로는 `Biped` 가 이름을 보고 다리별로 나눔.
-
-관찰 길이는 관절 수에서 계산함 (42, 위상이 있으면 44). `action_scale` 과 위상은
-`--policy` 로 고른 규격을 그대로 씀 -- 양다리 모델도 같은 값으로 학습했다는
-가정이고, 다르면 규격을 하나 더 두면 됨.
-
-가중치 파일의 입력·출력 개수를 **둘 다** 대조함. 다리 하나 모델에 `--robot` 을
-주면 모터를 켜기 전에 멈춤.
-
-IMU 는 다리가 아니라 로봇에 붙음 (`build_biped`). 설정의 `mount` 가 어느
-다리든 로봇 전체의 센서로 읽힘.
-
-
-## 게인을 어디서 가져오나 -- 정책마다 다름
-
-정책은 **학습에 쓴 게인**으로 돌아야 함. 시뮬에서 그 값으로 움직이는 것을 보고
-배웠기 때문임. 그 값이 어디 있느냐가 0.5 와 1.0 에서 반대임.
-
-    balance / hopping   robot.yaml 의 게인을 덮어씀    kp 20, kd 0.502
-    stand               robot.yaml 의 게인을 그대로 씀
-
-0.5 때는 `robot.yaml` 의 `kp`/`kd` 가 사람이 브링업에서 튜닝하던 값이고 학습 게인은
-`POLICY_KP`/`POLICY_KD` 에만 있었음. 1.0 은 `robot.yaml` 이 곧 학습이 가정한
-사양값이고 **관절 묶음마다 다름**(150 / 220 / 22.266). `Gains` 하나로 덮으면 표현도
-안 되고 무릎이 11배 낮아짐.
-
-`--ankle-output torque` 면 발목은 모터가 아니라 **관절**에 이 게인을 걺. 모터 두
-개가 로드로 두 축을 같이 만들어서 지렛대 비가 자세마다 달라지므로, 관절 토크를
-만들어 야코비안으로 내림.
+정책은 **학습에 쓴 게인**으로 돌아야 함. `robot.yaml`(`robot_v1.0.yaml`)이 곧
+이 정책이 학습에서 가정한 사양값이라 덮어쓰지 않음 -- 관절 묶음마다 다름(150/150,
+75, 130, 60 같은 식이 아니라 지금은 135/75/130/60, `config/robot.yaml` 참조).
 
 
 ## 아직 없는 것
 
     상태 기계        지금은 정책 하나만 돎. 넘어져도 안 멈춤
-    토크 가드        발목 토크에는 한계 검사가 안 걸림
+    토크 가드        한계 검사가 발목 토크 경로엔 안 걸림(이 정책은 위치 출력만 써서 해당 없음)
     torch 대조       numpy 로 다시 짠 계산을 학습 쪽과 맞춰 보지 않았음
 
-`control/POLICY.md` 에 정리해 둠. **사람이 옆에서 지켜보며 돌릴 것.**
+**사람이 옆에서 지켜보며 돌릴 것.**
 """
 
 from __future__ import annotations
@@ -97,35 +41,24 @@ import logging
 import signal
 import sys
 from pathlib import Path
-from typing import Dict
 
 from ..config import ConfigError, load_robot
-from ..control import ControlLoop, Mode, held, policy, rsl_rl, stand
-from ..motors.base import Gains
+from ..control import ControlLoop, Mode, generalized_walk, held, rsl_rl
 from ..motors.canbus import DEFAULT_DRAIN_S, bring_up_hint
 from ..robots.leg import SEND_MODES, SEND_SEQ
 from ..telemetry import latency_log, live, policy_log
 from . import failures
-from .bringup import build_biped, build_leg
-from .commission import CONFIG_NAME, _find_config, _pick_limb, all_legs
+from .bringup import build_biped
+from .commission import CONFIG_NAME, _find_config, all_legs
 from .selftest import QuitWatcher, approach
 
 logger = logging.getLogger("huphy.run")
 
-STAND = "stand"
-"""`--policy` 에서 서기 정책을 가리키는 이름.
+POLICY_NAME = "generalized_walk"
+"""로그 파일 이름·화면 표시에 씀. 정책이 하나뿐이라 선택지가 아니라 상수임."""
 
-이것만 **경로가 다름** -- 관찰 구성이 0.5 모델들과 겹치지 않아 `control/stand.py`
-가 따로 만듦. `main()` 의 `standing` 이 갈림길이고 세 군데에서 갈림: 관절 순서,
-접근 자세, 관찰을 만드는 함수.
-"""
-
-SPECS = {
-    "balance": policy.BALANCE,
-    "hopping": policy.HOPPING,
-    STAND: stand.SPEC,
-}
-"""이름 -> 규격. `control/policy.py` 와 `control/stand.py` 에 적힌 것을 고름."""
+SPEC = generalized_walk.SPEC
+ORDER = generalized_walk.ORDER
 
 ANKLE_MOTORS = ("ankle_a", "ankle_b")
 """`--gain-scale` 의 두 번째 숫자가 걸리는 모터. `robot.yaml` 의 모터 이름임."""
@@ -135,10 +68,10 @@ LOG_SKIP_S = 0.0
 보는 구간임. 연결 직후의 느린 첫 주기들은 접근 구간에 들어가 이미 빠짐."""
 
 WEIGHTS_DIR = Path("config/policies")
-"""이름으로 찾을 때 보는 곳. `--weights` 로 덮어쓸 수 있음."""
+"""`--weights` 를 안 주면 `{WEIGHTS_DIR}/{POLICY_NAME}.pt` 를 찾음."""
 
-POLICY_HZ = 50.0
-"""정책이 불리는 주기. 시뮬이 0.005초 x 4 = 50Hz 로 학습했으므로 같아야 함.
+POLICY_HZ = generalized_walk.HZ
+"""정책이 불리는 주기(50Hz). 시뮬이 0.005초 x 4 = 50Hz 로 학습했으므로 같아야 함.
 
 더 빠르게 부르면 모델이 학습 때보다 자주 불려서, 같은 행동이 더 오래 유지되는 것과
 같은 효과가 남 -- 시뮬과 다르게 움직임. **그래서 상수로 고정하고 CLI 인자로 안 뺌.**
@@ -146,68 +79,25 @@ POLICY_HZ = 50.0
 모터 전송 주기(`--hz`)는 이것과 다를 수 있음 -- 전송은 `control.held()` 가 이 값
 그대로 가둬 두고, 그 사이 주기는 직전 목표를 반복해 보냄."""
 
-POLICY_KP = 20.0
-POLICY_KD = 0.502
-"""**0.5 모델이** 학습에 쓴 게인. mjlab 의 `half_huphy.xml` 액추에이터 값임.
-
-    <position kp="20.0" kv="0.502" .../>
-
-`balance`/`hopping` 에만 씀. 그때는 `robot.yaml` 의 게인이 사람이 브링업에서
-튜닝한 값이고 학습 게인은 여기에만 있어서, 설정 값을 덮어쓰는 것이 맞았음.
-
-**`stand` 는 안 씀.** 1.0 은 `robot.yaml` 의 게인이 곧 학습이 가정한 사양값임.
-
-    hip_pitch/hip_roll   RS04  kp 150     kd 6
-    hip_yaw              RS03  kp 150     kd 6
-    knee                 RS04  kp 220     kd 6
-    ankle_a/ankle_b      RS03  kp 22.266  kd 1.414
-
-관절 묶음마다 다르므로 `Gains` 하나로 덮으면 표현도 안 되고, 덮으면 무릎이 11배
-낮아짐. 발목 크랭크는 링키지를 거쳐 축에서 본 값이 작은 것이라 다른 관절과 같은
-값을 넣으면 발이 떪.
-"""
-
-
-ZERO_POSE = {joint: 0.0 for joint in policy.JOINT_ORDER}
-"""정책이 기대하는 시작 자세. 시뮬의 기준 자세가 관절 전부 0 임.
-
-관찰의 관절 각도가 이 자세 기준의 상대값이라, 여기서 시작하지 않으면 정책이 학습 때
-본 적 없는 입력을 받음.
-"""
-
-
-def zero_pose(order) -> Dict[str, float]:
-    """그 공간의 영자세. 이름만 다르고 값은 전부 0 임.
-
-    두 공간의 영자세가 **같은 물리 자세**임 -- `solve_ik(0, 0) == (0, 0)` 이라
-    발판을 0도로 두는 것과 발목 모터를 0도로 두는 것이 같음. 그래서 접근 단계가
-    데려다 놓는 자세도 공간과 무관하게 같음.
-    """
-    return {name: 0.0 for name in order}
-
 
 DEFAULT_APPROACH_S = 3.0
-"""영점 자세까지 옮기는 데 쓰는 시간.
+"""기준 자세까지 옮기는 데 쓰는 시간.
 
 **서서히 가야 함.** 토크를 넣는 순간 목표가 멀리 있으면 관절이 튐 -- 점프 가드가
 자르기는 하지만 그 전에 큰 토크가 한 번 나감.
 """
 
 
-def staged(approach_motion, approach_s: float, policy_motion, hold_pose=None):
-    """영점으로 옮김 -> 그 자세로 기다림 -> Enter 누르면 정책.
+def staged(approach_motion, approach_s: float, policy_motion, hold_pose):
+    """기준 자세로 옮김 -> 그 자세로 기다림 -> Enter 누르면 정책.
 
     셋을 한 덩어리로 묶어 제어 루프에 넘김. 루프는 이 안에 단계가 있는 줄 모름.
 
-    **정책은 자기 구간의 0초부터** 시간을 받음. 뛰는 위상이 시작한 순간부터 세야
-    하기 때문임.
-
-    `start()` 를 부르기 전까지는 영점 자세를 계속 보냄 -- 사람이 로봇에서 손을 떼고
-    자리를 잡을 시간임. `hold_pose` 를 주면 그것을 보냄. 발목을 모터 공간으로
-    돌릴 때는 기다리는 자세도 그 공간의 이름이어야 함.
+    `start()` 를 부르기 전까지는 기준 자세를 계속 보냄 -- 사람이 로봇에서 손을 떼고
+    자리를 잡을 시간임.
     """
     started = [False, 0.0]
-    waiting = dict(ZERO_POSE if hold_pose is None else hold_pose)
+    waiting = dict(hold_pose)
 
     def motion(t: float, observation):
         if t < approach_s:
@@ -258,41 +148,27 @@ class EnterWatcher(QuitWatcher):
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="huphy-run",
-        description="학습한 정책으로 다리를 움직임.",
+        description="학습한 걷기 정책(generalized_walk)으로 양다리를 움직임.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "예시:\n"
-            "  --limb right_leg --policy balance\n"
-            "  --limb right_leg --policy hopping --weights runs/model_49999.pt\n"
-            "  --limb right_leg --policy balance --ankle-output torque\n"
-            "  --limb right_leg --policy balance --ankle-space ab\n"
-            "  --robot --policy balance --weights runs/biped.pt   양다리 12칸\n"
-            "  --robot --policy stand --ankle-space ab"
-            " --weights config/policies/stand_bi.pt   서기\n\n"
+            "  huphy-run --vx 0.5 --wz 0.0\n"
+            "  huphy-run --vx 1.0 --drain-ms 4 --hz 50 --log\n\n"
             "상태 기계와 토크 가드가 아직 없음. 사람이 지켜보며 돌릴 것.\n"
         ),
     )
     p.add_argument("--config", type=Path, help=f"기본값: 위로 올라가며 {CONFIG_NAME} 을 찾음")
-    p.add_argument("--limb", help="팔다리 이름. 하나뿐이면 생략 가능")
-    p.add_argument(
-        "--robot", action="store_true",
-        help="양다리 모델을 로봇 전체로 돌림. 12칸, 왼다리 먼저",
-    )
-    p.add_argument(
-        "--policy", required=True, choices=sorted(SPECS),
-        help="어느 정책인지. 관찰 개수와 action_scale 이 여기서 정해짐",
-    )
     p.add_argument(
         "--weights", type=Path,
-        help=f"가중치 파일. 기본값은 {WEIGHTS_DIR}/<정책이름>.pt",
+        help=f"가중치 파일. 기본값은 {WEIGHTS_DIR}/{POLICY_NAME}.pt",
     )
     p.add_argument(
-        "--ankle-space", choices=sorted(policy.ORDERS), default="rp",
-        help="모델이 발목을 무엇으로 내는지. rp=발판 자세, ab=모터 각도",
+        "--vx", type=float, default=0.0,
+        help="앞뒤 속도 명령(m/s). 실행 내내 고정값임 (기본 0.0, 제자리)",
     )
     p.add_argument(
-        "--ankle-output", choices=("position", "torque"), default="position",
-        help="발목 두 모터에 각도를 보낼지 토크를 보낼지. torque 는 rp 에서만",
+        "--wz", type=float, default=0.0,
+        help="회전 속도 명령(rad/s). 실행 내내 고정값임 (기본 0.0)",
     )
     p.add_argument(
         "--hz", type=float, default=POLICY_HZ,
@@ -319,7 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--approach", type=float, default=DEFAULT_APPROACH_S,
-        help=f"영점 자세까지 옮기는 시간. 기본 {DEFAULT_APPROACH_S:.0f}초",
+        help=f"기준 자세까지 옮기는 시간. 기본 {DEFAULT_APPROACH_S:.0f}초",
     )
     p.add_argument(
         "--duration", type=float,
@@ -362,10 +238,10 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _gain_line(robot, standing: bool, scale: float = 1.0, ankle_scale: float = 1.0) -> str:
+def _gain_line(robot, scale: float = 1.0, ankle_scale: float = 1.0) -> str:
     """시작 화면의 게인 줄. **실제로 모터에 걸리는 값을 읽어서** 찍음.
 
-    상수를 찍으면 덮어쓰기를 안 하는 경로(`stand`)에서 화면과 실제가 어긋남.
+    이 정책은 게인을 덮어쓰지 않으므로 항상 `robot.yaml` 값임.
     """
     parts = getattr(robot, "parts", None) or (robot,)
     config = getattr(parts[0], "config", None)
@@ -378,35 +254,12 @@ def _gain_line(robot, standing: bool, scale: float = 1.0, ankle_scale: float = 1
         body = "  ".join(
             f"{name} {m.gains.kp:g}/{m.gains.kd:g}" for name, m in motors.items()
         )
-    source = "robot.yaml" if standing else "학습값으로 덮어씀"
+    source = "robot.yaml"
     if ankle_scale != scale:
         source += f", 발목 x{ankle_scale:g} / 나머지 x{scale:g}"
     elif scale != 1.0:
         source += f", x{scale:g} 로 낮춤"
     return f"  게인     {body}  ({source})"
-
-
-def _check_standing(args) -> None:
-    """서기 정책이 받을 수 없는 조합을 **모터를 켜기 전에** 막음.
-
-    셋 다 `Leg` 이나 `rsl_rl` 이 나중에 걸러 주기는 하는데, `--robot` 이 아닌 경우만
-    `rsl_rl.load` 에서 걸리고 나머지 둘은 첫 주기까지 감 -- 그때는 이미 토크가
-    들어간 뒤임.
-    """
-    if not args.robot:
-        raise SystemExit(
-            f"--policy {STAND} 는 양다리 12관절 모델임. --robot 으로 돌릴 것"
-        )
-    if args.ankle_space != "ab":
-        raise SystemExit(
-            f"--policy {STAND} 는 발목을 크랭크 두 개로 직접 냄. "
-            f"--ankle-space ab 로 돌릴 것 (받은 값 {args.ankle_space})"
-        )
-    if args.ankle_output != "position":
-        raise SystemExit(
-            f"--policy {STAND} 는 관절 목표각을 냄. "
-            f"--ankle-output position 으로 돌릴 것 (받은 값 {args.ankle_output})"
-        )
 
 
 def _save_log(log: "policy_log.PolicyLog", args) -> None:
@@ -415,7 +268,7 @@ def _save_log(log: "policy_log.PolicyLog", args) -> None:
         print("  정책 기록: 정책이 한 번도 안 불려서 남길 것이 없음")
         return
     try:
-        path = log.save(policy_log.default_path(args.log, args.policy))
+        path = log.save(policy_log.default_path(args.log, POLICY_NAME))
     except OSError as e:
         print(f"  정책 기록 저장 실패: {e}")
         return
@@ -442,7 +295,7 @@ def _save_latency(latency: "latency_log.LatencyLog", args) -> None:
         return
     print("\n" + latency.summary())
     try:
-        path = latency.save(latency_log.default_path(args.log, args.policy))
+        path = latency.save(latency_log.default_path(args.log, POLICY_NAME))
     except OSError as e:
         print(f"  지연 기록 저장 실패: {e}")
         return
@@ -451,7 +304,7 @@ def _save_latency(latency: "latency_log.LatencyLog", args) -> None:
 
 def _weights_path(args) -> Path:
     """쓸 가중치 파일. 없으면 멈춤."""
-    path = args.weights if args.weights else WEIGHTS_DIR / f"{args.policy}.pt"
+    path = args.weights if args.weights else WEIGHTS_DIR / f"{POLICY_NAME}.pt"
     if not path.is_file():
         raise SystemExit(
             f"가중치 파일이 없음: {path}\n"
@@ -482,53 +335,23 @@ def main(argv=None) -> int:
     except ConfigError as e:
         raise SystemExit(f"{e}") from e
 
-    if args.robot and args.limb:
+    # 이 정책은 양다리 12관절 전용임 -- 다리 하나로는 입력 개수가 안 맞음.
+    limbs = all_legs(robot)
+    names = {limb.name for limb in limbs}
+    expected = {name.split("/")[0] for name in ORDER}
+    missing = sorted(expected - names)
+    if missing:
         raise SystemExit(
-            "--robot 과 --limb 을 같이 줄 수 없음. --robot 은 다리 전부이고 "
-            "--limb 은 그중 하나를 고르는 것임"
+            f"정책이 기대하는 다리가 설정에 없음: {missing} "
+            f"(있는 것: {sorted(names)}). robot.yaml 의 limbs 이름이 "
+            f"{sorted(expected)} 여야 함"
         )
-    spec = SPECS[args.policy]
-    standing = args.policy == STAND
-    if standing:
-        _check_standing(args)
-
-    # 토크 경로는 관절 공간 PD 라 pitch/roll 이 있어야 함. 여기서 막지 않으면
-    # Leg 이 첫 주기에 거부하는데, 그때는 이미 토크가 들어간 뒤임.
-    if args.ankle_space == "ab" and args.ankle_output == "torque":
-        raise SystemExit(
-            "--ankle-space ab 는 --ankle-output torque 와 같이 쓸 수 없음. "
-            "모터 공간 모델은 발목 각도를 직접 내므로 position 으로 돌릴 것"
-        )
-
-    # 양다리면 12칸 순서를 쓰고 관찰 길이를 다시 계산함. 순서는 학습 쪽과 정한
-    # 규격(왼다리 먼저)이지 robot.yaml 의 순서가 아님 -- policy.BIPED_LEGS.
-    if args.robot:
-        limbs = all_legs(robot)
-        names = {limb.name for limb in limbs}
-        missing = [leg for leg in policy.BIPED_LEGS if leg not in names]
-        if missing:
-            raise SystemExit(
-                f"양다리 모델이 기대하는 다리가 설정에 없음: {missing} "
-                f"(있는 것: {sorted(names)}). robot.yaml 의 limbs 이름이 "
-                f"{list(policy.BIPED_LEGS)} 여야 함"
-            )
-        # stand 는 자기 순서를 들고 있고 관찰 길이도 자기가 정함. for_joints 는
-        # 3+3+3n 으로 다시 계산해서 42 를 내는데, 이 정책은 속도 칸이 없고 위치
-        # 이력이 둘이라 45 임.
-        if standing:
-            order = stand.ORDER
-        else:
-            order = policy.BIPED_ORDERS[args.ankle_space]
-            spec = policy.for_joints(spec, len(order))
-    else:
-        limbs = [_pick_limb(robot, args.limb)]
-        order = policy.ORDERS[args.ankle_space]
 
     # 모터를 켜기 전에 읽음. 규격이 어긋나면 여기서 멈추는 것이 안전함. 출력
-    # 개수도 대조함 -- 다리 하나 모델에 --robot 을 주면 여기서 걸림.
+    # 개수도 대조함.
     weights = _weights_path(args)
     try:
-        model = rsl_rl.load(weights, spec=spec, action_dim=len(order))
+        model = rsl_rl.load(weights, spec=SPEC, action_dim=len(ORDER))
     except (ValueError, OSError) as e:
         raise SystemExit(f"{e}") from e
 
@@ -543,41 +366,23 @@ def main(argv=None) -> int:
     for value in (body_scale, ankle_scale):
         if not 0.0 < value <= 1.0:
             raise SystemExit(f"--gain-scale 은 0 보다 크고 1 이하여야 함 (받은 값 {value})")
+
+    # 게인은 robot.yaml 을 그대로 씀 -- 이 정책이 학습에서 가정한 사양값임.
     options = dict(
         gain_scale=body_scale,
         joint_gain_scale={name: ankle_scale for name in ANKLE_MOTORS},
         allow_uncalibrated=args.allow_uncalibrated,
         drain_s=args.drain_ms / 1000.0,
         send_mode=args.send_mode,
-        ankle_output=args.ankle_output,
     )
-    if not standing:
-        # 0.5 모델은 robot.yaml 의 게인이 사람이 튜닝한 값이고 학습 게인은 코드에만
-        # 있어서 덮어씀. stand 는 반대라 안 덮음 -- 아래 설명.
-        options.update(
-            gains=Gains(kp=POLICY_KP, kd=POLICY_KD),
-            # 발목 토크 경로의 관절 PD 는 모터 게인이 아니라 여기서 따로 받으므로
-            # gain_scale 이 안 닿음. 같이 낮춰야 화면의 배율과 실제가 맞음.
-            ankle_kp=(POLICY_KP * ankle_scale,) * 2,
-            ankle_kd=(POLICY_KD * ankle_scale,) * 2,
-        )
-    if args.robot:
-        leg = build_biped(robot, limbs, **options)
-    else:
-        leg = build_leg(robot, limbs[0], **options)
+    leg = build_biped(robot, limbs, **options)
 
-    # 다리 하나면 그 다리에 붙은 IMU, 양다리면 로봇에 붙은 IMU 임
-    # (build_biped 가 센서를 다리가 아니라 로봇에 붙임). 둘 다 .imus 로 꺼냄.
+    # IMU 는 다리가 아니라 로봇에 붙음 (build_biped 가 센서를 다리가 아니라
+    # 로봇에 붙임). .imus 로 꺼냄.
     if not leg.imus:
-        where = "로봇" if args.robot else limbs[0].name
-        hint = (
-            "robot.yaml 의 imus 에 적을 것"
-            if args.robot
-            else f"robot.yaml 의 imus 에 mount: {limbs[0].name} 로 적을 것"
-        )
         raise SystemExit(
-            f"{where} 에 IMU 가 없음. 정책 입력의 6칸이 IMU 값임 "
-            f"(각속도 3, 중력 방향 3).\n{hint}"
+            "로봇에 IMU 가 없음. 정책 입력의 6칸이 IMU 값임 "
+            "(각속도 3, 중력 방향 3).\nrobot.yaml 의 imus 에 적을 것"
         )
 
     channels = [limb.channel for limb in limbs]
@@ -591,33 +396,23 @@ def main(argv=None) -> int:
     loop = ControlLoop(leg, hz=args.hz, mode=Mode.CONTROL)
     signal.signal(signal.SIGINT, lambda *_: loop.stop())
 
-    # stand 의 기준 자세는 0 이 아님 (엉덩이 10도, 무릎 20도). 0 으로 데려다 놓으면
+    # 기준 자세는 0 이 아님 (엉덩이 10도, 무릎 20도). 0 으로 데려다 놓으면
     # 정책이 켜지는 순간 그 차이를 한 번에 메우려 함.
-    # **화면에 찍기 전에 정해야 함** -- 시작 화면이 이 값을 보여줌.
-    target_pose = stand.default_pose() if standing else zero_pose(order)
+    target_pose = generalized_walk.default_pose()
 
-    # 줄 단위로 모음. 더하기와 암묵 이어붙이기를 섞으면 한 줄만 고쳐도 조용히
-    # 엉뚱한 곳에 붙음.
     hz_note = f" (정책 {POLICY_HZ:.0f}Hz)" if args.hz != POLICY_HZ else ""
     lines = [
         "",
         f"  {leg.id}  {' '.join(channels)}  전송 {args.hz:.0f}Hz{hz_note}",
-        f"  정책     {args.policy}  (입력 {spec.obs_dim}, x{spec.action_scale})",
+        f"  정책     {POLICY_NAME}  (입력 {SPEC.obs_dim}, x{SPEC.action_scale})",
         f"  가중치   {weights}",
-        _gain_line(leg, standing, body_scale, ankle_scale),
-        f"  발목     {args.ankle_space} ({order[-2]}, {order[-1]})  {args.ankle_output}",
+        _gain_line(leg, body_scale, ankle_scale),
+        f"  명령     vx={args.vx:g} m/s  wz={args.wz:g} rad/s (고정값)",
         f"  IMU      {', '.join(i.name for i in leg.imus)}",
         "",
-    ]
-    if standing:
-        lines.append(
-            f"  기준자세 무릎 {target_pose['right_leg/knee']:+.1f}도"
-            f"  엉덩이 {target_pose['right_leg/hip_pitch']:+.1f}도"
-        )
-    lines += [
-        f"  {args.approach:.0f}초에 걸쳐 "
-        + ("기준 자세" if standing else "영점 자세")
-        + "로 옮긴 뒤 그 자세로 기다립니다.",
+        f"  기준자세 무릎 {target_pose['right_leg/knee']:+.1f}도"
+        f"  엉덩이 {target_pose['right_leg/hip_pitch']:+.1f}도",
+        f"  {args.approach:.0f}초에 걸쳐 기준 자세로 옮긴 뒤 그 자세로 기다립니다.",
         "  Enter 를 누르면 정책이 시작됩니다.",
         "",
         "  ** 상태 기계와 토크 가드가 없음. 넘어져도 멈추지 않음 **",
@@ -628,19 +423,14 @@ def main(argv=None) -> int:
 
     start_pose = {
         joint: float(leg.get_observation().get(f"{joint}.pos", 0.0))
-        for joint in order
+        for joint in ORDER
     }
     log = None
     if args.log is not None:
-        obs_names = (
-            stand.OBS_NAMES if standing else policy.observation_names(spec, order)
-        )
-        log = policy_log.PolicyLog(obs_names, order, robot=leg)
+        log = policy_log.PolicyLog(generalized_walk.OBS_NAMES, ORDER, robot=leg)
         model = log.wrap_model(model)
-    policy_motion = (
-        stand.motion(model, leg.imus[0])
-        if standing
-        else policy.policy_motion(model, leg.imus[0], spec=spec, order=order)
+    policy_motion = generalized_walk.motion(
+        model, leg.imus[0], command=(args.vx, args.wz)
     )
     if log is not None:
         policy_motion = log.wrap_motion(policy_motion)
@@ -667,8 +457,8 @@ def main(argv=None) -> int:
     looped, server = motion, None
     if args.live is not None:
         feed = live.LiveFeed(
-            hz=args.hz, title=f"huphy-run {args.policy} · {leg.id}",
-            name=args.policy, save_dir=args.log or Path("logs"),
+            hz=args.hz, title=f"huphy-run {POLICY_NAME} · {leg.id}",
+            name=POLICY_NAME, save_dir=args.log or Path("logs"),
             robot=leg,
         )
         server = live.start(feed, args.live)
