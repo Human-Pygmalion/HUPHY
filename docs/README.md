@@ -8,7 +8,8 @@ flow_diagrams.md   누가 누구를 부르나. 그림
 cycle.md           한 주기. 값이 어떤 모양으로 어디를 지나나
 full_robot.md      다리 하나와 양다리. 무엇이 남았나
 policy_runner.md   최종 정책 실행기 설계. 설정 파일 하나로 도는 것
-ros.md             ROS 2 Humble 이식. 처음 쓰는 사람 기준 정리
+ros.md             ROS 2 이식. 노드 둘의 계약과 다이어그램
+ros.drawio         위 문서 1-2 장의 그림
 build_log.md       무엇을 어떤 순서로 만들었나. 각 단계의 중점
 issues.md          구현하면서 마주친 판단·미확인 사항
 motor_setup.md     출하 상태 모터 세팅. 보낼 프레임까지

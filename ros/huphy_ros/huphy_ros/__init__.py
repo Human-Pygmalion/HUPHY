@@ -1,14 +1,15 @@
 """HUPHY 제어를 ROS 2 노드로 감싸는 패키지.
 
-**`huphy` 를 고치지 않음.** import 만 함.
+    convert.py     단위·이름 변환.        rclpy 를 import 하지 않음
+    freshness.py   수신 시각과 나이 판정.  rclpy 를 import 하지 않음
+    control_node.py
+    policy_node.py
 
-    convert.py        단위·이름 변환. rclpy 를 import 하지 않음
-    bridge.py         토픽 <-> Motion. rclpy 를 import 하지 않음
-    control_node.py   제어 루프를 자기 스레드에서 돌리고 ROS 와 이어 줌
-    telemetry_node.py 상태를 토픽으로 내보냄
+앞의 둘이 `rclpy` 를 안 쓰는 것이 의도임. 거기 있는 판단이 틀리면 로봇이 잘못
+움직이는데 **틀려도 길이와 자릿수가 그대로라 코드로는 안 잡힘** -- ROS 없는
+기계에서 테스트가 돌아야 고정해 둘 수 있음.
 
-앞의 둘이 `rclpy` 를 안 쓰는 것이 의도임 -- ROS 가 없는 기계에서도 테스트가 돎
-(`tests/test_ros_bridge.py`). 노드 쪽은 배선뿐이라 테스트할 것이 적음.
+`src/huphy/` 는 고치지 않음. import 만 함.
 
-설계 근거는 `docs/ros.md`.
+계약은 `docs/ros.md`.
 """

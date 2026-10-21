@@ -1,722 +1,623 @@
-# ROS 2 Humble 이식 — 처음 쓰는 사람을 위한 정리
+# ROS 2 이식 — 노드 계약
 
-**아직 안 만든 것의 설계**임. ROS 를 써 본 적이 없다는 전제로 개념부터 적고, 그
-개념이 **지금 이 레포의 무엇에 해당하는지** 짝을 지어 둠.
+**아직 안 만든 것의 설계**임. ROS 를 써 본 적이 없다는 전제로 1장에 개념을 적고,
+2장부터 이 로봇에 맞춘 계약을 적음.
+
+기기 이름은 안 씀. 역할로 부름 — **모션보드**(로봇에 붙고 CAN 어댑터와 IMU 가
+달린 쪽), **작업 기계**(신경망을 돌리고 사람이 쓰는 쪽).
+
+**기계는 둘임.** 그림은 [ros.drawio](ros.drawio).
 
 관련 문서: 계층은 [architecture.md](architecture.md), 한 주기의 흐름은
-[cycle.md](cycle.md), 양다리 구성은 [full_robot.md](full_robot.md).
+[cycle.md](cycle.md), 정책은 [`control/POLICY.md`](../src/huphy/control/POLICY.md).
+
+정책은 `generalized_walk` 하나임
+([`control/generalized_walk.py`](../src/huphy/control/generalized_walk.py)).
+관찰 44칸, 행동 12개, 명령 2칸(`vx`, `wz`). `vy` 는 **칸 자체가 없음.**
 
 ---
 
-## 0. 결론부터
+## 0. 정해진 것
 
-| | |
+| # | |
 |---|---|
-| 레포를 나누나 | **안 나눔.** 이 레포 안에 `ros/huphy_ros/` 폴더 하나를 더 둠 |
-| `src/huphy/` 를 고치나 | **안 고침.** ROS 는 `huphy` 를 import 만 함 |
-| 지금 명령어(`huphy-run` 등) | 그대로 남음. ROS 없이도 돎 |
-| 지금 테스트 | 그대로 돎. ROS 설치 없이 |
-| 새로 만드는 것 | 노드 2개, 메시지 몇 개, 런치 파일 1개 |
+| 1 | 관절상태 → 정책 → 관절목표각 한 바퀴가 **네트워크를 건너감** |
+| 2 | 목표각이 끊기면 **감쇠 후 토크 차단** |
+| 3 | 기준 자세로 옮기는 접근 단계는 **`policy_node`** 가 함 |
+| 4 | 사람이 보내는 것: 속도 명령(`vx`, `wz`) / 시작·정지·토크 / 관절 목표각 직접 |
+| 5 | **정책 교체 없음.** `.pt` 를 바꾸려면 노드 재시작. 정책 자체가 하나뿐임 |
+| 6 | 추론은 **타이머 50Hz**. 상태가 낡으면 목표각을 안 내보냄 |
+| 7 | IMU 는 **모션보드**에 붙음. 관절 상태와 같이 네트워크를 건너감 |
+| 8 | `/huphy/joint_targets` **하나**를 정책과 pose 가 같이 씀. 중재 없음 |
+| 9 | 기계 간 **시계 동기 없음.** 각 노드가 자기 시계로 도착 간격만 봄 |
+| 10 | 상태 발행 주기는 파라미터, **기본 100Hz** |
+| 11 | **표준 메시지**로 따로 보냄. 직접 정의한 메시지 없음 |
+| 12 | 낡음 기준 **60ms / 100ms**, 통신두절 5주기 |
+| 13 | **기계 둘.** 모션보드에 `control_node`, 작업 기계에 `policy_node` 와 사람 |
 
-`ControlLoop` 는 ROS 안으로 **안 들어감.** 자기 스레드에서 지금처럼 돌고, ROS 와는
-큐로만 주고받음. 이유는 7장.
+`src/huphy/` 는 **안 고침.** ROS 쪽이 import 만 함.
 
 ---
 
-## 1. ROS 가 무엇인가 — 지금 코드에 짝지어서
+## 1. ROS 개념 — 이 로봇에 짝지어서
 
-ROS 2 는 로봇 소프트웨어를 **여러 프로세스로 나누고 그 사이를 잇는 규약과 도구
-모음**임. 프레임워크라기보다 "프로세스 간 배선 + 공통 자료형 + 진단 도구" 에 가까움.
+| 개념 | 무엇 | 여기서 |
+|---|---|---|
+| 노드 | 프로세스 하나 안에서 도는 작업 단위 | `control_node`, `policy_node` |
+| 토픽 | 이름이 붙은 단방향 방송. 받는 쪽이 없어도 보냄 | 관절 상태, IMU, 목표각, 속도 명령 |
+| 서비스 | 요청-응답 한 쌍 | 토크 on/off, 정책 시작·정지 |
+| 파라미터 | 노드마다 가지는 설정값 | 설정 파일 경로, 주기, 임계값 |
+| 메시지 | 주고받는 자료형 | `sensor_msgs/JointState` 등 표준만 씀 |
+| QoS | 토픽마다의 신뢰성 설정 | 3-4 |
+| 런치 | 노드 여러 개를 한 번에 띄우는 파이썬 스크립트 | 7장 |
 
-핵심 개념이 여섯 개임.
+**액션은 안 씀.** 오래 걸리는 것이 접근 단계 하나인데 그건 `policy_node` 안에서
+끝남 (결정 3).
 
-### 1-1. 노드 (Node)
-
-프로세스 하나 안에서 도는 작업 단위임. 지금으로 치면 `huphy-run` 같은 진입점
-하나가 노드 하나가 됨.
-
-```python
-import rclpy
-from rclpy.node import Node
-
-class ControlNode(Node):
-    def __init__(self):
-        super().__init__("huphy_control")      # 이 이름으로 네트워크에 보임
-```
-
-### 1-2. 토픽 (Topic) — 계속 흐르는 값
-
-이름이 붙은 단방향 방송임. **받는 쪽이 없어도 보냄.** 주기적으로 흐르는 값에 씀.
-
-지금 코드의 짝은 **텔레메트리**임.
-
-| 지금 | ROS |
-|---|---|
-| `telemetry/udp.py` 가 UDP 로 쏨 | 퍼블리셔가 토픽으로 보냄 |
-| `telemetry/csv.py` 가 파일에 씀 | `ros2 bag record` 가 받아 적음 |
-| 그래프 도구로 UDP 를 받아 그림 | `rqt_plot` 이 토픽을 그림 |
-| `snapshot.build()` 가 `Dict[str, float]` 하나로 정규화 | 그 사전이 곧 메시지 내용이 됨 |
-
-**이미 하고 있는 일임.** 보내는 경로가 하나 늘 뿐임.
-
-### 1-3. 서비스 (Service) — 한 번 묻고 한 번 답함
-
-요청-응답 한 쌍임. 상태를 바꾸는 조작에 씀.
-
-| 지금 | ROS |
-|---|---|
-| `huphy-run` 에서 Enter 를 눌러 정책 시작 | `/huphy/start` 서비스 호출 |
-| Ctrl-C 로 멈춤 | `/huphy/stop` 서비스 |
-| `robot.enable()` / `disable()` | `/huphy/enable` / `/huphy/disable` |
-
-### 1-4. 액션 (Action) — 오래 걸리고 중간 보고가 있는 것
-
-"3초에 걸쳐 기준 자세로 옮김" 같은 것임. 시작·중간 진행률·완료·취소가 있음.
-
-지금의 `staged()` 접근 단계 ([run.py:197](../src/huphy/scripts/run.py#L197))가 여기
-해당함. 다만 **처음부터 안 만들어도 됨** — 서비스로 시작만 시키고 진행 상황은
-토픽으로 내보내도 충분함.
-
-### 1-5. 파라미터 (Parameter)
-
-노드마다 가지는 설정값임. 실행 중에 바꿀 수도 있음.
-
-**여기를 조심해야 함.** 지금 설정은 `robot.yaml` 하나가 진짜임 — 로더가 모르는
-키를 거부하고 ([loader.py:60](../src/huphy/config/loader.py#L60)), 실측값과
-배선값을 파일로 나눠 둠. ROS 파라미터로 게인이나 한계를 **또** 받으면 같은 사실이
-두 군데가 되고, 어긋났을 때 어느 쪽이 진짜인지 알 수 없음.
-
-ROS 파라미터는 **경로와 실행 옵션만** 받는 것으로 둠 (9장).
-
-### 1-6. 메시지 (Message) — 주고받는 자료형
-
-`.msg` 파일로 정의하고 빌드 때 파이썬 클래스가 생성됨. 표준 타입이 많아서 웬만하면
-그걸 씀 (`sensor_msgs/JointState`, `sensor_msgs/Imu`).
-
----
-
-## 2. 넣어서 얻는 것 / 안 넣어도 되는 것
-
-정직하게 적어 둠. ROS 가 공짜가 아님.
-
-### 얻는 것
-
-| | 지금은 |
-|---|---|
-| 기록·재생 | `ros2 bag` 이 모든 토픽을 타임스탬프와 함께 저장하고 그대로 재생함. 지금은 CSV 를 직접 파싱해야 함 |
-| 그래프 | `rqt_plot`, `PlotJuggler` 가 바로 붙음. 지금은 UDP 수신기를 따로 돌림 |
-| 다른 프로그램과 연결 | 보행 계획, 조이스틱, 카메라를 **다른 프로세스**로 붙임. 지금은 같은 파이썬 프로세스 안이어야 함 |
-| 원격 | 다른 기계에서 토픽을 보고 서비스를 부름. 지금은 UDP 단방향뿐 |
-| 표준 도구 | `ros2 topic hz` 로 주기 확인, `ros2 topic echo` 로 값 확인 |
-
-### 안 얻는 것 — 오해하기 쉬움
-
-| | |
-|---|---|
-| 실시간성 | ROS 2 파이썬은 실시간이 **아님.** 지금 `ControlLoop` 가 지키는 100Hz 를 ROS 가 대신 지켜 주지 않음. 오히려 지터가 얹힘 |
-| 안전 | `LinkWatch`, `guards.py` 는 그대로 우리 것임. ROS 가 대신 막아 주지 않음 |
-| 설정 관리 | ROS 파라미터가 `robot.yaml` 보다 낫지 않음. 오히려 모르는 키 거부 같은 것이 없음 |
-| CAN | `python-can` 그대로 씀. `ros2_canopen` 같은 것은 CANopen 용이라 MIT 프로토콜과 무관함 |
-
-**한 프로세스로 끝나는 일에는 ROS 를 넣을 이유가 없음.** 지금 `huphy-run` 이 그럼.
-ROS 가 필요해지는 시점은 **다른 프로그램을 붙일 때**임 — 보행 계획기, 조이스틱,
-상태 기계, 비전.
-
----
-
-## 3. Humble 준비
-
-### 3-1. 전제
+### 1-1. Humble 준비
 
 | | |
 |---|---|
 | OS | Ubuntu 22.04 |
 | 파이썬 | 3.10 |
-| 지원 기한 | 2027년 5월 |
-
-이 레포 코드는 3.9 문법 범위 안에 있어서 (`match` 없음) 그대로 돎.
-
-### 3-2. 설치
 
 ```bash
-sudo apt install ros-humble-ros-base        # 로봇 쪽. GUI 없음
-sudo apt install ros-humble-desktop         # 개발 기계. rqt·rviz 포함
-sudo apt install python3-colcon-common-extensions
-```
-
-쓸 때마다 환경을 불러와야 함. 안 하면 `ros2` 명령 자체가 없음.
-
-```bash
+sudo apt install ros-humble-ros-base python3-colcon-common-extensions
 source /opt/ros/humble/setup.bash
 ```
 
-`~/.bashrc` 에 넣어 두는 것이 보통임.
-
-### 3-3. 워크스페이스
-
-ROS 는 **빌드한 결과를 따로 둠.** 소스 폴더와 설치 폴더가 나뉨.
-
-```
-~/ros2_ws/
-├── src/        <- 소스. 여기에 레포를 링크함
-├── build/      <- 빌드 중간 산물. 지워도 됨
-├── install/    <- 여기를 source 함
-└── log/
-```
+워크스페이스는 소스와 설치 폴더가 나뉨.
 
 ```bash
 mkdir -p ~/ros2_ws/src
-ln -s ~/Desktop/chanhuegit/HUPHY ~/ros2_ws/src/huphy
-cd ~/ros2_ws
-colcon build --symlink-install
+ln -s <레포 경로> ~/ros2_ws/src/huphy
+cd ~/ros2_ws && colcon build --symlink-install
 source install/setup.bash
 ```
 
-`colcon` 은 `src/` 아래를 **재귀로 뒤져 `package.xml` 이 있는 폴더**를 패키지로
-봄. 그래서 레포 안 하위 폴더에 둬도 됨.
-
-`--symlink-install` 은 파이썬 파일을 복사하지 않고 링크함 — 고칠 때마다 다시 빌드
-안 해도 됨.
+`colcon` 은 `src/` 아래를 재귀로 뒤져 `package.xml` 이 있는 폴더만 패키지로 봄.
+레포 루트에는 없으므로 `ros/huphy_ros` 하나만 빌드됨.
 
 ---
 
-## 4. 패키지 구조
+## 1-2. 전체 그림
+
+그림 파일은 [ros.drawio](ros.drawio). 아래는 같은 내용의 텍스트 판임 -- 터미널과
+`git diff` 에서 보려고 같이 둠.
 
 ```
-HUPHY/
-├── src/huphy/              지금 그대로. 순수 pip 패키지. ROS 를 모름
-├── pyproject.toml
-├── tests/
-├── config/
-├── docs/
-└── ros/
-    └── huphy_ros/          <- 새로 만드는 것
-        ├── package.xml
-        ├── setup.py
-        ├── setup.cfg
-        ├── resource/huphy_ros
-        ├── msg/
-        │   └── LoopStatus.msg
-        ├── launch/
-        │   └── stand.launch.py
-        └── huphy_ros/
-            ├── __init__.py
-            ├── control_node.py
-            ├── telemetry_node.py
-            └── convert.py
+        모션보드  (로봇에 붙음)                    작업 기계
+ ┌──────────────────────────┐          ┌──────────────────────────┐
+ │ control_node             │          │ policy_node              │
+ │                          │          │                          │
+ │  메인    rclpy.spin()    │          │  메인   rclpy.spin()     │
+ │  제어    ControlLoop     │          │         + 20ms 타이머    │
+ │          100Hz           │          │                          │
+ │  rx x2   CanBus          │          │  .pt -> numpy MLP        │
+ │                          │          │  q(t-1), last_action 보관│
+ └───┬──────────────────┬───┘          └────┬────────────────┬────┘
+     │                  │                   │                │
+     │ CAN              │   joint_states    │                │
+     │ canr/canl        ├──────100Hz───────>│                │
+     │ 시리얼 IMU       │   imu, gravity    │                │
+     │                  │                   │                │
+     │                  │<─────50Hz─────────┤                │
+     │                  │   joint_targets   │                │
+     v                  │                   │   cmd_vel      │
+  모터 12개             │<┄┄ enable ┄┄┄┄┄┄┄ │   start_policy │
+  IMU                   │     disable       │        ↓       │
+                        │                   │  ┌──────────┐  │
+                        ├┄┄ loop_status ┄┄> │  │  사람    │<─┘
+                        │                   │  │ bag·rqt  │
+                        │                   │  └──────────┘
+                        │                   │  (나중) 카메라·라이다
+                        └───────────────────┴──────────────────────┘
+                              네트워크
+                     ROS_DOMAIN_ID 양쪽 같게 · 유선
 ```
 
-### 4-1. `huphy` 를 ROS 패키지로 만들지 않는 이유
+### 네트워크를 건너는 것과 안 건너는 것
 
-`src/huphy/` 에 `package.xml` 을 붙여 하나로 합칠 수도 있는데, 둘이 걸림.
+```
+건넘       joint_states  imu  gravity      100Hz   제어 -> 정책
+           joint_targets                    50Hz   정책 -> 제어
+           cmd_vel                       10~20Hz   작업PC -> 정책
+           loop_status  policy_status       5Hz   -> 작업PC
 
-**빌드 경로가 둘이 됨.** `ament_python` 은 `setup.py` 를 보는데 지금은
-`pyproject.toml` 만 있음. 둘을 같이 두면 `pip install -e .` 과 `colcon build` 가
-서로 다른 경로로 설치해서, 어느 쪽이 import 되는지가 환경에 따라 달라짐.
-
-**ROS 없이 못 돌게 됨.** 지금 `huphy-test`/`huphy-run` 과 `tests/` 전체가 ROS 가
-없는 기계에서 돎. `package.xml` 을 붙이면 그 전제가 흐려짐.
-
-그래서 `huphy` 는 pip 로 넣고 `huphy_ros` 만 ROS 패키지로 둠.
-
-```bash
-cd ~/Desktop/chanhuegit/HUPHY
-pip install -e .            # ROS 환경을 source 한 상태에서
+안 건넘    CAN 프레임                            모션보드 안
+           시리얼 IMU 읽기                        모션보드 안
+           가드·통신두절 판정                     모션보드 안
+           신경망 추론                            작업 기계 안
+           q(t-1) 보관                            작업 기계 안
+           cmd_vel                               작업 기계 안
+           start_policy / stop_policy            작업 기계 안
 ```
 
-### 4-2. 만드는 법
+**50Hz 한 바퀴가 네트워크를 건너감** (결정 1). 그 지연과 지터가 제어에 그대로
+들어가므로 실물에서 재야 함 (5-2).
 
-```bash
-cd ~/Desktop/chanhuegit/HUPHY/ros
-ros2 pkg create --build-type ament_python huphy_ros
+### 한 주기에 값이 지나는 길
+
+```
+ 1  모터 12개 ──CAN──> CanBus ──> Leg ──> Biped
+                                            │ Observation (도, cal)
+ 2                            control_node ─┤
+                                            │ JointState (rad)  + Imu + Vector3
+ 3                      ─────네트워크─────> policy_node
+                                            │
+ 4                            observation_vector(44칸)
+                                 0-2   각속도        rad/s
+                                 3-5   중력방향      단위벡터
+                                 6-17  q(t-1)-기본   rad
+                                 18-29 q(t)  -기본   rad
+                                 30-41 직전 행동     날것
+                                 42-43 vx, wz        cmd_vel 에서
+ 5                            model(vector) -> 행동 12
+ 6                            joint_targets() -> 목표각 12 (도)
+                                            │ JointState (rad)
+ 7                      <────네트워크────── │
+                                            │
+ 8  control_node ──> Biped ──> Leg ──> 가드 ──> MitCommand ──CAN──> 모터
 ```
 
-네 파일이 생김.
+4번의 44칸 배치는 `generalized_walk.observation_vector` 가 정함. **`policy_node`
+가 그 함수를 그대로 부름** -- 배치를 ROS 쪽에서 다시 만들지 않음.
 
-| 파일 | 무엇 |
-|---|---|
-| `package.xml` | 패키지 이름, 의존, 라이선스. colcon 이 이것을 보고 패키지로 인식함 |
-| `setup.py` | 파이썬 설치 설정. 노드 진입점을 여기 적음 |
-| `setup.cfg` | 스크립트가 설치될 자리 |
-| `resource/huphy_ros` | **빈 파일.** ament 가 패키지 목록을 만들 때 씀. 지우면 안 됨 |
+### 노드가 들고 있는 상태
 
-**`package.xml`**
+둘 다 스레드가 둘 이상이라, 스레드 사이에 넘기는 값만 적음.
 
-```xml
-<?xml version="1.0"?>
-<package format="3">
-  <name>huphy_ros</name>
-  <version>0.1.0</version>
-  <description>HUPHY 제어를 ROS 2 노드로 감쌈</description>
-  <maintainer email="hwagchan@gmail.com">chanhue</maintainer>
-  <license>MIT</license>
+```
+control_node
+  Latest      최신 관찰        제어 스레드 -> 발행 타이머
+  Freshness   최신 목표각      구독 콜백   -> 제어 스레드   기준 100ms
 
-  <depend>rclpy</depend>
-  <depend>sensor_msgs</depend>
-  <depend>std_msgs</depend>
-  <depend>std_srvs</depend>
-
-  <build_depend>rosidl_default_generators</build_depend>
-  <exec_depend>rosidl_default_runtime</exec_depend>
-  <member_of_group>rosidl_interface_packages</member_of_group>
-
-  <export>
-    <build_type>ament_python</build_type>
-  </export>
-</package>
+policy_node
+  Freshness   최신 관절 상태   구독 콜백   -> 추론 타이머   기준 60ms
+  Freshness   최신 IMU         구독 콜백   -> 추론 타이머   기준 60ms
+  Latest      최신 cmd_vel     구독 콜백   -> 추론 타이머   나이 안 봄
+  (평범한 변수) q(t-1), last_action        추론 타이머만 씀
 ```
 
-`huphy` 자체는 **여기 적을 수 없음.** `rosdep` 은 apt 패키지와 몇몇 pip 패키지만
-아는데 `huphy` 는 둘 다 아님. 그냥 `pip install -e .` 를 전제로 두고 README 에
-적는 것이 현실적임.
-
-**`setup.py` 의 진입점**
-
-```python
-entry_points={
-    "console_scripts": [
-        "control_node = huphy_ros.control_node:main",
-        "telemetry_node = huphy_ros.telemetry_node:main",
-    ],
-},
-```
-
-이러면 `ros2 run huphy_ros control_node` 로 돎. 지금 `pyproject.toml` 의
-`[project.scripts]` 와 같은 구조임.
+`cmd_vel` 만 나이를 안 보는 이유: 안 오면 `(0, 0)` 으로 두면 되고, 그게 제자리
+서기임 (`generalized_walk.COMMAND_ZERO`). 끊겼다고 로봇을 멈출 이유가 아님.
 
 ---
 
-## 5. 어디서 갈라붙나 — 경계 두 개
+## 2. 노드 둘
 
-ROS 를 붙일 자리가 **이미 두 군데 있음.** 새로 만드는 것이 아니라 그 자리에
-꽂으면 됨.
-
-### 5-1. 들어오는 쪽 — `Motion`
-
-[loop.py:157](../src/huphy/control/loop.py#L157) 의 계약임.
-
-```python
-Motion = Callable[[float, Dict[str, Any]], Optional[Action]]
-#                  시간    관찰              관절 이름 -> 목표각(도)
-```
-
-`ControlLoop` 는 이 함수가 어디서 왔는지 모름. 지금 세 종류가 같은 자리에 들어감.
+### 2-1. `control_node` — 모션보드
 
 ```
-motions.hold({"knee": 0.0})            정해진 자세
-policy.policy_motion(model, imu, ...)  0.5 모델
-stand.motion(model, imu)               1.0 서기 모델
+하는 일   ControlLoop 를 자기 스레드에서 돌림. CAN 송수신. IMU 읽기
+          가드(safety/guards.py)와 통신두절 판정(safety/link.py)은 여기서 돎
+받음      /huphy/joint_targets        관절 목표각 12개
+          /huphy/enable, /disable     서비스
+보냄      /huphy/joint_states         관절 12개 위치·속도·토크
+          /huphy/imu                  각속도·가속도
+          /huphy/gravity              중력방향 3칸
+          /huphy/loop_status          주기·밀림·무응답
 ```
 
-**ROS 노드는 네 번째를 하나 더 만드는 것뿐임.**
+**정책을 모름.** 목표각을 누가 보냈는지도 모름 (결정 8).
 
-```python
-def ros_motion(t, observation):
-    with lock:
-        return dict(latest_command) if latest_command else None
+### 2-2. `policy_node` — 작업 기계
+
+```
+하는 일   .pt 를 읽어 추론. 관찰 44칸 조립, q(t-1) 보관, 행동 -> 목표각
+          접근 단계(기준 자세로 보간)도 여기서 함
+받음      /huphy/joint_states, /huphy/imu, /huphy/gravity
+          /huphy/cmd_vel              속도 명령
+          /huphy/start_policy, /stop_policy   서비스
+보냄      /huphy/joint_targets        관절 목표각 12개
+          /huphy/policy_status        단계·상태 나이·멈춘 이유
 ```
 
-`None` 을 내면 그 주기는 아무것도 안 보냄 ([loop.py:308](../src/huphy/control/loop.py#L308)).
-명령이 아직 안 왔을 때 쓸 수 있음.
+**CAN 을 모름.** 모터가 몇 개인지, id 가 뭔지 모름.
 
-### 5-2. 나가는 쪽 — `snapshot`
+### 2-3. 사람이 치는 것
 
-[snapshot.py](../src/huphy/telemetry/snapshot.py) 가 로봇 상태를 `Dict[str, float]`
-하나로 정규화함. **필드 이름을 정하는 유일한 곳**임.
+노드를 안 만듦. `policy_node` 와 **같은 기계**에서 기성 도구와 명령줄로 함.
 
-```python
-snapshot.build_fast(robot, t=t, loop_dt_ms=dt)   # 매 주기. 위치·목표·오차
-snapshot.build_diag(robot, t=t)                  # 가끔. 온도·카운터
-snapshot.build_imu(robot, t=t)                   # IMU
 ```
-
-UDP 와 CSV 가 이 사전을 소비함. 퍼블리셔가 **세 번째 소비자**로 붙음.
+ros2 service call /huphy/enable std_srvs/srv/Trigger
+ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist '{}'
+ros2 bag record -a
+rqt_plot /huphy/joint_states/position[3]
+```
 
 ---
 
-## 6. 노드 두 개
+## 3. 토픽
 
-### 6-1. `control_node`
+### 3-1. 목록
 
-```
-들어옴   /huphy/command          sensor_msgs/JointState   목표각
-         /huphy/enable           std_srvs/Trigger         토크 넣기
-         /huphy/disable          std_srvs/Trigger         토크 끊기
-나감     /huphy/joint_states     sensor_msgs/JointState   실측 위치·속도·토크
-         /huphy/status           huphy_ros/LoopStatus     주기, 밀림, 무응답
-```
+| 토픽 | 타입 | 내는 쪽 | 주기 | QoS |
+|---|---|---|---|---|
+| `/huphy/joint_states` | `sensor_msgs/JointState` | control | 100Hz | sensor_data |
+| `/huphy/imu` | `sensor_msgs/Imu` | control | 100Hz | sensor_data |
+| `/huphy/gravity` | `geometry_msgs/Vector3Stamped` | control | 100Hz | sensor_data |
+| `/huphy/loop_status` | `diagnostic_msgs/DiagnosticArray` | control | 5Hz | 기본 |
+| `/huphy/joint_targets` | `sensor_msgs/JointState` | policy 또는 사람 | 50Hz | sensor_data |
+| `/huphy/cmd_vel` | `geometry_msgs/Twist` | 사람 | 10~20Hz | 기본 |
 
-하는 일이 적음.
+**네트워크를 건너는 것은 넷뿐임** — `joint_states`, `imu`, `gravity`,
+`joint_targets`, `loop_status`, 그리고 `enable`/`disable` 서비스. `cmd_vel` 과
+`start_policy`/`stop_policy` 는 작업 기계 안에서만 오감 (결정 13).
 
-```python
-robot = build_biped(config, limbs, **options)       # scripts/bringup.py 그대로
-loop = ControlLoop(robot, hz=100.0, mode=Mode.CONTROL)
-thread = threading.Thread(target=loop.run, args=(ros_motion,), daemon=True)
-thread.start()
-rclpy.spin(node)
-```
+`cmd_vel` 은 `Twist` 의 **`linear.x` 와 `angular.z` 두 칸만** 씀. 정책 관찰에
+`vy` 칸이 없으므로 `linear.y` 는 받아도 버림
+([`generalized_walk.py`](../src/huphy/control/generalized_walk.py) 의
+`COMMAND_ZERO`).
 
-`build_biped` 와 `ControlLoop` 는 **지금 `run.py` 가 쓰는 것 그대로**임. 노드가
-새로 하는 일은 토픽을 `Motion` 으로 바꾸는 것뿐임.
+지금 `huphy-run` 은 명령을 **실행 시작 때 한 번 정해서 고정**으로 줌
+(`--vx`, `--wz`). `policy_node` 는 그것을 매 주기 바뀔 수 있는 값으로 바꾸는 것이고,
+`generalized_walk.motion` 의 `command` 인자가 호출 전체에서 고정이므로 **그 부분은
+`policy_node` 가 직접 조립해야 함** (`observation_vector` 를 매 주기 부르는 쪽으로).
+| `/huphy/policy_status` | `diagnostic_msgs/DiagnosticArray` | policy | 5Hz | 기본 |
 
-### 6-2. `telemetry_node`
+**전부 표준 메시지임** (결정 11). 직접 정의한 메시지가 없으므로 메시지 전용
+패키지도 없고, `ament_python` 하나로 끝남.
 
-따로 둘 수도 있고 `control_node` 안에 둘 수도 있음. 따로 두면 프로세스가 하나 더
-늘고, 로봇 상태를 읽으려면 공유가 필요해서 **처음에는 한 노드 안에 두는 것**이
-간단함.
+### 3-2. 중력방향을 따로 내보내는 이유
 
-### 6-3. 정책은 어디에
+`sensor_msgs/Imu` 에는 `orientation`(쿼터니언), `angular_velocity`,
+`linear_acceleration` 만 있음. **중력방향 3칸이 들어갈 자리가 없음.**
 
-두 가지 방식이 있음.
+이 저장소의 `ImuState` 는 자세를 중력방향으로만 들고 있음
+([`sensors/base.py`](../src/huphy/sensors/base.py) 의 `gravity`). 벤더 모듈이
+쿼터니언이든 오일러든 받아서 중력방향으로 만들어 올리는 구조이고, 정책이 쓰는 것도
+그 3칸임 (`generalized_walk` 관찰 3-5칸).
 
-| | 정책이 도는 곳 | 좋은 점 | 나쁜 점 |
-|---|---|---|---|
-| A | `control_node` 안 | 지금과 같음. 지연 없음 | 정책을 바꾸려면 노드를 재시작 |
-| B | 별도 `policy_node` | 정책만 따로 갈아끼움. 다른 언어도 가능 | 토픽 왕복 지연이 제어 주기에 들어감 |
+쿼터니언으로 되돌려 `Imu.orientation` 에 넣었다가 정책 쪽에서 다시 풀면 **왕복에서
+틀릴 자리가 생김.** 그래서 `Vector3Stamped` 로 그대로 내보냄.
 
-**A 로 시작할 것.** 서기 정책은 50Hz 이고 `stand.motion` 이 이력을 들고 있어서
-([stand.py:252](../src/huphy/control/stand.py#L252)), 토픽으로 나눴다가 한 주기라도
-밀리면 `q(t-1)` 이 학습 때와 다른 시점이 됨.
+`Imu` 토픽도 같이 내는 이유는 표준 도구(rviz, 기록)가 그걸 보기 때문임.
 
-B 가 필요해지는 것은 보행 계획처럼 **느려도 되는 것**이 붙을 때임. 그때는
-`/huphy/command` 로 목표를 보내고 `control_node` 가 그것을 지키는 구조가 맞음.
+### 3-3. `joint_targets` 에 `JointState` 를 쓰는 이유
 
----
+목표각 전용 표준 메시지가 없음. `JointState` 의 `name` 과 `position` 만 채우고
+`velocity`/`effort` 는 비움.
 
-## 7. 주기와 스레드 — 가장 중요한 부분
+**받는 쪽은 `name` 을 봐야 함.** 배열 순서를 믿으면 보내는 쪽이 순서를 바꿨을 때
+조용히 엉뚱한 관절이 움직임.
 
-### 7-1. `ControlLoop` 를 ROS 타이머에 얹으면 안 됨
-
-이렇게 쓰고 싶어짐.
-
-```python
-self.create_timer(0.01, self.one_cycle)      # ← 이렇게 하면 안 됨
-```
-
-`ControlLoop` 는 주기를 **자기가 지킴**.
-
-| | 어디 |
-|---|---|
-| 마감을 절대 시각으로 들고 감 | [loop.py:500](../src/huphy/control/loop.py#L500) `_sleep_until` |
-| 마감 3ms 전부터는 자지 않고 돌며 기다림 | `SPIN_THRESHOLD_S` [loop.py:96](../src/huphy/control/loop.py#L96) |
-| 밀렸으면 따라잡지 않음 | 한 주기 늦게 시작하고 맒 |
-| 밀림을 셈 | `OVERRUN_RATIO` [loop.py:89](../src/huphy/control/loop.py#L89) |
-
-`rclpy` 타이머는 executor 가 콜백을 꺼내 부르는 구조라 그 위에 **지터가 얹힘.**
-스핀 구간으로 0.1ms 까지 맞춰 둔 것이 무의미해짐.
-
-### 7-2. 구조
-
-```
-메인 스레드          rclpy.spin(node)        토픽·서비스 콜백
-제어 스레드          loop.run(ros_motion)    100Hz. CAN 송수신
-수신 스레드 x2       CanBus._read_loop       can0 / can1 (이미 있음)
-```
-
-제어 스레드와 ROS 스레드가 공유하는 것은 **두 개뿐**이어야 함.
-
-| | 방향 | 보호 |
-|---|---|---|
-| 최신 명령 | ROS → 제어 | 락 하나. 사전 통째로 교체 |
-| 최신 관찰 | 제어 → ROS | 락 하나. 사전 통째로 교체 |
-
-사전을 통째로 바꾸면 읽는 쪽이 **절반만 갱신된 상태**를 보지 않음. 항목마다 따로
-쓰면 그 사이에 읽혀서 일부는 이번 주기, 일부는 지난 주기가 섞임.
-
-### 7-3. 퍼블리시를 제어 스레드에서 하지 말 것
-
-`Motion` 안에서 `publisher.publish()` 를 부르면 그 시간이 제어 주기에 들어감.
-DDS 가 몇 ms 를 쓸 수 있어서 100Hz(10ms) 예산을 넘길 수 있음.
-
-제어 스레드는 사전에 **써 두기만** 하고, ROS 타이머가 그것을 꺼내 보냄.
-
-```python
-# 제어 스레드
-def ros_motion(t, observation):
-    with self.lock:
-        self.latest_obs = observation          # 쓰기만
-        command = dict(self.latest_cmd) if self.latest_cmd else None
-    return command
-
-# ROS 타이머 (50Hz 정도면 충분)
-def publish(self):
-    with self.lock:
-        obs = self.latest_obs
-    if obs:
-        self.pub.publish(to_joint_state(obs))
-```
-
-### 7-4. Executor
-
-기본 `rclpy.spin()` 은 콜백을 **한 번에 하나씩** 부름. 느린 콜백 하나가 나머지를
-막음. 서비스가 오래 걸리면 `MultiThreadedExecutor` 를 쓰되, 그러면 콜백끼리
-동시에 돌 수 있어 락이 더 필요해짐.
-
-**처음에는 단일 스레드로 두고**, 콜백 안에서 오래 걸리는 일을 안 하면 됨.
-
-### 7-5. QoS
-
-토픽마다 신뢰성 설정이 있음. 기본은 `RELIABLE` 로 **빠진 것을 다시 보냄.**
-고주기 센서 값에는 안 맞음 — 다시 보낼 때쯤이면 이미 낡은 값임.
-
-```python
-from rclpy.qos import qos_profile_sensor_data     # BEST_EFFORT, depth 5
-
-self.create_publisher(JointState, "/huphy/joint_states", qos_profile_sensor_data)
-```
-
-| 토픽 | QoS |
-|---|---|
-| `/huphy/joint_states` | `sensor_data` (best effort) |
-| `/huphy/command` | `sensor_data` |
-| `/huphy/status` | 기본 (reliable). 가끔 가고 놓치면 안 됨 |
-
-**받는 쪽과 보내는 쪽 설정이 안 맞으면 조용히 연결이 안 됨.** ROS 에서 가장 흔한
-"아무것도 안 오는데 에러도 없음" 의 원인임. `ros2 topic info -v <토픽>` 으로 확인함.
-
----
-
-## 8. 메시지와 단위
-
-### 8-1. 단위 — 도 ↔ 라디안
-
-ROS 는 **SI 단위**를 씀 (REP 103). 각도는 라디안임.
-
-이 레포는 **도**를 씀. 모델 경계에서만 라디안으로 바꿈
-([cycle.md](cycle.md) 13장).
-
-```
-huphy 안쪽        도            robots/, safety/, telemetry/
-모델 경계         라디안        control/policy.py, control/stand.py
-ROS 경계          라디안        huphy_ros/convert.py     <- 새로 생김
-```
-
-**변환은 `convert.py` 한 곳에만 둘 것.** 지금 도↔라디안이 두 곳(`mit.py`,
-`policy.py`)에 있고 서로 안 만나는 구조인데, 세 번째가 여기저기 흩어지면 어디서
-한 번 더 변환됐는지 추적이 안 됨.
-
-### 8-2. 관절 이름
-
-양다리면 `right_leg/knee` 처럼 `/` 가 들어감
-([biped.py:76](../src/huphy/robots/biped.py#L76)).
-
-ROS 토픽 이름에서 `/` 는 네임스페이스 구분자지만, `JointState.name` 은 **그냥
-문자열 배열**이라 `/` 가 들어가도 됨. 그래도 헷갈리므로 `right_leg__knee` 같이
-바꿀지는 정해야 함. 바꾼다면 그 변환도 `convert.py` 에 둠.
-
-### 8-3. 표준 메시지로 되는 것
-
-**`sensor_msgs/JointState`** — 관찰과 명령 둘 다 이걸로 됨.
-
-```
-std_msgs/Header header       stamp, frame_id
-string[] name                관절 이름
-float64[] position           rad
-float64[] velocity           rad/s
-float64[] effort             Nm
-```
-
-`Leg.get_observation()` 이 내는 `{관절}.pos/.vel/.torque` 가 그대로 들어감
-([leg.py:453](../src/huphy/robots/leg.py#L453)).
-
-**`sensor_msgs/Imu`** — IMU.
-
-```
-geometry_msgs/Quaternion orientation
-geometry_msgs/Vector3 angular_velocity        rad/s
-geometry_msgs/Vector3 linear_acceleration     m/s^2
-```
-
-우리 `ImuState` 는 자세를 **중력방향 3칸**으로 들고 있음
-([sensors/base.py:105](../src/huphy/sensors/base.py#L105)). `Imu` 메시지에는 그
-칸이 없어서 쿼터니언으로 되돌리거나, 중력방향을 `Vector3` 로 따로 내보내야 함.
-정책이 쓰는 것은 중력방향이므로 **따로 내는 쪽**이 맞음.
-
-### 8-4. 직접 만들어야 하는 것
-
-주기·실패 집계는 표준 메시지에 없음. `msg/LoopStatus.msg` 하나면 됨.
-
-```
-std_msgs/Header header
-float32 mean_hz
-float32 target_hz
-uint32  cycles
-uint32  overruns
-uint32  missing_cycles
-float32 worst_dt_ms
-bool    kept_up
-string[] link_loss_motors      비어 있으면 정상
-```
-
-`LoopStats` ([loop.py:203](../src/huphy/control/loop.py#L203))에 이미 다 있는 값임.
-
-메시지를 만들려면 `package.xml` 에 `rosidl_default_generators` 가 있어야 하고
-(4-2 에 넣어 뒀음), `CMakeLists.txt` 가 필요함 — **`ament_python` 패키지는 메시지를
-만들 수 없음.** 둘 중 하나임.
+### 3-4. QoS
 
 | | |
 |---|---|
-| 메시지 전용 패키지를 하나 더 둠 | `huphy_msgs` (`ament_cmake`). ROS 에서 흔한 구조임 |
-| 표준 메시지로 때움 | `diagnostic_msgs/DiagnosticArray` 에 key-value 로 넣음 |
+| `sensor_data` | BEST_EFFORT, depth 5. 빠진 것을 다시 안 보냄 |
+| 기본 | RELIABLE, depth 10. 빠지면 다시 보냄 |
 
-처음에는 **두 번째로 시작하고**, 필요해지면 `huphy_msgs` 를 만드는 것이 빠름.
+고주기 값에 RELIABLE 을 쓰면 안 됨 — 다시 보낼 때쯤이면 이미 낡은 값이고, 재전송이
+새 값 뒤에 줄을 섬.
 
----
-
-## 9. 파라미터
-
-받는 것을 **경로와 실행 옵션으로 제한**함.
-
-```yaml
-huphy_control:
-  ros__parameters:
-    config: /home/chanhue/Desktop/chanhuegit/HUPHY/config/robot.yaml
-    policy: stand                 # 없으면 정책 없이 명령만 받음
-    weights: config/policies/stand_bi.pt
-    ankle_space: ab
-    hz: 100.0
-    drain_ms: 2.0
-    allow_uncalibrated: true
-```
-
-**여기 없어야 하는 것**: 게인, 관절 한계, 관절 이름, 모터 id, 발목 기하.
-
-전부 `robot.yaml` 과 `calibration/*.json` 에 있고, 그 두 파일이 나뉜 기준이 "이
-숫자를 어디서 얻었나" 임 ([config/README.md](../config/README.md)). 파라미터로
-덮어쓸 수 있게 두면 그 기준이 깨짐.
-
-실제로 그 실수를 한 적이 있음 — `huphy-run` 이 `robot.yaml` 의 게인을 코드 상수로
-덮어써서 무릎 kp 가 220 대신 20 으로 나갔음 (커밋 `4dbdfa2`). 값이 두 군데 있으면
-생기는 일임.
+**보내는 쪽과 받는 쪽 설정이 다르면 연결이 아예 안 됨.** 에러도 경고도 없이 토픽이
+비어 있음. `ros2 topic info -v <토픽>` 으로 양쪽을 확인함.
 
 ---
 
-## 10. 런치
+## 4. 단위와 이름
 
-노드 여러 개를 한 번에 띄우고 파라미터를 먹이는 파이썬 스크립트임.
+### 4-1. 단위
 
-```python
-# launch/stand.launch.py
-from launch import LaunchDescription
-from launch_ros.actions import Node
+ROS 는 SI 를 씀 (REP 103). 이 저장소는 도를 씀.
 
-def generate_launch_description():
-    return LaunchDescription([
-        Node(
-            package="huphy_ros",
-            executable="control_node",
-            name="huphy_control",
-            parameters=[{
-                "config": "/home/chanhue/Desktop/chanhuegit/HUPHY/config/robot.yaml",
-                "policy": "stand",
-                "weights": "config/policies/stand_bi.pt",
-                "ankle_space": "ab",
-                "hz": 100.0,
-            }],
-            output="screen",
-        ),
-    ])
+| | huphy 안쪽 | ROS 경계 |
+|---|---|---|
+| 각도 | 도 | 라디안 |
+| 각속도 | 도/초 | rad/s |
+| 토크 | Nm | Nm (같음) |
+
+변환은 `huphy_ros/convert.py` **한 곳에만** 둠. 저장소 안에 도↔라디안이 이미 두
+곳 있는데(프로토콜 경계 `codec/mit.py`, 모델 경계 `control/generalized_walk.py`)
+서로 안 만남. 세 번째가 여기저기 흩어지면 어디서 한 번 더 변환됐는지 추적이 안 됨.
+
+### 4-2. 관절 이름
+
+`Biped` 는 `right_leg/knee` 처럼 `/` 로 팔다리를 앞에 붙임
+([`robots/biped.py`](../src/huphy/robots/biped.py) 의 `SEP`).
+
+ROS 에서 `/` 는 네임스페이스 구분자라 사람이 토픽 이름과 헷갈림. 경계에서 바꿈.
+
 ```
+huphy   right_leg/knee
+ROS     right_leg__knee
+```
+
+---
+
+## 5. 주기와 끊김
+
+### 5-1. 정책 추론은 타이머가 돌림
+
+`policy_node` 가 20ms 타이머로 추론함 (결정 6). 메시지 도착이 아니라 타이머인
+이유: **네트워크 지터가 그대로 추론 간격의 지터가 되기 때문**임.
+
+정책은 20ms 간격으로 불린다고 가정하고 학습했고, 관찰 6-17칸이 `q(t-1)` 인데 그게
+정확히 한 정책 주기 전 값이어야 함
+([`generalized_walk.py`](../src/huphy/control/generalized_walk.py) 의
+`HISTORY_FRAMES`, `HZ`).
+
+```
+타이머 20ms
+  마지막 joint_states 나이 < 60ms   -> 추론하고 목표각을 냄
+  나이 >= 60ms                      -> 아무것도 안 냄
+```
+
+`q(t-1)` 은 **직전 추론 때 쓴 관절각**임. 메시지 순번이 아니라 추론 호출 기준이므로,
+중간에 상태가 두 번 와도 한 번만 쓰고 한 번은 버림.
+
+### 5-2. 끊겼을 때 — 두 단계
+
+```
+상태가 60ms 넘게 안 옴
+  policy_node 가 목표각 발행을 멈춤        policy_status 에 이유를 적음
+      |
+      | 40ms 더 지남
+      v
+control_node 가 목표각을 100ms 넘게 못 받음
+  ControlLoop 을 멈춤 -> damp(kp=0) -> 토크 차단
+```
+
+`100 > 60` 이므로 순서가 뒤바뀌지 않음. 정책이 먼저 멈추고, 그 뒤에 제어가 멈춤.
+
+세 임계값임.
+
+| 값 | 어디 | 뜻 |
+|---|---|---|
+| 60ms | `policy_node` | 상태가 이보다 낡으면 목표각을 안 냄. 50Hz 기준 3주기 |
+| 100ms | `control_node` | 목표각이 이보다 안 오면 감쇠. 50Hz 기준 5주기 |
+| 5주기 | `robot.yaml` 의 `safety.link_loss_cycles` | 모터가 연속으로 답을 안 하면 정지. 이미 있는 값 |
+
+앞의 둘은 **실물 측정 전의 제안값**임. 네트워크 왕복 지연과 그 분포를 재고 다시
+정해야 함.
+
+### 5-3. 시계
+
+기계 간 시계를 안 맞춤 (결정 9). 각 노드가 **자기 시계로 마지막 수신 이후 흐른
+시간**만 봄.
+
+```
+policy_node   now - 마지막 joint_states 수신 시각     <- 자기 시계
+control_node  now - 마지막 joint_targets 수신 시각    <- 자기 시계
+```
+
+편도 지연은 알 수 없음. 끊겼는지는 알 수 있음.
+
+메시지의 `header.stamp` 는 **채워서 보내되 나이 판정에는 안 씀.** 기록(`ros2 bag`)과
+나중에 시계를 맞출 때를 위해 남겨 두는 것임.
+
+---
+
+## 6. 안전
+
+| 상황 | 막는 것 | 어디 |
+|---|---|---|
+| 목표각이 안 옴 | 감쇠 후 토크 차단 | `control_node`, 100ms |
+| 상태가 안 옴 | 목표각 발행 중단 | `policy_node`, 60ms |
+| 모터가 답을 안 함 | 루프 정지 | `safety/link.py`, 이미 있음 |
+| 한계·점프 | 자름 | `safety/guards.py`, 이미 있음 |
+| 명령값이 NaN | 그 모터만 안 보냄 | `safety/guards.py`, 이미 있음 |
+| 노드를 `kill -9` | **못 막음.** 토크가 켜진 채 남음 | — |
+
+**토크는 명시해야 들어감.** `control_node` 가 `Mode.OBSERVE` 로 시작하고,
+`/huphy/enable` 서비스를 받아야 `Mode.CONTROL` 이 됨. 파라미터를 빠뜨렸을 때 안
+움직이는 쪽으로 떨어지게 함.
+
+**정책과 pose 를 동시에 쓰면 안 됨** (결정 8). 토픽 하나를 같이 쓰므로 둘 다 쏘면
+번갈아 들어감. 사람이 `policy_node` 를 시작·정지해서 정함.
+
+---
+
+## 7. 파라미터와 런치
+
+### 7-1. `control_node`
+
+| 이름 | 기본 | 무엇 |
+|---|---|---|
+| `config` | 없음. 필수 | `robot.yaml` 경로 |
+| `limb` | 빈 값 = 양다리 | 다리 하나만 돌릴 때 |
+| `hz` | 100.0 | 제어 주기 |
+| `state_hz` | 100.0 | 상태 발행 주기 |
+| `drain_ms` | 2.0 | 응답을 기다리는 최대 시간 |
+| `target_stale_ms` | 100.0 | 목표각이 이보다 안 오면 감쇠 |
+| `allow_uncalibrated` | false | 실측 전에도 토크를 넣음 |
+
+### 7-2. `policy_node`
+
+| 이름 | 기본 | 무엇 |
+|---|---|---|
+| `weights` | 없음. 필수 | `.pt` 경로 |
+| `hz` | 50.0 | 추론 주기 |
+| `state_stale_ms` | 60.0 | 상태가 이보다 낡으면 목표각을 안 냄 |
+| `approach_s` | 3.0 | 기준 자세로 옮기는 시간 |
+
+**게인·관절 한계·모터 id 는 양쪽 다 없음.** `robot.yaml` 과
+`config/calibration/*.json` 이 유일한 출처임. 파라미터로 또 받으면 어긋났을 때 어느
+쪽이 진짜인지 알 수 없음 — 실제로 그 실수를 한 적이 있음(커밋 `4dbdfa2`, 무릎 kp 가
+설정의 값 대신 코드 상수로 나감).
+
+### 7-3. 런치 파일
+
+```
+control.launch.py    모션보드에서. control_node 하나
+policy.launch.py     작업 기계에서. policy_node 하나
+local.launch.py      한 기계에서 둘 다. 측정·개발용
+```
+
+두 기계로 나눌 때는 양쪽에서 각각 띄움. `ROS_DOMAIN_ID` 를 같게 맞춰야 서로 보임 —
+**안 맞으면 에러 없이 안 보임.**
+
+---
+
+## 8. 파일 구성
+
+```
+ros/huphy_ros/
+├── package.xml  setup.py  setup.cfg  resource/huphy_ros
+├── README.md
+├── launch/
+│   ├── control.launch.py
+│   ├── policy.launch.py
+│   └── local.launch.py
+└── huphy_ros/
+    ├── convert.py        단위·이름 변환.           rclpy 안 씀
+    ├── freshness.py      수신 시각과 나이 판정.    rclpy 안 씀
+    ├── control_node.py
+    └── policy_node.py
+```
+
+`convert.py` 와 `freshness.py` 가 `rclpy` 를 import 하지 않는 것이 의도임. 거기
+있는 판단(단위, 이름, 낡음)이 틀리면 로봇이 잘못 움직이는데 **틀려도 길이와 자릿수가
+그대로라 코드로는 안 잡힘.** ROS 없는 기계에서 테스트가 돌아야 고정해 둘 수 있음
+(`tests/test_ros_convert.py`, `tests/test_ros_freshness.py`).
+
+### 8-1. `huphy` 를 ROS 패키지로 안 만드는 이유
+
+`ament_python` 은 `setup.py` 를 보는데 이 저장소는 `pyproject.toml` 만 있음. 둘을
+같이 두면 `pip install -e .` 과 `colcon build` 가 다른 경로로 설치해서 어느 쪽이
+import 되는지가 환경에 달라짐.
+
+그리고 `src/huphy/` 와 `tests/` 는 ROS 없는 기계에서 돎. `package.xml` 을 붙이면 그
+전제가 흐려짐.
 
 ```bash
-ros2 launch huphy_ros stand.launch.py
+source /opt/ros/humble/setup.bash
+cd <레포 경로> && pip install -e .
 ```
+
+`rosdep` 은 apt 패키지와 몇몇 pip 패키지만 알아서 `huphy` 를 `package.xml` 에 적을
+수 없음. 위 명령을 전제로 둠.
 
 ---
 
-## 11. 안전 — ROS 가 늘리는 위험
+## 8-2. `src/huphy/` 는 안 고침
 
-지금 구조는 **한 프로세스가 죽으면 전부 멈춤**임. ROS 는 그걸 나눠서 새 실패
-방식을 만듦.
+두 노드가 쓰는 것이 이미 전부 공개돼 있음.
 
-| 새로 생기는 것 | 막는 법 |
+| 노드 | `huphy` 에서 쓰는 것 |
 |---|---|
-| 명령을 보내는 노드가 죽음 | `control_node` 가 **마지막 명령 시각**을 보고, 일정 시간 안 오면 `None` 을 내 전송을 멈춤. `LinkWatch` 와 같은 발상 |
-| 네트워크가 끊김 | 위와 같음 |
-| 다른 노드가 엉뚱한 토픽에 명령을 씀 | 토픽 이름을 네임스페이스로 묶고, `guards.py` 가 어차피 한계를 봄 |
-| 노드를 `kill -9` 로 죽임 | 토크가 켜진 채 남음. 지금 `finally` 의 감쇠 절차를 못 탐 |
+| `control_node` | `config.load_robot`, `scripts.bringup.build_biped`, `control.ControlLoop`, `control.Mode` |
+| `policy_node` | `control.rsl_rl.load`, `control.generalized_walk` 의 `ORDER`·`SPEC`·`DEFAULT_POSE_DEG`·`LIMITS_DEG`·`observation_vector`·`joint_targets`, `scripts.selftest.approach` |
 
-마지막 것이 제일 위험함. `rclpy.spin()` 은 SIGINT 를 잡아 주지만 `SIGKILL` 은
-못 잡음 — 지금 터미널에서 Ctrl-C 로 멈추는 것과 같은 수준까지만 보장됨.
+### 한 군데만 쓰는 방식이 다름
 
-**명령 타임아웃은 처음부터 넣을 것.**
+`generalized_walk.motion(model, imu, command=...)` 은 `command` 를 **호출 전체에서
+고정**으로 받음. `huphy-run --vx --wz` 가 시작할 때 한 번 정하는 구조임.
+
+`policy_node` 는 `/huphy/cmd_vel` 로 매 주기 바뀔 수 있는 값을 받으므로 `motion()`
+을 안 씀. 그 안의 함수 둘을 직접 부름.
 
 ```python
-STALE_S = 0.2        # 이 시간 안 오면 전송을 멈춤
-
-def ros_motion(t, observation):
-    with self.lock:
-        age = time.monotonic() - self.cmd_stamp
-        if age > STALE_S:
-            return None                # 전송 안 함
-        return dict(self.latest_cmd)
+vector  = generalized_walk.observation_vector(obs, imu_state, last_action, prev, command)
+action  = model(vector)
+targets = generalized_walk.joint_targets(action)
 ```
 
+`motion()` 이 하는 일이 이 셋에 `last_action`·`q(t-1)` 보관을 더한 것뿐이라,
+`policy_node` 가 그 보관을 자기가 함. **`generalized_walk.py` 는 안 고침.**
+
+고치는 선택지도 있었음 -- `motion()` 의 `command` 를 값 대신 함수로 받게. 안 한
+이유는 `huphy-run` 이 그 인자를 고정값으로 쓰고 있어서, 바꾸면 ROS 를 안 쓰는
+경로까지 같이 바뀌기 때문임.
+
+### 접근 단계
+
+`scripts.selftest.approach(targets, start, seconds)` 를 그대로 씀. 지금 자세에서
+목표까지 선형 보간하는 함수를 내는 순수 함수라 ROS 와 무관함. `policy_node` 가
+`/huphy/start_policy` 를 받으면
+
+```
+1  마지막으로 받은 joint_states 를 시작 자세로 읽음
+2  approach(generalized_walk.default_pose(), 시작 자세, approach_s) 로 보간
+3  approach_s 가 지나면 신경망 출력으로 바꿈
+```
+
+`control_node` 는 이 단계를 모름 -- 목표각만 받아 보냄 (결정 3).
+
 ---
 
-## 12. 테스트
+## 9. 스레드
 
-**지금 테스트는 건드리지 않음.** `tests/` 전체가 ROS 없이 돎.
+`control_node` 한 프로세스 안에 네 개임.
 
-`huphy_ros` 쪽은 노드가 얇아서 테스트할 것이 적음.
-
-| 무엇 | 어떻게 |
+| 스레드 | 하는 일 |
 |---|---|
-| `convert.py` 의 도↔라디안, 이름 변환 | 순수 함수. `rclpy` 없이 테스트됨 |
-| `ros_motion` 의 타임아웃 | 시각을 주입해서. `rclpy` 없이 |
-| 노드가 실제로 뜨는지 | `launch_testing`. 느리고 환경을 탐 |
+| 메인 | `rclpy.spin()`. 구독·서비스·발행 타이머 |
+| 제어 | `ControlLoop.run()`. 100Hz, CAN 송수신 |
+| 수신 ×2 | `CanBus._read_loop`. 채널마다. `huphy` 가 이미 띄움 |
 
-앞의 둘만 `tests/` 에 두고 `rclpy` import 를 피하면, ROS 없는 기계에서도 계속 돎.
+**제어 스레드에서 `publish()` 를 부르지 않음.** 직렬화와 DDS 가 제어 주기 안에
+들어감. 제어 스레드는 최신 관찰을 한 칸에 써 두기만 하고, 발행 타이머가 꺼내 보냄.
+
+**`ControlLoop` 를 `rclpy` 타이머에 얹지 않음.** 절대 마감·스핀 구간·밀림 측정으로
+주기를 자기가 지키는데([`control/loop.py`](../src/huphy/control/loop.py) 의
+`_sleep_until`, `SPIN_THRESHOLD_S`), executor 가 콜백을 꺼내 부르는 구조 위에
+얹으면 그 지터가 더해짐.
+
+**콜백 안에서 계산하지 않음.** 파이썬은 GIL 을 쥔 스레드가
+`sys.getswitchinterval()`(기본 0.005초) 동안 시스템콜 없이 계속 돌 수 있음. 수거
+예산이 2ms 이므로, 계산만 하는 콜백 하나가 그 주기의 수거를 통째로 넘기게 만듦.
 
 ---
 
-## 13. 순서
+## 10. 순서
 
 | 단계 | 무엇 | 끝났다는 기준 |
 |---|---|---|
 | 1 | Humble 설치, 워크스페이스 | `ros2 topic list` 가 돎 |
-| 2 | 빈 `huphy_ros` 패키지 | `ros2 run huphy_ros control_node` 가 "안녕" 을 찍음 |
-| 3 | `telemetry_node` 먼저 | 로봇을 **읽기만** 함. `ros2 topic echo` 로 관절 각도가 보임. 모터가 안 움직이므로 안전함 |
-| 4 | `convert.py` + 테스트 | 도↔라디안, 이름 변환이 테스트로 고정됨 |
-| 5 | `control_node` — 관찰만 | `Mode.OBSERVE` 로 띄움. 토크 안 들어감 |
-| 6 | 명령 받기 | `/huphy/command` 로 `huphy-test pose` 와 같은 일을 함 |
-| 7 | 정책 | `policy` 파라미터로 `stand` 를 안에서 돌림 |
-| 8 | 타임아웃·서비스 | 11장 |
-| 9 | 런치 | 한 줄로 뜸 |
+| 2 | `convert.py`, `freshness.py` + 테스트 | ROS 없이 테스트 통과 |
+| 3 | `control_node` — 관찰만 | `Mode.OBSERVE`. `ros2 topic echo` 로 관절각이 보임 |
+| 4 | 같은 기계에서 둘 다 | `local.launch.py`. 토크 없이 목표각이 오가는지 |
+| 5 | 토크 | `/huphy/enable`. 사람이 지켜보며 |
+| 6 | 두 기계로 나눔 | 왕복 지연을 재고 임계값 다시 정함 |
+| 7 | 센서 | 11장 |
 
-**3번을 먼저 하는 것이 중요함.** 읽기만 하는 노드로 ROS 쪽 배선(QoS, 단위, 이름,
-주기)을 전부 확인한 뒤에 토크를 넣는 쪽으로 감.
+3번을 먼저 하는 것이 중요함. 읽기만 하는 상태로 단위·이름·주기·QoS 를 전부 확인한
+뒤에 토크를 넣음.
 
 ---
 
-## 14. 안 할 것
+## 11. 센서를 붙일 때
+
+카메라·라이다를 **모션보드에 붙이지 않음.** 거기는 CAN 과 100Hz 제어뿐임.
+
+그러면 작업 기계에 붙게 되는데, **거기가 정책이 도는 기계임** (결정 13). 그래서
+막아야 할 것이 제어가 아니라 **정책**임.
+
+| 무엇이 다투나 | 왜 |
+|---|---|
+| CPU | 포인트클라우드 처리와 50Hz 추론이 같은 코어를 씀 |
+| GIL | 센서 노드가 파이썬이면 9장의 전환 간격 문제가 추론 타이머에 걸림 |
+| 대역 | 프레임 하나가 수십 MB 라 UDP 조각으로 나감. 같은 링크의 `joint_targets` 가 그 뒤에 줄을 섬 |
+
+마지막 것이 제일 나쁨. `joint_targets` 가 50Hz 로 가야 하는데 한 번 늦으면
+모션보드의 100ms 임계에 가까워지고, 몇 번 이어지면 감쇠로 떨어짐 (5-2).
+
+대책 넷임. 위에서부터 효과가 큼.
+
+| | |
+|---|---|
+| 센서를 **전용 보드**에 | 정책과 CPU·GIL 을 안 나눔. 기계가 셋이 됨 |
+| 망을 나눔 | 제어용 링크와 센서용 링크를 물리적으로 분리 |
+| `ROS_DOMAIN_ID` 를 나눔 | 센서 도메인과 제어 도메인을 나누고 필요한 토픽만 넘김 |
+| 센서 노드를 C++ 로 | `realsense-ros`·`ouster-ros` 가 이미 C++ 임. GIL 을 안 씀 |
+
+마지막 것이 공짜임 — 기성 드라이버가 이미 C++ 라 **파이썬 노드를 따로 안 만들면**
+GIL 문제는 안 생김. CPU 와 대역은 남음.
+
+**붙이기 전에 재야 할 것**: 센서 노드를 띄운 상태에서 `/huphy/joint_targets` 의
+주기가 50Hz 를 지키는지. `ros2 topic hz` 로 보면 됨.
+
+---
+
+## 12. 안 하는 것
 
 | | 왜 |
 |---|---|
-| `ControlLoop` 를 `rclpy` 타이머로 | 7-1 |
-| `huphy` 를 ROS 패키지로 | 4-1 |
-| 게인·한계를 ROS 파라미터로 | 9장 |
-| 정책을 별도 노드로 (지금은) | 6-3 |
-| `ros2_control` / `ros2_canopen` | 전자는 C++ 하드웨어 인터페이스 틀이라 지금 `Leg`/`Biped` 를 다시 짜야 하고, 후자는 CANopen 전용이라 MIT 프로토콜과 무관함 |
-| `robot_state_publisher` / URDF (지금은) | rviz 로 보고 싶어질 때 함. 제어에는 안 쓰임 |
-
----
-
-## 15. 한 장 요약
-
-```
-지금                                   ROS 를 붙인 뒤
-
-huphy-run                              ros2 launch huphy_ros stand.launch.py
-  └ build_biped                          └ control_node
-     └ ControlLoop(100Hz)                   ├ 제어 스레드: 똑같은 ControlLoop(100Hz)
-        └ stand.motion                      │    └ ros_motion 또는 stand.motion
-           └ model                          └ ROS 스레드: 토픽·서비스
-  └ telemetry (UDP/CSV)                        ├ /huphy/joint_states
-                                               ├ /huphy/status
-                                               └ /huphy/command 받음
-```
-
-**가운데 기둥(`build_biped` → `ControlLoop` → `Motion` → CAN)은 한 줄도 안 바뀜.**
-바뀌는 것은 맨 위(무엇이 `Motion` 을 주는가)와 맨 아래(상태를 어디로 내보내는가)
-둘뿐임.
+| `ros2_control` | 발목이 크랭크 두 개로 두 축을 만드는 링키지라 기성 컨트롤러에 그 변환이 없음. 커스텀 컨트롤러를 C++ 로 써야 해서 기성품을 쓰는 이점이 사라짐 |
+| 직접 정의한 메시지 | 표준으로 됨. 만들면 `ament_cmake` 패키지가 하나 더 필요함 |
+| URDF / `robot_state_publisher` | rviz 로 보고 싶어질 때. 제어에는 안 쓰임 |
+| 정책 교체 서비스 | 결정 5 |
+| 액션 | 오래 걸리는 것이 접근 단계뿐이고 `policy_node` 안에서 끝남 |
