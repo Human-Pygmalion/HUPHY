@@ -9,7 +9,7 @@
 
 ## 20ms 타이머가 추론을 촉발함
 
-메시지 도착이 아니라 타이머임 (`docs/ros.md` 결정 6). 도착으로 하면 **네트워크
+메시지 도착이 아니라 타이머임 (`ros/README.md` 결정 6). 도착으로 하면 **네트워크
 지터가 그대로 추론 간격의 지터**가 됨 -- 정책은 20ms 간격을 전제로 학습했고,
 관찰 6-17칸의 `q(t-1)` 이 정확히 한 주기 전 값이어야 함
 (`control/generalized_walk.py` 의 `HISTORY_FRAMES`, `HZ`).
@@ -29,7 +29,7 @@
 `/huphy/start_policy` 가 꺼짐 -> 접근, `approach_s` 가 지나면 접근 -> 정책.
 `/huphy/stop_policy` 가 꺼짐으로.
 
-접근을 여기서 하는 이유 (`docs/ros.md` 결정 3): 기준 자세
+접근을 여기서 하는 이유 (`ros/README.md` 결정 3): 기준 자세
 (`generalized_walk.DEFAULT_POSE_DEG`)를 아는 쪽이 여기뿐임. 모션보드에도 두면 같은
 값이 두 군데가 됨.
 
@@ -40,7 +40,7 @@
 
 여기는 `/huphy/cmd_vel` 로 매 주기 바뀔 수 있어서, `motion()` 대신 그 안의
 `observation_vector` 와 `joint_targets` 를 직접 부르고 `q(t-1)`·`last_action`
-보관을 이 노드가 함 (`docs/ros.md` 8-2).
+보관을 이 노드가 함 (`ros/README.md` 9장).
 """
 
 from __future__ import annotations

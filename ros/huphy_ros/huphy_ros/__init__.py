@@ -11,5 +11,5 @@
 
 `src/huphy/` 는 고치지 않음. import 만 함.
 
-계약은 `docs/ros.md`.
+계약과 설계는 `ros/README.md`.
 """

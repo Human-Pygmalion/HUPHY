@@ -2,7 +2,7 @@
 
 ## 무엇을 재나
 
-두 기계의 시계를 안 맞춤 (`docs/ros.md` 결정 9). 그래서 **편도 지연은 못 잼.**
+두 기계의 시계를 안 맞춤 (`ros/README.md` 결정 9). 그래서 **편도 지연은 못 잼.**
 각 노드가 자기 시계로 "마지막 수신 이후 몇 초 지났나" 만 봄.
 
     policy_node    now - 마지막 joint_states 수신 시각    기준 60ms
@@ -21,7 +21,7 @@
 두면 네트워크가 끊겼을 때 제어가 먼저 토크를 끊고, 정책은 그것도 모른 채 목표각을
 계속 냄.
 
-둘 다 실물 측정 전의 제안값임 (`docs/ros.md` 5-2).
+둘 다 실물 측정 전의 제안값임 (`ros/README.md` 6-2).
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ class Freshness:
     def put(self, value: Any) -> None:
         """받은 값을 넣음. **ROS 콜백에서 부름 -- 여기서 계산하지 말 것.**
 
-        콜백이 GIL 을 오래 쥐면 그만큼 제어 스레드가 멈춤 (`docs/ros.md` 9장).
+        콜백이 GIL 을 오래 쥐면 그만큼 제어 스레드가 멈춤 (`ros/README.md` 10장).
         """
         with self._lock:
             self._value = value

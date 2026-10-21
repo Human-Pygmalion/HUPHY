@@ -149,7 +149,7 @@ def imu_arrays(state) -> Tuple[List[float], List[float], List[float]]:
 
     **중력방향은 `sensor_msgs/Imu` 에 자리가 없음.** 정책이 쓰는 값이 그 3칸이라
     (`generalized_walk` 관찰 3-5칸), 쿼터니언으로 바꿨다 되푸는 왕복을 안 만들고
-    `Vector3Stamped` 로 그대로 내보냄 (`docs/ros.md` 3-2).
+    `Vector3Stamped` 로 그대로 내보냄 (`ros/README.md` 4-1).
     """
     return (
         [math.radians(float(v)) for v in state.gyro_dps],

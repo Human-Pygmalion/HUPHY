@@ -8,8 +8,6 @@ flow_diagrams.md   누가 누구를 부르나. 그림
 cycle.md           한 주기. 값이 어떤 모양으로 어디를 지나나
 full_robot.md      다리 하나와 양다리. 무엇이 남았나
 policy_runner.md   최종 정책 실행기 설계. 설정 파일 하나로 도는 것
-ros.md             ROS 2 이식. 노드 둘의 계약과 다이어그램
-ros.drawio         위 문서 1-2 장의 그림
 build_log.md       무엇을 어떤 순서로 만들었나. 각 단계의 중점
 issues.md          구현하면서 마주친 판단·미확인 사항
 motor_setup.md     출하 상태 모터 세팅. 보낼 프레임까지
@@ -31,7 +29,7 @@ monitoring.md      무엇을 왜 보는가
 | 값이 어떤 모양으로 흘러가나 | [cycle.md](cycle.md) |
 | 양다리는 어떻게 묶이나 | [full_robot.md](full_robot.md) |
 | 학습 결과를 설정 파일로 돌리려면 | [policy_runner.md](policy_runner.md) |
-| ROS 로 옮기려면 (ROS 처음이어도) | [ros.md](ros.md) |
+| ROS 로 옮기려면 (ROS 처음이어도) | [`ros/README.md`](../ros/README.md) |
 | 왜 이 순서로 만들었나 | [build_log.md](build_log.md) |
 | 이 값이 왜 이렇게 정해졌나 | [issues.md](issues.md) |
 | 그래프에서 무엇을 보나 | [monitoring.md](monitoring.md) |
@@ -58,6 +56,7 @@ monitoring.md      무엇을 왜 보는가
 | [`src/huphy/telemetry/`](../src/huphy/telemetry/README.md) | 관찰 |
 | [`src/huphy/control/`](../src/huphy/control/README.md) | 제어 루프, 게인 튜닝 |
 | [`src/huphy/scripts/`](../src/huphy/scripts/README.md) | 터미널 진입점 |
+| [`ros/`](../ros/README.md) | ROS 2 래퍼. 설계·코드·실행 |
 | [`tests/README.md`](../tests/README.md) | 테스트가 고정하는 것 |
 
 ---

@@ -2,7 +2,7 @@
 
     ros2 launch huphy_ros local.launch.py
 
-실제 배치는 기계 둘임 (docs/ros.md 결정 13). 이것은 네트워크 없이 배선을
+실제 배치는 기계 둘임 (ros/README.md 결정 13). 이것은 네트워크 없이 배선을
 확인하거나, 두 기계로 나눴을 때와 지연을 비교할 때 씀.
 
 토크는 여전히 /huphy/enable 을 받아야 들어감.

@@ -4,14 +4,14 @@
 
 ## 이 파일이 하는 일은 배선뿐임
 
-조립도 제어도 `huphy` 쪽 코드가 그대로 함 (`docs/ros.md` 8-2).
+조립도 제어도 `huphy` 쪽 코드가 그대로 함 (`ros/README.md` 9장).
 
     build_biped     scripts/bringup.py
     ControlLoop     control/loop.py
     가드·통신두절   safety/guards.py · safety/link.py
 
 **정책을 모름.** 목표각을 누가 보냈는지도 모름 -- `policy_node` 가 보냈든 사람이
-`ros2 topic pub` 으로 보냈든 같은 토픽임 (`docs/ros.md` 결정 8).
+`ros2 topic pub` 으로 보냈든 같은 토픽임 (`ros/README.md` 결정 8).
 
 ## 모드를 바꾸는 방법
 
@@ -183,7 +183,7 @@ class ControlNode(Node):
         (`control/loop.py` 의 `step`).
 
         목표각이 낡았고 CONTROL 이면 **루프를 멈춤** -- `finally` 가 감쇠 뒤 토크를
-        끊음 (`docs/ros.md` 결정 2). 여기서 `stop()` 을 부르는 것은 플래그만 세우는
+        끊음 (`ros/README.md` 결정 2). 여기서 `stop()` 을 부르는 것은 플래그만 세우는
         일이라 이 주기는 정상으로 끝남.
         """
         del t
