@@ -1,47 +1,121 @@
-<mxfile host="app.diagrams.net" type="device">
-  <diagram id="huphy-ros-nodes" name="ROS 2 node graph">
-    <mxGraphModel dx="1300" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1280" pageHeight="950" background="#fbfaf8" math="0" shadow="0">
-      <root>
-        <mxCell id="0" />
-        <mxCell id="1" parent="0" />
-        <mxCell id="t" value="&lt;b&gt;HUPHY — ROS 2 node graph&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;fontSize=21;fontColor=#2b3138;align=left;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="50" y="30" width="1100" height="26" as="geometry" /></mxCell>
-        <mxCell id="st" value="Two nodes. Everything they expose is a topic or a service." style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;fontColor=#6b7280;align=left;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="50" y="56" width="1100" height="16" as="geometry" /></mxCell>
-        <mxCell id="nc" value="control_node&lt;br&gt;&lt;font style='font-size:11px;font-weight:normal;color:#6b7280'&gt;Drives the motors&lt;br&gt;100 Hz loop · CAN · safety guards&lt;/font&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;fillColor=#f5f2ec;strokeColor=#a08760;strokeWidth=2;fontColor=#2b3138;fontSize=16;fontStyle=1;verticalAlign=top;align=center;spacingTop=12;" vertex="1" parent="1"><mxGeometry x="70" y="170" width="330" height="300" as="geometry" /></mxCell>
-        <mxCell id="cpub" value="Publisher" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e2ebe2;strokeColor=none;fontColor=#466046;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" vertex="1" parent="1"><mxGeometry x="225" y="265" width="150" height="34" as="geometry" /></mxCell>
-        <mxCell id="csub" value="Subscriber" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e2ebe2;strokeColor=none;fontColor=#466046;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" vertex="1" parent="1"><mxGeometry x="225" y="309" width="150" height="34" as="geometry" /></mxCell>
-        <mxCell id="csrv" value="Service Server" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#f6ebd7;strokeColor=none;fontColor=#8a6a33;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" vertex="1" parent="1"><mxGeometry x="100" y="391" width="160" height="38" as="geometry" /></mxCell>
-        <mxCell id="csrvt" value="/huphy/enable&lt;br&gt;/huphy/disable" style="text;html=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#6b7280;align=center;verticalAlign=middle;fontFamily=Courier New;" vertex="1" parent="1"><mxGeometry x="90" y="434" width="180" height="26" as="geometry" /></mxCell>
-        <mxCell id="np" value="policy_node&lt;br&gt;&lt;font style='font-size:11px;font-weight:normal;color:#6b7280'&gt;Decides the next pose&lt;br&gt;50 Hz inference · .pt&lt;/font&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;fillColor=#f5f2ec;strokeColor=#a08760;strokeWidth=2;fontColor=#2b3138;fontSize=16;fontStyle=1;verticalAlign=top;align=center;spacingTop=12;" vertex="1" parent="1"><mxGeometry x="730" y="170" width="330" height="300" as="geometry" /></mxCell>
-        <mxCell id="psub" value="Subscriber" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e2ebe2;strokeColor=none;fontColor=#466046;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" vertex="1" parent="1"><mxGeometry x="755" y="265" width="150" height="34" as="geometry" /></mxCell>
-        <mxCell id="ppub" value="Publisher" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e2ebe2;strokeColor=none;fontColor=#466046;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" vertex="1" parent="1"><mxGeometry x="755" y="309" width="150" height="34" as="geometry" /></mxCell>
-        <mxCell id="psub2" value="Subscriber" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e2ebe2;strokeColor=none;fontColor=#466046;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" vertex="1" parent="1"><mxGeometry x="755" y="353" width="150" height="34" as="geometry" /></mxCell>
-        <mxCell id="psrv" value="Service Server" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#f6ebd7;strokeColor=none;fontColor=#8a6a33;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" vertex="1" parent="1"><mxGeometry x="870" y="391" width="160" height="38" as="geometry" /></mxCell>
-        <mxCell id="psrvt" value="/huphy/start_policy&lt;br&gt;/huphy/stop_policy" style="text;html=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#6b7280;align=center;verticalAlign=middle;fontFamily=Courier New;" vertex="1" parent="1"><mxGeometry x="860" y="434" width="180" height="26" as="geometry" /></mxCell>
-        <mxCell id="t1" value="&lt;font style='font-size:10px;font-weight:normal;color:#6b7280'&gt;Topic&lt;/font&gt;&lt;br&gt;&lt;font style='font-family:Courier New;font-size:10px;font-weight:normal'&gt;/huphy/joint_states&lt;br&gt;/huphy/imu&lt;br&gt;/huphy/gravity&lt;/font&gt;&lt;br&gt;&lt;font style='font-size:10px;font-weight:normal'&gt;JointState · Imu · Vector3Stamped&lt;br&gt;100 Hz&lt;/font&gt;" style="rounded=1;arcSize=10;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#a08760;strokeWidth=1.5;fontColor=#2b3138;fontSize=11;verticalAlign=middle;align=center;spacingLeft=8;spacingRight=8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="440" y="202" width="250" height="92" as="geometry" /></mxCell>
-        <mxCell id="t2" value="&lt;font style='font-size:10px;font-weight:normal;color:#6b7280'&gt;Topic&lt;/font&gt;&lt;br&gt;&lt;font style='font-family:Courier New;font-size:10px;font-weight:normal'&gt;/huphy/joint_targets&lt;/font&gt;&lt;br&gt;&lt;font style='font-size:10px;font-weight:normal'&gt;JointState · 50 Hz&lt;/font&gt;" style="rounded=1;arcSize=10;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#a08760;strokeWidth=1.5;fontColor=#2b3138;fontSize=11;verticalAlign=middle;align=center;spacingLeft=8;spacingRight=8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="440" y="332" width="250" height="56" as="geometry" /></mxCell>
-        <mxCell id="t3" value="&lt;font style='font-size:10px;font-weight:normal;color:#6b7280'&gt;Topic&lt;/font&gt;&lt;br&gt;&lt;font style='font-family:Courier New;font-size:10px;font-weight:normal'&gt;/huphy/cmd_vel&lt;/font&gt;&lt;br&gt;&lt;font style='font-size:10px;font-weight:normal'&gt;Twist · 20 Hz&lt;/font&gt;" style="rounded=1;arcSize=10;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#a08760;strokeWidth=1.5;fontColor=#2b3138;fontSize=11;verticalAlign=middle;align=center;spacingLeft=8;spacingRight=8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="440" y="552" width="250" height="56" as="geometry" /></mxCell>
-        <mxCell id="e1" value="" style="edgeStyle=none;curved=1;html=1;strokeColor=#9aa3ad;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;" edge="1" parent="1" source="cpub" target="t1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e2" value="" style="edgeStyle=none;curved=1;html=1;strokeColor=#9aa3ad;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;" edge="1" parent="1" source="t1" target="psub"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e3" value="" style="edgeStyle=none;curved=1;html=1;strokeColor=#9aa3ad;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;" edge="1" parent="1" source="ppub" target="t2"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e4" value="" style="edgeStyle=none;curved=1;html=1;strokeColor=#9aa3ad;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;" edge="1" parent="1" source="t2" target="csub"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e5" value="" style="edgeStyle=none;curved=1;html=1;strokeColor=#9aa3ad;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;" edge="1" parent="1" source="t3" target="psub2"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="ext" value="&lt;font style='font-size:10px;font-weight:normal;color:#6b7280'&gt;not a node of this package&lt;/font&gt;&lt;br&gt;ros2 CLI · rqt · ros2 bag&lt;br&gt;&lt;font style='font-size:10px;font-weight:normal'&gt;or any other node you add later&lt;/font&gt;" style="rounded=1;arcSize=10;html=1;whiteSpace=wrap;fillColor=none;strokeColor=#b9c0c8;strokeWidth=1.5;fontColor=#2b3138;fontSize=11;verticalAlign=middle;align=center;spacingLeft=8;spacingRight=8;fontStyle=1;dashed=1;dashPattern=6 4;" vertex="1" parent="1"><mxGeometry x="400" y="683" width="330" height="74" as="geometry" /></mxCell>
-        <mxCell id="e6" value="" style="edgeStyle=none;curved=1;html=1;strokeColor=#b9c0c8;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;dashed=1;dashPattern=6 4;" edge="1" parent="1" source="ext" target="t3"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e7" value="" style="edgeStyle=none;curved=1;html=1;strokeColor=#b9c0c8;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;dashed=1;dashPattern=6 4;" edge="1" parent="1" source="ext" target="csrv"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e8" value="" style="edgeStyle=none;curved=1;html=1;strokeColor=#b9c0c8;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;dashed=1;dashPattern=6 4;" edge="1" parent="1" source="ext" target="psrv"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e9" value="" style="edgeStyle=none;curved=1;html=1;strokeColor=#b9c0c8;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;dashed=1;dashPattern=6 4;" edge="1" parent="1" source="t1" target="ext"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="lt" value="&lt;b&gt;Legend&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;fontColor=#2b3138;align=left;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="50" y="806" width="220" height="16" as="geometry" /></mxCell>
-        <mxCell id="lg0" value="" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#f5f2ec;strokeColor=none;fontColor=#2b3138;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" vertex="1" parent="1"><mxGeometry x="62" y="831" width="28" height="16" as="geometry" /></mxCell>
-        <mxCell id="lgt0" value="Node — one process" style="text;html=1;strokeColor=none;fillColor=none;fontSize=10;fontColor=#6b7280;align=left;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="98" y="830" width="220" height="18" as="geometry" /></mxCell>
-        <mxCell id="lg1" value="" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e2ebe2;strokeColor=none;fontColor=#466046;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" vertex="1" parent="1"><mxGeometry x="62" y="857" width="28" height="16" as="geometry" /></mxCell>
-        <mxCell id="lgt1" value="Publisher / Subscriber" style="text;html=1;strokeColor=none;fillColor=none;fontSize=10;fontColor=#6b7280;align=left;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="98" y="856" width="220" height="18" as="geometry" /></mxCell>
-        <mxCell id="lg2" value="" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#f6ebd7;strokeColor=none;fontColor=#8a6a33;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" vertex="1" parent="1"><mxGeometry x="62" y="883" width="28" height="16" as="geometry" /></mxCell>
-        <mxCell id="lgt2" value="Service Server" style="text;html=1;strokeColor=none;fillColor=none;fontSize=10;fontColor=#6b7280;align=left;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="98" y="882" width="220" height="18" as="geometry" /></mxCell>
-        <mxCell id="lg3" value="" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=none;fontColor=#2b3138;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" vertex="1" parent="1"><mxGeometry x="62" y="909" width="28" height="16" as="geometry" /></mxCell>
-        <mxCell id="lgt3" value="Topic" style="text;html=1;strokeColor=none;fillColor=none;fontSize=10;fontColor=#6b7280;align=left;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="98" y="908" width="220" height="18" as="geometry" /></mxCell>
-        <mxCell id="rt" value="&lt;b&gt;Where they run&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;fontColor=#2b3138;align=left;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="960" y="806" width="290" height="16" as="geometry" /></mxCell>
-        <mxCell id="r1" value="&lt;b&gt;control_node&lt;/b&gt; — board the CAN&lt;br&gt;adapters and IMU are wired to&lt;br&gt;&lt;b&gt;policy_node&lt;/b&gt; — the other machine&lt;br&gt;&lt;font color='#8a94a2'&gt;Same ROS_DOMAIN_ID on both&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;fontSize=10;fontColor=#6b7280;align=left;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="960" y="830" width="290" height="86" as="geometry" /></mxCell>
-      </root>
-    </mxGraphModel>
-  </diagram>
+<mxfile host="65bd71144e">
+    <diagram id="huphy-ros-nodes" name="ROS 2 node graph">
+        <mxGraphModel dx="568" dy="445" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1280" pageHeight="950" background="#fbfaf8" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="t" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=21;fontColor=#2b3138;align=left;verticalAlign=middle;" value="&lt;b&gt;HUPHY — ROS 2 node graph&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="26" width="1100" x="50" y="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="st" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;fontColor=#6b7280;align=left;verticalAlign=middle;" value="Two nodes. Everything they expose is a topic or a service." vertex="1">
+                    <mxGeometry height="16" width="1100" x="50" y="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="nc" parent="1" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;fillColor=#f5f2ec;strokeColor=#a08760;strokeWidth=2;fontColor=#2b3138;fontSize=16;fontStyle=1;verticalAlign=top;align=center;spacingTop=12;" value="control_node&lt;br&gt;&lt;font style=&#39;font-size:11px;font-weight:normal;color:#6b7280&#39;&gt;Drives the motors&lt;br&gt;100 Hz loop · CAN · safety guards&lt;/font&gt;" vertex="1">
+                    <mxGeometry height="300" width="330" x="70" y="170" as="geometry"/>
+                </mxCell>
+                <mxCell id="cpub" parent="1" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e2ebe2;strokeColor=none;fontColor=#466046;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" value="Publisher" vertex="1">
+                    <mxGeometry height="34" width="150" x="225" y="265" as="geometry"/>
+                </mxCell>
+                <mxCell id="csub" parent="1" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e2ebe2;strokeColor=none;fontColor=#466046;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" value="Subscriber" vertex="1">
+                    <mxGeometry height="34" width="150" x="225" y="309" as="geometry"/>
+                </mxCell>
+                <mxCell id="csrv" parent="1" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#f6ebd7;strokeColor=none;fontColor=#8a6a33;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" value="Service Server" vertex="1">
+                    <mxGeometry height="38" width="160" x="100" y="391" as="geometry"/>
+                </mxCell>
+                <mxCell id="csrvt" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#6b7280;align=center;verticalAlign=middle;fontFamily=Courier New;" value="turn torque on&lt;br&gt;turn torque off" vertex="1">
+                    <mxGeometry height="26" width="180" x="90" y="434" as="geometry"/>
+                </mxCell>
+                <mxCell id="np" parent="1" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;fillColor=#f5f2ec;strokeColor=#a08760;strokeWidth=2;fontColor=#2b3138;fontSize=16;fontStyle=1;verticalAlign=top;align=center;spacingTop=12;" value="policy_node&lt;br&gt;&lt;font style=&#39;font-size:11px;font-weight:normal;color:#6b7280&#39;&gt;Decides the next pose&lt;br&gt;50 Hz inference · .pt&lt;/font&gt;" vertex="1">
+                    <mxGeometry height="300" width="330" x="730" y="170" as="geometry"/>
+                </mxCell>
+                <mxCell id="psub" parent="1" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e2ebe2;strokeColor=none;fontColor=#466046;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" value="Subscriber" vertex="1">
+                    <mxGeometry height="34" width="150" x="755" y="265" as="geometry"/>
+                </mxCell>
+                <mxCell id="ppub" parent="1" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e2ebe2;strokeColor=none;fontColor=#466046;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" value="Publisher" vertex="1">
+                    <mxGeometry height="34" width="150" x="755" y="309" as="geometry"/>
+                </mxCell>
+                <mxCell id="psub2" parent="1" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e2ebe2;strokeColor=none;fontColor=#466046;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" value="Subscriber" vertex="1">
+                    <mxGeometry height="34" width="150" x="755" y="353" as="geometry"/>
+                </mxCell>
+                <mxCell id="psrv" parent="1" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#f6ebd7;strokeColor=none;fontColor=#8a6a33;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" value="Service Server" vertex="1">
+                    <mxGeometry height="38" width="160" x="870" y="391" as="geometry"/>
+                </mxCell>
+                <mxCell id="psrvt" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#6b7280;align=center;verticalAlign=middle;fontFamily=Courier New;" value="start the policy&lt;br&gt;stop the policy" vertex="1">
+                    <mxGeometry height="26" width="180" x="860" y="434" as="geometry"/>
+                </mxCell>
+                <mxCell id="t1" parent="1" style="rounded=1;arcSize=10;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#a08760;strokeWidth=1.5;fontColor=#2b3138;fontSize=11;verticalAlign=middle;align=center;spacingLeft=8;spacingRight=8;fontStyle=1;" value="&lt;font style=&#39;font-size:10px;font-weight:normal;color:#6b7280&#39;&gt;Topic&lt;/font&gt;&lt;br&gt;Measured joint angles　12&lt;br&gt;Body angular velocity　3&lt;br&gt;Gravity direction　3&lt;br&gt;&lt;font style=&#39;font-size:10px;font-weight:normal&#39;&gt;rad · rad/s · unit vector　　100 Hz&lt;/font&gt;" vertex="1">
+                    <mxGeometry height="92" width="250" x="440" y="202" as="geometry"/>
+                </mxCell>
+                <mxCell id="t2" parent="1" style="rounded=1;arcSize=10;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#a08760;strokeWidth=1.5;fontColor=#2b3138;fontSize=11;verticalAlign=middle;align=center;spacingLeft=8;spacingRight=8;fontStyle=1;" value="&lt;font style=&#39;font-size:10px;font-weight:normal;color:#6b7280&#39;&gt;Topic&lt;/font&gt;&lt;br&gt;Target joint angles　12&lt;br&gt;&lt;font style=&#39;font-size:10px;font-weight:normal&#39;&gt;rad　　50 Hz&lt;/font&gt;" vertex="1">
+                    <mxGeometry height="56" width="250" x="440" y="332" as="geometry"/>
+                </mxCell>
+                <mxCell id="t3" parent="1" style="rounded=1;arcSize=10;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#a08760;strokeWidth=1.5;fontColor=#2b3138;fontSize=11;verticalAlign=middle;align=center;spacingLeft=8;spacingRight=8;fontStyle=1;" value="&lt;font style=&#39;font-size:10px;font-weight:normal;color:#6b7280&#39;&gt;Topic&lt;/font&gt;&lt;br&gt;Velocity command&lt;br&gt;&lt;font style=&#39;font-size:10px;font-weight:normal&#39;&gt;forward vx · turn wz　　20 Hz&lt;/font&gt;" vertex="1">
+                    <mxGeometry height="56" width="250" x="705" y="590" as="geometry"/>
+                </mxCell>
+                <mxCell id="e1" edge="1" parent="1" source="cpub" style="edgeStyle=none;curved=1;html=1;strokeColor=#9aa3ad;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;" target="t1" value="">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e2" edge="1" parent="1" source="t1" style="edgeStyle=none;curved=1;html=1;strokeColor=#9aa3ad;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;" target="psub" value="">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e3" edge="1" parent="1" source="ppub" style="edgeStyle=none;curved=1;html=1;strokeColor=#9aa3ad;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;" target="t2" value="">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e4" edge="1" parent="1" source="t2" style="edgeStyle=none;curved=1;html=1;strokeColor=#9aa3ad;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;" target="csub" value="">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e5" edge="1" parent="1" source="t3" style="edgeStyle=none;curved=1;html=1;strokeColor=#9aa3ad;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;" target="psub2" value="">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext" parent="1" style="rounded=1;arcSize=10;html=1;whiteSpace=wrap;fillColor=none;strokeColor=#b9c0c8;strokeWidth=1.5;fontColor=#2b3138;fontSize=11;verticalAlign=middle;align=center;spacingLeft=8;spacingRight=8;fontStyle=1;dashed=1;dashPattern=6 4;" value="&lt;font style=&#39;font-size:10px;font-weight:normal;color:#6b7280&#39;&gt;not a node of this package&lt;/font&gt;&lt;br&gt;ros2 CLI · rqt · ros2 bag&lt;br&gt;&lt;font style=&#39;font-size:10px;font-weight:normal&#39;&gt;or any other node you add later&lt;/font&gt;" vertex="1">
+                    <mxGeometry height="74" width="330" x="400" y="683" as="geometry"/>
+                </mxCell>
+                <mxCell id="e6" edge="1" parent="1" source="ext" style="edgeStyle=none;curved=1;html=1;strokeColor=#b9c0c8;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;dashed=1;dashPattern=6 4;" target="t3" value="">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e7" edge="1" parent="1" source="ext" style="edgeStyle=none;curved=1;html=1;strokeColor=#b9c0c8;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;dashed=1;dashPattern=6 4;" target="csrv" value="">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e8" edge="1" parent="1" source="ext" style="edgeStyle=none;curved=1;html=1;strokeColor=#b9c0c8;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;dashed=1;dashPattern=6 4;" target="psrv" value="">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e9" edge="1" parent="1" source="t1" style="edgeStyle=none;curved=1;html=1;strokeColor=#b9c0c8;strokeWidth=1.8;endArrow=blockThin;endFill=1;endSize=6;dashed=1;dashPattern=6 4;" target="ext" value="">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="lt" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;fontColor=#2b3138;align=left;verticalAlign=middle;" value="&lt;b&gt;Legend&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="16" width="220" x="50" y="806" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg0" parent="1" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#f5f2ec;strokeColor=none;fontColor=#2b3138;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" value="" vertex="1">
+                    <mxGeometry height="16" width="28" x="62" y="831" as="geometry"/>
+                </mxCell>
+                <mxCell id="lgt0" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=10;fontColor=#6b7280;align=left;verticalAlign=middle;" value="Node — one process" vertex="1">
+                    <mxGeometry height="18" width="220" x="98" y="830" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg1" parent="1" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e2ebe2;strokeColor=none;fontColor=#466046;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" value="" vertex="1">
+                    <mxGeometry height="16" width="28" x="62" y="857" as="geometry"/>
+                </mxCell>
+                <mxCell id="lgt1" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=10;fontColor=#6b7280;align=left;verticalAlign=middle;" value="Publisher / Subscriber" vertex="1">
+                    <mxGeometry height="18" width="220" x="98" y="856" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg2" parent="1" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#f6ebd7;strokeColor=none;fontColor=#8a6a33;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" value="" vertex="1">
+                    <mxGeometry height="16" width="28" x="62" y="883" as="geometry"/>
+                </mxCell>
+                <mxCell id="lgt2" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=10;fontColor=#6b7280;align=left;verticalAlign=middle;" value="Service Server" vertex="1">
+                    <mxGeometry height="18" width="220" x="98" y="882" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg3" parent="1" style="rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=none;fontColor=#2b3138;fontSize=11;fontStyle=1;verticalAlign=middle;align=center;" value="" vertex="1">
+                    <mxGeometry height="16" width="28" x="62" y="909" as="geometry"/>
+                </mxCell>
+                <mxCell id="lgt3" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=10;fontColor=#6b7280;align=left;verticalAlign=middle;" value="Topic" vertex="1">
+                    <mxGeometry height="18" width="220" x="98" y="908" as="geometry"/>
+                </mxCell>
+                <mxCell id="rt" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;fontColor=#2b3138;align=left;verticalAlign=middle;" value="&lt;b&gt;Where they run&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="16" width="290" x="960" y="806" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=10;fontColor=#6b7280;align=left;verticalAlign=middle;" value="&lt;b&gt;control_node&lt;/b&gt; — board the CAN&lt;br&gt;adapters and IMU are wired to&lt;br&gt;&lt;b&gt;policy_node&lt;/b&gt; — the other machine&lt;br&gt;&lt;font color=&#39;#8a94a2&#39;&gt;Same ROS_DOMAIN_ID on both&lt;/font&gt;" vertex="1">
+                    <mxGeometry height="86" width="290" x="960" y="830" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
 </mxfile>
