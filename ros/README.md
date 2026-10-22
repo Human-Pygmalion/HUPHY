@@ -13,44 +13,112 @@
 
 ---
 
-## 설치
+## 설치 (새 컴퓨터)
+
+**한 번만 하면 됨.** 끝나면 터미널을 새로 열 때 따로 할 것이 없음.
+두 기계(모션보드, 작업 기계) 모두 똑같이 함.
 
 | | |
 |---|---|
 | OS | Ubuntu 22.04 |
 | ROS | Humble |
-| 파이썬 | 3.10 |
+| 파이썬 | 3.10 (Ubuntu 22.04 기본) |
 
-ROS 환경을 먼저 불러온 뒤 `huphy` 를 같은 환경에 넣음. **순서가 중요함** —
-`pip install` 이 어느 파이썬에 설치되는지가 환경에 달려 있음.
+### 1. ROS 2 Humble
+
+Ubuntu 기본 저장소에는 ROS 가 없어서 저장소부터 추가함.
 
 ```bash
-sudo apt install ros-humble-ros-base python3-colcon-common-extensions
+sudo apt update && sudo apt install -y software-properties-common curl git python3-venv
+sudo add-apt-repository -y universe
+
+ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F\" '{print $4}')
+curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo $VERSION_CODENAME)_all.deb"
+sudo dpkg -i /tmp/ros2-apt-source.deb
+
+sudo apt update
+sudo apt install -y ros-humble-ros-base python3-colcon-common-extensions
+```
+
+### 2. 레포 받기
+
+```bash
+cd ~
+git clone https://github.com/chanhue/HUPHY.git
+```
+
+아래는 모두 레포가 `~/HUPHY` 에 있다고 보고 적음.
+
+### 3. 가상환경 + huphy 설치
+
+```bash
 source /opt/ros/humble/setup.bash
-
-cd <레포 경로>
+cd ~/HUPHY
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+pip install --upgrade pip "setuptools>=64,<80"
 pip install -e .
+```
 
+- `--system-site-packages` — 가상환경 안에서도 ROS 가 보이게 함. **빼면 안 됨.**
+  이 옵션 없이 만든 `.venv` 가 이미 있으면 `rm -rf .venv` 하고 다시 만듦.
+- `setuptools<80` — 그보다 새 것은 colcon 과 안 맞음.
+- IMU 가 붙은 모션보드는 `pip install -e ".[imu]"` 도 함.
+
+### 4. ROS 패키지 빌드
+
+가상환경이 켜진 상태(프롬프트 앞에 `(.venv)`)에서 함.
+
+```bash
 mkdir -p ~/ros2_ws/src
-ln -s <레포 경로> ~/ros2_ws/src/huphy
-cd ~/ros2_ws && colcon build --symlink-install
-source install/setup.bash
+ln -s ~/HUPHY ~/ros2_ws/src/huphy
+cd ~/ros2_ws
+python -m colcon build --symlink-install
 ```
 
-확인:
+**`colcon build` 가 아니라 `python -m colcon build`.** 이래야 노드가 가상환경의
+파이썬으로 돌아감. 그냥 `colcon build` 로 하면 노드가 `No module named 'huphy'`
+로 죽음.
+
+`stderr output` 경고가 나와도 `Summary: 1 package finished` 면 된 것임.
+
+**다시 빌드할 일은 거의 없음.** 파이썬 코드를 고치면 그대로 반영됨. 노드를 새로
+추가했거나 `setup.py` · `package.xml` 을 바꿨을 때만 다시 함.
+
+### 5. 터미널 열 때 자동으로
 
 ```bash
-ros2 pkg list | grep huphy
-python3 -c "import huphy, huphy_ros; print('ok')"
+cat >> ~/.bashrc <<'BASHRC'
+# HUPHY
+source /opt/ros/humble/setup.bash
+source ~/HUPHY/.venv/bin/activate
+source ~/ros2_ws/install/setup.bash
+export ROS_DOMAIN_ID=7
+BASHRC
 ```
 
-### 두 기계가 서로 보이게
+**순서 그대로 둠.** `ROS_DOMAIN_ID` 는 두 기계가 같은 값이어야 함. 다르면 에러
+없이 서로 안 보임.
+
+### 6. 확인
+
+**새 터미널을 열고:**
 
 ```bash
-export ROS_DOMAIN_ID=7      # 양쪽 같은 값으로. .bashrc 에
+ros2 pkg list | grep huphy                                # huphy_ros
+python -c "import huphy, huphy_ros; print('ok')"          # ok
+head -1 ~/ros2_ws/install/huphy_ros/lib/huphy_ros/control_node   # …/HUPHY/.venv/bin/python
 ```
 
-**안 맞으면 에러 없이 서로 안 보임.**
+### 안 될 때
+
+| 메시지 | 원인 · 할 것 |
+|---|---|
+| `패키지를 찾을 수 없습니다` (apt) | 1 의 저장소 추가를 안 함 |
+| `ros2: 명령을 찾을 수 없습니다` | 5 를 안 했거나, 5 이후 새 터미널을 안 엶 |
+| `Package 'huphy_ros' not found` | 4 빌드가 안 됐거나 5 를 안 함 |
+| `No module named 'huphy'` | 4 를 `colcon build` 로 했음. 가상환경 켜고 `cd ~/ros2_ws && rm -rf build install log` 후 4 다시 |
+| `build_editable` 오류 (pip) | 3 의 `pip install --upgrade ...` 를 빠뜨림 |
 
 ---
 
