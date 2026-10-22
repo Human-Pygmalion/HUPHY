@@ -128,7 +128,7 @@ head -1 ~/ros2_ws/install/huphy_ros/lib/huphy_ros/control_node   # …/HUPHY/.ve
 
 ```bash
 huphy-can up
-ros2 launch huphy_ros control.launch.py config:=$PWD/config/robot.yaml
+ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml
 ```
 
 `OBSERVE` 로 시작함. **토크 안 들어감.**
@@ -154,7 +154,7 @@ ros2 topic echo /huphy/loop_status --once
 ### 3 — 작업 기계: 정책 노드
 
 ```bash
-ros2 launch huphy_ros policy.launch.py weights:=$PWD/config/policies/generalized_walk.pt
+ros2 launch huphy_ros policy.launch.py weights:=$HOME/HUPHY/config/policies/generalized_walk.pt
 ```
 
 띄우기만 하면 아무것도 안 냄. `policy_status` 의 `stage` 가 `off`.
@@ -208,8 +208,8 @@ ros2 service call /huphy/disable std_srvs/srv/Trigger       # 감쇠 5초 후 �
 
 ```bash
 ros2 launch huphy_ros local.launch.py \
-  config:=$PWD/config/robot.yaml \
-  weights:=$PWD/config/policies/generalized_walk.pt
+  config:=$HOME/HUPHY/config/robot.yaml \
+  weights:=$HOME/HUPHY/config/policies/generalized_walk.pt
 ```
 
 ---
@@ -251,7 +251,7 @@ ros2 launch huphy_ros local.launch.py \
 `convert.py` 와 `freshness.py` 는 ROS 없이 돎.
 
 ```bash
-cd <레포 경로>
+cd ~/HUPHY
 PYTHONPATH=src python3 -m pytest tests/test_ros_convert.py tests/test_ros_freshness.py -q
 ```
 

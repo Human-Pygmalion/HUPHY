@@ -33,7 +33,7 @@ vcan 에는 비트레이트가 없어서 실패함. 위 명령으로 올림.
 채널 이름만 바꾼 사본을 만듦. `robot.yaml` 은 안 건드림.
 
 ```bash
-cd <레포 경로>
+cd ~/HUPHY
 sed -e 's/channel: canr/channel: vcan0/' -e 's/channel: canl/channel: vcan1/' \
     config/robot.yaml > /tmp/robot_vcan.yaml
 ```
@@ -43,7 +43,7 @@ sed -e 's/channel: canr/channel: vcan0/' -e 's/channel: canl/channel: vcan1/' \
 ```bash
 ros2 launch huphy_ros local.launch.py \
   config:=/tmp/robot_vcan.yaml \
-  weights:=$PWD/config/policies/generalized_walk.pt
+  weights:=$HOME/HUPHY/config/policies/generalized_walk.pt
 ```
 
 한 기계에서 둘 다 띄우는 런치임. `OBSERVE` 로 시작하므로 토크 경로를 안 탐.
@@ -63,11 +63,14 @@ ros2 topic echo /huphy/loop_status --once
 |---|---|
 | 관절 이름 | `right_leg__hip_pitch` 꼴, 12개 |
 | `position` | **전부 0.** 아무도 안 답하니 상태가 안 들어옴 |
-| `hz` | 100 근처 |
-| `missing_cycles` | **주기마다 늘어남.** 가짜 CAN 에서는 정상임 |
+| `hz` | 100 근처. 첫 줄이 찍히기까지 몇 초 걸림 |
+| `missing_cycles` | **주기마다 늘어남.** `cycles` 와 같은 값 |
+| `mean_hz` · `overruns` | **40 근처, 밀림이 계속 늚.** 매 주기 응답을 끝까지 기다리기 때문 |
 
-`position` 이 0 인 것과 `missing_cycles` 가 느는 것이 **여기서는 맞는 결과**임.
-실물에서 같은 값이 나오면 그건 고장임.
+`position` 0, `missing_cycles` 증가, 루프 40Hz 는 **여기서는 맞는 결과**임. 실물에서
+같은 값이 나오면 그건 고장임.
+
+launch 로그의 `IMU main 를 열지 못함` 경고도 IMU 가 없는 기계에서는 정상임.
 
 ## 5. CAN 쪽 확인
 
