@@ -9,6 +9,8 @@
 
 그림은 [`ros.drawio`](ros.drawio). 설계 근거는 **아래쪽 "아래는 설계"** 부터.
 
+로봇 없이 ROS 만 테스트하려면 [`without_robot.md`](without_robot.md).
+
 ---
 
 ## 설치
