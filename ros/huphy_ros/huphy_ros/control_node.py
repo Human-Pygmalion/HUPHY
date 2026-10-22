@@ -155,6 +155,8 @@ class ControlNode(Node):
         self._stop_loop()
         self.mode = mode
         self.loop = ControlLoop(self.robot, hz=self.hz, mode=mode)
+        self.loop.before_step = self._observe
+        self.loop_started = time.monotonic()
         self.thread = threading.Thread(
             target=self._loop_body, name=f"huphy-{mode.value}", daemon=True)
         self.thread.start()
@@ -176,18 +178,26 @@ class ControlNode(Node):
         self.loop, self.thread = None, None
 
     # ---- 제어 스레드 -------------------------------------------------------
+    def _observe(self, loop, t: float) -> None:
+        """매 주기 `step` 앞에 관찰을 써 둠. **제어 스레드에서 돎.**
+
+        `_motion` 에서 하면 안 됨 -- OBSERVE 에서는 루프가 `motion` 을 안 불러서
+        `joint_states` 가 하나도 안 나감.
+        """
+        del loop, t
+        self.observation.put(self.robot.get_observation())
+
     def _motion(self, t: float, observation):
         """`ControlLoop` 가 매 주기 부름. **제어 스레드에서 돎.**
 
-        관찰을 써 두고 최신 목표각을 냄. `None` 을 내면 그 주기는 아무것도 안 보냄
+        최신 목표각을 냄. `None` 을 내면 그 주기는 아무것도 안 보냄
         (`control/loop.py` 의 `step`).
 
         목표각이 낡았고 CONTROL 이면 **루프를 멈춤** -- `finally` 가 감쇠 뒤 토크를
         끊음 (`ros/README.md` 결정 2). 여기서 `stop()` 을 부르는 것은 플래그만 세우는
         일이라 이 주기는 정상으로 끝남.
         """
-        del t
-        self.observation.put(observation)
+        del t, observation
         action, fresh = self.targets.take()
         if fresh:
             return action
@@ -289,7 +299,9 @@ class ControlNode(Node):
         if stats is not None:
             pairs.update({
                 "cycles": str(stats.cycles),
-                "mean_hz": f"{stats.mean_hz:.1f}",
+                # `stats.mean_hz` 는 루프가 끝나야 값이 생김 (`total_s`). 도는 중에는
+                # 시작부터 지금까지로 셈.
+                "mean_hz": f"{stats.cycles / max(time.monotonic() - self.loop_started, 1e-9):.1f}",
                 "overruns": str(stats.overruns),
                 "missing_cycles": str(stats.missing_cycles),
                 "link_loss": str(stats.link_loss or ""),
