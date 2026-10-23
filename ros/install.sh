@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # HUPHY 설치 — Ubuntu 22.04 + ROS 2 Humble.
 #
-#   ./install.sh
+#   ~/HUPHY/ros/install.sh
 #
 # 여러 번 실행해도 됨. 이미 된 단계는 건너뜀.
 # 바꿀 수 있는 값 (환경변수):
@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # 이 파일은 ros/ 에 있음
 WS="${HUPHY_WS:-$HOME/ros2_ws}"
 DOMAIN_ID="${HUPHY_DOMAIN_ID:-7}"
 BASHRC="${HUPHY_BASHRC:-$HOME/.bashrc}"

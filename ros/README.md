@@ -29,7 +29,7 @@ sudo apt install -y git
 cd ~
 git clone https://github.com/chanhue/HUPHY.git
 cd HUPHY
-./install.sh
+ros/install.sh
 ```
 
 중간에 sudo 비밀번호를 물어봄 (ROS 설치). `끝.` 이 나오면 **새 터미널을 열고** 바로
@@ -50,23 +50,23 @@ cd HUPHY
 | 6 | `huphy_ros` 가 보이는지, 노드가 가상환경 파이썬으로 도는지 확인 |
 
 `ROS_DOMAIN_ID` 는 7 로 들어감. **두 기계가 같은 값이어야 함** — 다르면 에러 없이
-서로 안 보임. 바꾸려면 `HUPHY_DOMAIN_ID=9 ./install.sh`.
+서로 안 보임. 바꾸려면 `HUPHY_DOMAIN_ID=9 ros/install.sh`.
 
 ### 다시 빌드할 때
 
 **거의 없음.** 파이썬 코드를 고치면 그대로 반영됨. 노드를 새로 추가했거나
-`setup.py` · `package.xml` 을 바꿨을 때만 `./install.sh` 를 다시 실행함.
+`setup.py` · `package.xml` 을 바꿨을 때만 `ros/install.sh` 를 다시 실행함.
 
 **`colcon build` 를 직접 치지 말 것.** 시스템 파이썬으로 빌드되어 노드가
-`No module named 'huphy'` 로 죽음. 그렇게 됐으면 `./install.sh` 를 다시 실행하면 고쳐짐.
+`No module named 'huphy'` 로 죽음. 그렇게 됐으면 `ros/install.sh` 를 다시 실행하면 고쳐짐.
 
 ### 안 될 때
 
 | 메시지 | 할 것 |
 |---|---|
 | `ros2: 명령을 찾을 수 없습니다` | 설치 후 새 터미널을 안 엶 |
-| `Package 'huphy_ros' not found` | 새 터미널을 안 엶. 그래도 안 되면 `./install.sh` 다시 |
-| `No module named 'huphy'` | `colcon build` 를 직접 쳤음. `./install.sh` 다시 |
+| `Package 'huphy_ros' not found` | 새 터미널을 안 엶. 그래도 안 되면 `ros/install.sh` 다시 |
+| `No module named 'huphy'` | `colcon build` 를 직접 쳤음. `ros/install.sh` 다시 |
 | 스크립트가 `✗` 로 멈춤 | 그 줄에 이유가 있음. 고치고 다시 실행 |
 
 ---
