@@ -76,6 +76,7 @@ from __future__ import annotations
 import argparse
 import logging
 import math
+import os
 import select
 import sys
 import termios
@@ -307,12 +308,16 @@ class QuitWatcher:
             ready, _, _ = select.select([sys.stdin], [], [], 0.1)
             if not ready:
                 continue
-            key = sys.stdin.read(1)
-            if key == QUIT_KEY:
-                logger.info("Ctrl-Q -- 멈춤")
-                self.loop.stop()
-                return
-            self.on_key(key)
+            # 와 있는 것을 한 번에 다 읽음. `sys.stdin.read(1)` 은 파이썬 버퍼에 나머지를
+            # 쌓아 두는데 select 는 그 버퍼를 못 봐서, 빨리 누른 두 번째 키부터 다음
+            # 키를 누를 때까지 처리되지 않았음.
+            data = os.read(sys.stdin.fileno(), 64).decode(errors="ignore")
+            for key in data:
+                if key == QUIT_KEY:
+                    logger.info("Ctrl-Q -- 멈춤")
+                    self.loop.stop()
+                    return
+                self.on_key(key)
 
     def on_key(self, key: str) -> None:
         """Ctrl-Q 말고 다른 키. 여기서는 버림 -- 이어받는 쪽(`run.EnterWatcher`)이 씀."""

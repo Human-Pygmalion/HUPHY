@@ -522,3 +522,39 @@ class TestQuitWatcher:
             assert termios.tcgetattr(slave)[0] & termios.IXON
         finally:
             os.close(master)
+
+    def test_keys_typed_together_are_all_seen(self, monkeypatch):
+        """한꺼번에 들어온 키를 다 봄. 한 글자씩 `sys.stdin.read(1)` 로 읽던 때는 나머지가
+        파이썬 버퍼에 남아 select 에 안 보여, 다음 키를 누를 때까지 처리되지 않았음."""
+        import os
+        import pty
+        import sys
+        import time
+
+        class FakeLoop:
+            stopped = False
+
+            def stop(self):
+                self.stopped = True
+
+        class Recorder(selftest.QuitWatcher):
+            def __init__(self, loop):
+                super().__init__(loop)
+                self.keys = []
+
+            def on_key(self, key):
+                self.keys.append(key)
+
+        master, slave = pty.openpty()
+        try:
+            monkeypatch.setattr(sys, "stdin", os.fdopen(slave, "r"))
+            loop = FakeLoop()
+            with Recorder(loop) as watcher:
+                os.write(master, b"ab\x11")
+                deadline = time.monotonic() + 2.0
+                while not loop.stopped and time.monotonic() < deadline:
+                    time.sleep(0.01)
+            assert watcher.keys == ["a", "b"]
+            assert loop.stopped
+        finally:
+            os.close(master)
