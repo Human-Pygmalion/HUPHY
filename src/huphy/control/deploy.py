@@ -126,6 +126,8 @@ class Commands:
             n: (s.start if s.max_rate is not None else self.targets[n])
             for n, s in self.specs.items()
         }
+        self.source: Optional[Callable[[], Dict[str, float]]] = None
+        """있으면 매 `step` 마다 목표를 여기서 받음 (`teleop.Teleop.targets`)."""
 
     def set(self, name: str, value: float) -> None:
         if name not in self.specs:
@@ -135,6 +137,9 @@ class Commands:
             self.values[name] = float(value)
 
     def step(self, dt: float) -> Dict[str, float]:
+        if self.source is not None:
+            for name, value in self.source().items():
+                self.set(name, value)
         for name, spec in self.specs.items():
             if spec.max_rate is None:
                 self.values[name] = self.targets[name]

@@ -12,6 +12,7 @@ control/
 ├── motions.py            매 주기 무엇을 시킬지 정함
 ├── policy.py             `PolicySpec` -- 가중치 파일과 대조하는 규격 자료형
 ├── deploy.py             정책 꾸러미(deploy_contract.json + .pt)를 읽어 돌리는 공통 실행기
+├── teleop.py             pygame 창으로 정책 명령을 실시간 조작 (별도 프로세스)
 ├── rsl_rl.py             체크포인트(.pt) -> 부를 수 있는 함수. numpy 만 씀
 ├── studio.py             웹 요청으로 토크·게인·자세·동작 순서를 다루는 세션 (huphy-test studio)
 └── POLICY.md             정책 실행 -- 실행 방법, 제한사항, 앞으로 바꿀 것

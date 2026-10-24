@@ -89,8 +89,8 @@ PY="$VENV/bin/python"
 step "3. huphy 설치"
 # setuptools 80 이상은 colcon 과 안 맞음.
 "$PY" -m pip install -q --upgrade pip "setuptools>=64,<80"
-"$PY" -m pip install -q -e "$REPO[imu]"
-ok "pip install -e .[imu]"
+"$PY" -m pip install -q -e "$REPO[imu,teleop]"
+ok "pip install -e .[imu,teleop]"
 
 # ---- 4. ROS 패키지 빌드 ----------------------------------------------------
 step "4. ROS 패키지 빌드 ($WS)"

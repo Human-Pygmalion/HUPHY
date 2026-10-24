@@ -212,6 +212,7 @@ pip install --upgrade pip
 pip install -e .            # python-can, numpy, PyYAML
 pip install -e ".[dev]"     # + pytest
 pip install -e ".[imu]"     # + pyserial. IMU 를 붙일 때만
+pip install -e ".[teleop]"  # + pygame. huphy-run --teleop 을 쓸 때만
 ```
 
 `-e` 는 **소스를 그대로 씀.** 코드를 고치면 다시 설치하지 않아도 바로 반영됨.
@@ -957,6 +958,36 @@ huphy-run --policy generalized_walk --cmd vx=0.5 --log
 huphy-run --policy generalized_walk --cmd vx=0.5 --hz 50 --drain-ms 4 --gain-scale 0.5 0.8 --log
 ```
 
+**`--teleop` 이면 pygame 창으로 실시간 조작함.** `--cmd` 만 주면 실행 내내 고정값.
+화면이 있어야 함 (ssh 면 `ssh -X`). pygame 은 `pip install -e ".[teleop]"`.
+
+```bash
+huphy-run --policy generalized_walk --teleop                       # walk, 기본 설정
+huphy-run --policy generalized_walk --teleop --max vx=0.8 --accel vx=0.4 --decel vx=1.5
+huphy-run --policy huphy_squat --teleop                     # squat
+```
+
+| 창에서 누르는 키 | 하는 일 |
+|---|---|
+| `W` / `S` | `vx` 앞 / 뒤. **누르는 동안 `accel` 로 가속**, 떼면 `decel` 로 감속해 정확히 0 |
+| `A` / `D` | `wz` 왼쪽 / 오른쪽 회전. 같은 방식 |
+| `↑` / `↓` | `h_star` (squat). 누르는 동안 0.05 m/s 로 움직이고 떼면 그 자리 |
+| `Space` | 속도 명령 즉시 0 |
+| `Enter` | 정책 시작 (터미널 Enter 도 됨) |
+| `Esc` · `Ctrl-C` · `Ctrl-Q` / 창 닫기 | 멈춤. 창이 선택돼 있으면 Ctrl-C·Ctrl-Q 가 터미널이 아니라 창으로 가므로 창에서도 받음 |
+
+| 설정 | 기본 | 뜻 |
+|---|---|---|
+| `--max 이름=값` | 0.5 | 속도 상한 (vx m/s, wz rad/s) |
+| `--accel 이름=값` | 0.5 (h_star 0.05) | 누르는 동안의 가속도. h_star 는 움직이는 속도 m/s |
+| `--decel 이름=값` | 1.0 | 뗐을 때의 감속도. 반대 키로 멈출 때도 이 값 |
+
+W 와 A 를 같이 누르면 앞으로 가면서 돎. 창이 포커스를 잃으면 키를 다 뗀 것으로 봄.
+
+**제어 루프와 다른 프로세스에서 돎** (`control/teleop.py`). 제어 루프는 매 정책 주기
+공유 메모리에서 숫자를 읽기만 함 (약 1.4µs). pygame 프로세스가 죽거나 0.2초 넘게
+값을 안 쓰면 속도 명령은 0, 높이는 마지막 값이 됨.
+
 새 정책은 학습 쪽 꾸러미(`deploy_contract.json` + `.pt`)를 `config/policies/<이름>/`
 에 넣으면 끝임. 계약에 이 코드가 모르는 관찰 항목(`func`)이 있으면 모터를 켜기 전에
 멈추고, 그때만 `control/deploy.py` 의 `OBSERVATIONS` 에 함수를 하나 더하면 됨.
@@ -996,7 +1027,8 @@ huphy-run --policy generalized_walk --cmd vx=0.5 --hz 50 --drain-ms 4 --gain-sca
 |---|---|
 | `--policy` | 꾸러미 이름(`config/policies/<이름>/`) 또는 폴더 경로. **필수** — 기본값 없음 |
 | `--checkpoint` | 계약의 `checkpoints` 중 하나. 기본은 계약의 `default_checkpoint` |
-| `--cmd 이름=값` | 정책 명령. 여러 번 줄 수 있음. 실행 내내 고정값 |
+| `--cmd 이름=값` | 정책 명령. 여러 번 줄 수 있음. `--teleop` 없으면 실행 내내 고정 |
+| `--teleop` | pygame 창으로 실시간 조작 (위 표). `--max/--accel/--decel 이름=값` 으로 설정 |
 | `--hz` | 모터 전송 주기. 기본은 정책 주기(지금 둘 다 50). **그 정수 배**만 받음. 정책은 늘 정책 주기로만 불리고 그 사이 주기는 직전 목표를 다시 보냄 |
 | `--gain-scale A [B]` | kp/kd 배율. 숫자 하나면 전체, 둘이면 **나머지 A · 발목 B** (`ankle_a`/`ankle_b`). 0 초과 1 이하. 시작 화면에 실제로 걸린 값이 찍힘 |
 | `--log [DIR]` | 정책 입출력(`policy_*.csv`)과 관절별 응답 지연(`latency_*.csv`)을 남김. 폴더를 안 주면 `logs/` |

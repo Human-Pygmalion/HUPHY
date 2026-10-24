@@ -768,7 +768,9 @@ huphy-run --policy huphy_squat --checkpoint 4500
 |---|---|---|
 | `--policy` | **필수** | 꾸러미 이름 또는 폴더 (`generalized_walk`, `huphy_squat`) |
 | `--checkpoint` | 계약의 `default_checkpoint` | 같은 꾸러미의 다른 체크포인트 |
-| `--cmd 이름=값` | 계약의 시작값 | 정책 명령. 여러 번. 실행 내내 고정 |
+| `--cmd 이름=값` | 계약의 시작값 | 정책 명령. 여러 번. `--teleop` 없으면 실행 내내 고정 |
+| `--teleop` | 끔 | pygame 창으로 실시간 조작 (`control/teleop.py`, 별도 프로세스). W/S vx, A/D wz, ↑/↓ h_star, Space 0, Enter 시작, Esc·Ctrl-C·Ctrl-Q 멈춤 |
+| `--max/--accel/--decel 이름=값` | 0.5 / 0.5 / 1.0 | `--teleop` 의 속도 상한 · 누르는 동안 가속 · 뗐을 때 감속 (h_star 는 `--accel` 만, 기본 0.05 m/s) |
 | `--hz` | 정책 주기 | 모터 전송 주기. 정책 주기의 정수 배. 정책은 늘 정책 주기 (`held`) |
 | `--drain-ms` | `2` | 응답 대기. slcan(1.0) 이면 `--hz 50 --drain-ms 4` |
 | `--gain-scale A [B]` | `1.0` | kp/kd 배율. 하나면 전체, 둘이면 나머지 A · 발목(`ANKLE_MOTORS`) B |

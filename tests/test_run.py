@@ -573,3 +573,41 @@ class TestDrainAndReport:
             go(*REAL, "--drain-ms", "-1")
 
 
+
+# ===========================================================================
+# --teleop — pygame 창 (더미 화면)
+# ===========================================================================
+class TestTeleop:
+    @pytest.fixture
+    def dummy(self, monkeypatch):
+        pytest.importorskip("pygame")
+        monkeypatch.setenv("SDL_VIDEODRIVER", "dummy")
+
+    def test_walk_runs_with_the_window(self, go, dummy):
+        code, out = go(*REAL, "--teleop", "--max", "vx=0.8")
+        assert code == 0, out
+        assert "조작     pygame 창: W/S vx (최대 0.8, 가속 0.5, 감속 1)" in out
+        assert "A/D wz" in out
+
+    def test_squat_runs_with_the_window(self, go, dummy):
+        code, out = go(*REAL, "--policy", "huphy_squat", "--teleop", "--cmd", "h_star=0.85")
+        assert code == 0, out
+        assert "↑/↓ h_star (0.05/s)" in out
+
+    def test_velocity_from_cmd_is_refused_with_teleop(self, go, dummy):
+        """떼면 0 이 되는데 --cmd vx 를 주면 사람이 헷갈림."""
+        with pytest.raises(SystemExit, match="속도 명령을 --cmd 로 주지 않음"):
+            go(*REAL, "--teleop", "--cmd", "vx=0.5")
+        assert FakeBus.instances == []
+
+    def test_limits_without_teleop_are_refused(self, go):
+        with pytest.raises(SystemExit, match="--teleop 과 같이"):
+            go(*REAL, "--max", "vx=0.8")
+        assert FakeBus.instances == []
+
+    def test_no_window_stops_before_the_motors(self, go, monkeypatch):
+        pytest.importorskip("pygame")
+        monkeypatch.setenv("SDL_VIDEODRIVER", "no_such_driver")
+        with pytest.raises(SystemExit, match="pygame 창을 못 띄움"):
+            go(*REAL, "--teleop")
+        assert all(not bus.sent for bus in FakeBus.instances)

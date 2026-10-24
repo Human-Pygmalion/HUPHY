@@ -16,11 +16,15 @@
 숫자가 없음.**
 
 
-## 명령은 `--cmd 이름=값`
+## 명령: 고정값(`--cmd`) 또는 pygame 조작(`--teleop`)
 
 이름은 계약이 정함: walk 는 `vx`, `wz`, squat 는 `h_star`. 안 주면 계약의 시작값
 (walk 0, squat 기본자세 높이 0.8914 m). 범위가 있는 명령은 범위 밖이면 시작 전에
 거부함. 속도 제한이 있는 명령(`h_star`, 0.1 m/s)은 시작값에서 목표까지 그 속도로 감.
+
+`--teleop` 이면 pygame 창(별도 프로세스, `control/teleop.py`)에서 실시간으로 조작함.
+walk 는 W/S·A/D 를 누르는 동안 가속(적분), 떼면 감속해 0. 상한·가속·감속은
+`--max/--accel/--decel 이름=값`. squat 는 ↑/↓ 로 높이.
 
 
 ## 게인은 `robot.yaml`을 그대로 씀
@@ -46,7 +50,7 @@ import sys
 from pathlib import Path
 
 from ..config import ConfigError, load_robot
-from ..control import ControlLoop, Mode, deploy, held
+from ..control import ControlLoop, Mode, deploy, held, teleop
 from ..motors.canbus import DEFAULT_DRAIN_S, bring_up_hint
 from ..robots.leg import SEND_MODES, SEND_SEQ
 from ..telemetry import latency_log, live, policy_log
@@ -162,9 +166,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--cmd", action="append", default=[], metavar="NAME=VALUE",
         help=(
             "정책 명령. 여러 번 줄 수 있음 (예: --cmd vx=0.5 --cmd wz=0.1, "
-            "--cmd h_star=0.80). 이름은 정책 계약이 정함. 실행 내내 고정"
+            "--cmd h_star=0.80). 이름은 정책 계약이 정함. --teleop 없으면 실행 내내 고정, "
+            "있으면 높이 명령의 시작 목표로만 씀"
         ),
     )
+    p.add_argument(
+        "--teleop", action="store_true",
+        help=(
+            "pygame 창으로 명령을 실시간 조작 (별도 프로세스). walk: W/S vx, A/D wz -- "
+            "누르는 동안 가속, 떼면 감속해 0. squat: 위/아래 화살표로 h_star. "
+            "창에서 Enter 시작, Space 속도 0, Esc·Ctrl-C·Ctrl-Q 멈춤. 화면이 필요함 (ssh 면 -X)"
+        ),
+    )
+    for name, what in (("max", "속도 상한"), ("accel", "누르는 동안의 가속도 (높이는 변화 속도 m/s)"),
+                       ("decel", "뗐을 때의 감속도")):
+        p.add_argument(
+            f"--{name}", action="append", default=[], metavar="NAME=VALUE",
+            help=f"--teleop 의 {what}. 예: --{name} vx=0.5. 여러 번 줄 수 있음",
+        )
     p.add_argument(
         "--hz", type=float,
         help=(
@@ -340,6 +359,43 @@ def _parse_commands(items, policy: "deploy.DeployPolicy") -> "deploy.Commands":
         raise SystemExit(f"--cmd: {e}") from e
 
 
+def _name_values(items, flag: str) -> dict:
+    """`이름=값` 목록 -> 사전. 꼴이 틀리면 멈춤."""
+    out = {}
+    for item in items:
+        name, sep, value = item.partition("=")
+        if not sep:
+            raise SystemExit(f"--{flag} 는 이름=값 꼴이어야 함 (받은 값 {item!r})")
+        try:
+            out[name.strip()] = float(value)
+        except ValueError:
+            raise SystemExit(f"--{flag} {name}: 숫자가 아님 ({value!r})") from None
+    return out
+
+
+def _make_teleop(args, policy, commands, title: str):
+    """`--teleop` -> pygame 프로세스를 띄움. 창이 안 뜨면 멈춤 (CAN 을 열기 전)."""
+    overrides = {k: _name_values(getattr(args, k), k) for k in ("max", "accel", "decel")}
+    if not args.teleop:
+        used = [f"--{k}" for k, v in overrides.items() if v]
+        if used:
+            raise SystemExit(f"{' '.join(used)} 는 --teleop 과 같이 쓸 것")
+        return None
+    if not commands.specs:
+        raise SystemExit("--teleop: 이 정책에는 조작할 명령이 없음")
+    fixed = [n for n in commands.targets if n in teleop.VELOCITY_KEYS and n in
+             {i.partition("=")[0].strip() for i in args.cmd}]
+    if fixed:
+        raise SystemExit(
+            f"--teleop 에서는 속도 명령을 --cmd 로 주지 않음 ({fixed}). 키를 떼면 0 이 됨"
+        )
+    try:
+        axes = teleop.make_axes(policy.commands.values(), overrides)
+        return teleop.Teleop(axes, start=dict(commands.targets), title=title).start()
+    except teleop.TeleopError as e:
+        raise SystemExit(f"--teleop: {e}") from e
+
+
 def _command_line(commands: "deploy.Commands") -> str:
     """시작 화면의 명령 줄."""
     if not commands.specs:
@@ -430,13 +486,19 @@ def main(argv=None) -> int:
             "(각속도 3, 중력 방향 3).\nrobot.yaml 의 imus 에 적을 것"
         )
 
+    # pygame 창. 못 띄우면 여기서 멈춤 -- 아직 CAN 을 안 엶.
+    pad = _make_teleop(args, policy, commands, f"huphy-run {policy.name}")
+    if pad is not None:
+        commands.source = pad.targets
+
     channels = [limb.channel for limb in limbs]
     try:
         leg.connect()
-    except ImportError as e:
-        raise SystemExit(f"{e}") from e
-    except ConnectionError as e:
-        raise SystemExit(f"{e}\n{bring_up_hint(channels)}") from e
+    except (ImportError, ConnectionError) as e:
+        if pad is not None:
+            pad.close()
+        hint = f"\n{bring_up_hint(channels)}" if isinstance(e, ConnectionError) else ""
+        raise SystemExit(f"{e}{hint}") from e
 
     loop = ControlLoop(leg, hz=args.hz, mode=Mode.CONTROL)
     signal.signal(signal.SIGINT, lambda *_: loop.stop())
@@ -454,13 +516,14 @@ def main(argv=None) -> int:
         f"  정책     {policy.name}  (입력 {policy.obs_dim}, 출력 {len(policy.order)})",
         f"  가중치   {model.path}  (체크포인트 {model.checkpoint}{golden_note})",
         _gain_line(leg, body_scale, ankle_scale),
-        _command_line(commands),
+        pad.help_line() if pad is not None else _command_line(commands),
         f"  IMU      {', '.join(i.name for i in leg.imus)}",
         "",
         f"  기준자세 무릎 {target_pose['right_leg/knee']:+.1f}도"
         f"  엉덩이 {target_pose['right_leg/hip_pitch']:+.1f}도",
         f"  {args.approach:.0f}초에 걸쳐 기준 자세로 옮긴 뒤 그 자세로 기다립니다.",
-        "  Enter 를 누르면 정책이 시작됩니다.",
+        "  Enter 를 누르면 정책이 시작됩니다."
+        + (" (pygame 창에서도 됨)" if pad is not None else ""),
         "",
         "  ** 상태 기계와 토크 가드가 없음. 넘어져도 멈추지 않음 **",
         "  Ctrl-Q 로 멈춤. 멈출 때 kp=0 으로 속도를 죽인 뒤 토크를 끊음.",
@@ -509,6 +572,8 @@ def main(argv=None) -> int:
         server = live.start(feed, args.live)
         if server is not None:
             looped = feed.wrap_motion(motion)
+    if pad is not None:
+        looped = teleop.teleop_motion(looped, pad, loop, motion)
 
     try:
         with EnterWatcher(motion, loop):
@@ -523,6 +588,8 @@ def main(argv=None) -> int:
     finally:
         leg.disconnect()
         print("\n  종료. 토크가 끊겼음")
+        if pad is not None:
+            pad.close()
         if server is not None:
             server.stop()
         if log is not None:

@@ -100,6 +100,11 @@ IMU(ImuState)  ──┼─> history 에 지금 관절각 추가 (history_frames
                      joint_targets(출력)         기본자세 + 배율 x 행동, 자름, 도
 ```
 
+명령 목표는 도는 중에 바뀔 수 있음. `huphy-run --teleop` 이면 `Commands.source` 가
+`teleop.Teleop.targets` 이고, `Commands.step` 이 매 정책 주기 그 값을 목표로 넣음.
+pygame 은 별도 프로세스(`teleop._process`)에서 `TeleopState.update` 로 누름/뗌을
+적분·감속·상한 처리해 공유 메모리에 씀 -- [`teleop.py`](teleop.py) 모듈 설명.
+
 `huphy-run` 은 `DeployPolicy.motion()` 으로 이것을 `Motion` 으로 감싸고, ROS
 `policy_node` 는 `Runner` 를 직접 들고 토픽 값을 `runner.commands.set()` 으로 넣음.
 

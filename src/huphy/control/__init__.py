@@ -4,6 +4,7 @@
     motions.py            매 주기 무엇을 시킬지 정함
     policy.py             `PolicySpec` -- 가중치 파일과 대조하는 규격 자료형
     deploy.py             정책 꾸러미(deploy_contract.json + .pt)를 읽어 돌리는 공통 실행기
+    teleop.py             pygame 창으로 정책 명령을 실시간 조작 (별도 프로세스, pygame 은 선택)
     rsl_rl.py             체크포인트(.pt) -> 부를 수 있는 함수. numpy 만 씀
 
 둘을 나눈 이유: 루프는 주기와 안전만 보고, 무엇을 시킬지는 동작이 정함. 같은 루프로
