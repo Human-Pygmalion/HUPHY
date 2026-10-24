@@ -19,6 +19,7 @@ tests/
 ├── test_control.py         control/                    45개
 ├── test_policy.py          control/policy.py           27개
 ├── test_rsl_rl.py          control/rsl_rl.py           24개
+├── test_deploy.py          control/deploy.py           34개
 ├── test_run.py             scripts/run.py              17개
 ├── test_bringup.py         scripts/bringup.py          36개
 └── test_selftest.py        scripts/selftest.py         27개

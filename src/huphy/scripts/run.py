@@ -1,35 +1,38 @@
-"""정책 실행 — 학습한 걷기 정책으로 양다리를 움직임.
+"""정책 실행 — 정책 꾸러미 하나를 골라 양다리를 움직임.
 
-    huphy-run --vx 0.5 --wz 0.0
-    huphy-run --vx 1.0 --weights config/policies/other_checkpoint.pt
+    huphy-run --policy generalized_walk --cmd vx=0.5 --cmd wz=0.1
+    huphy-run --policy huphy_squat --cmd h_star=0.80
+    huphy-run --policy huphy_squat --checkpoint 4500
 
 브링업과 **같은 다리·같은 루프**를 씀. 다르게 들어가는 것은 매 주기 관절 목표를
 내는 것 하나뿐임 -- 브링업은 사인파 같은 것을 넣고, 여기는 모델을 넣음.
 
-**정책은 `generalized_walk` 하나뿐임.** 과거에 `balance`/`hopping`/`stand`가
-있었는데 더 이상 돌리지 않아서 지웠음 -- `control/generalized_walk.py`가 지금부터의
-정식 입출력 규격임(44칸 입력, 12관절 출력, 양다리 전용).
+
+## 정책은 꾸러미 폴더 하나임
+
+`--policy 이름` 이면 `config/policies/<이름>/` 을 씀 (폴더 경로를 그대로 줘도 됨).
+그 안의 `deploy_contract.json` 이 관절 순서, 기본 자세, 자르기 범위, 관찰 구성, 주기,
+명령, 가중치 파일 이름을 정함 -- 읽는 쪽은 `control/deploy.py`. **이 파일에는 정책별
+숫자가 없음.**
 
 
-## 명령(vx, wz)을 실행할 때 고정값으로 줌
+## 명령은 `--cmd 이름=값`
 
-정책 관찰의 마지막 두 칸이 속도 명령임. `--vx`/`--wz`로 주면 그 값이 **실행
-내내 고정**임 -- 매 주기 새로 읽지 않음. 걷는 동안 속도를 바꾸고 싶으면 멈추고
-다른 값으로 다시 실행할 것.
+이름은 계약이 정함: walk 는 `vx`, `wz`, squat 는 `h_star`. 안 주면 계약의 시작값
+(walk 0, squat 기본자세 높이 0.8914 m). 범위가 있는 명령은 범위 밖이면 시작 전에
+거부함. 속도 제한이 있는 명령(`h_star`, 0.1 m/s)은 시작값에서 목표까지 그 속도로 감.
 
 
 ## 게인은 `robot.yaml`을 그대로 씀
 
 정책은 **학습에 쓴 게인**으로 돌아야 함. `robot.yaml`(`robot_v1.0.yaml`)이 곧
-이 정책이 학습에서 가정한 사양값이라 덮어쓰지 않음 -- 관절 묶음마다 다름(150/150,
-75, 130, 60 같은 식이 아니라 지금은 135/75/130/60, `config/robot.yaml` 참조).
+학습에서 가정한 사양값이라 덮어쓰지 않음 (135/75/130/60, `config/robot.yaml` 참조).
 
 
 ## 아직 없는 것
 
     상태 기계        지금은 정책 하나만 돎. 넘어져도 안 멈춤
-    토크 가드        한계 검사가 발목 토크 경로엔 안 걸림(이 정책은 위치 출력만 써서 해당 없음)
-    torch 대조       numpy 로 다시 짠 계산을 학습 쪽과 맞춰 보지 않았음
+    토크 가드        한계 검사가 발목 토크 경로엔 안 걸림(위치 출력만 써서 해당 없음)
 
 **사람이 옆에서 지켜보며 돌릴 것.**
 """
@@ -43,7 +46,7 @@ import sys
 from pathlib import Path
 
 from ..config import ConfigError, load_robot
-from ..control import ControlLoop, Mode, generalized_walk, held, rsl_rl
+from ..control import ControlLoop, Mode, deploy, held
 from ..motors.canbus import DEFAULT_DRAIN_S, bring_up_hint
 from ..robots.leg import SEND_MODES, SEND_SEQ
 from ..telemetry import latency_log, live, policy_log
@@ -54,12 +57,6 @@ from .selftest import QuitWatcher, approach
 
 logger = logging.getLogger("huphy.run")
 
-POLICY_NAME = "generalized_walk"
-"""로그 파일 이름·화면 표시에 씀. 정책이 하나뿐이라 선택지가 아니라 상수임."""
-
-SPEC = generalized_walk.SPEC
-ORDER = generalized_walk.ORDER
-
 ANKLE_MOTORS = ("ankle_a", "ankle_b")
 """`--gain-scale` 의 두 번째 숫자가 걸리는 모터. `robot.yaml` 의 모터 이름임."""
 
@@ -67,17 +64,9 @@ LOG_SKIP_S = 0.0
 """`--log-skip` 기본값. **정책 시작 부분은 버리지 않음** -- 정책이 켜진 직후가 가장 많이
 보는 구간임. 연결 직후의 느린 첫 주기들은 접근 구간에 들어가 이미 빠짐."""
 
-WEIGHTS_DIR = Path("config/policies")
-"""`--weights` 를 안 주면 `{WEIGHTS_DIR}/{POLICY_NAME}.pt` 를 찾음."""
+POLICIES_DIR = Path("config/policies")
+"""`--policy 이름` 을 찾는 곳. 저장소 꼭대기 기준."""
 
-POLICY_HZ = generalized_walk.HZ
-"""정책이 불리는 주기(50Hz). 시뮬이 0.005초 x 4 = 50Hz 로 학습했으므로 같아야 함.
-
-더 빠르게 부르면 모델이 학습 때보다 자주 불려서, 같은 행동이 더 오래 유지되는 것과
-같은 효과가 남 -- 시뮬과 다르게 움직임. **그래서 상수로 고정하고 CLI 인자로 안 뺌.**
-
-모터 전송 주기(`--hz`)는 이것과 다를 수 있음 -- 전송은 `control.held()` 가 이 값
-그대로 가둬 두고, 그 사이 주기는 직전 목표를 반복해 보냄."""
 
 
 DEFAULT_APPROACH_S = 3.0
@@ -148,34 +137,40 @@ class EnterWatcher(QuitWatcher):
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="huphy-run",
-        description="학습한 걷기 정책(generalized_walk)으로 양다리를 움직임.",
+        description="정책 꾸러미(config/policies/<이름>/)로 양다리를 움직임.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "예시:\n"
-            "  huphy-run --vx 0.5 --wz 0.0\n"
-            "  huphy-run --vx 1.0 --drain-ms 4 --hz 50 --log\n\n"
+            "  huphy-run --policy generalized_walk --cmd vx=0.5\n"
+            "  huphy-run --policy huphy_squat --cmd h_star=0.80 --log\n\n"
             "상태 기계와 토크 가드가 아직 없음. 사람이 지켜보며 돌릴 것.\n"
         ),
     )
     p.add_argument("--config", type=Path, help=f"기본값: 위로 올라가며 {CONFIG_NAME} 을 찾음")
     p.add_argument(
-        "--weights", type=Path,
-        help=f"가중치 파일. 기본값은 {WEIGHTS_DIR}/{POLICY_NAME}.pt",
-    )
-    p.add_argument(
-        "--vx", type=float, default=0.0,
-        help="앞뒤 속도 명령(m/s). 실행 내내 고정값임 (기본 0.0, 제자리)",
-    )
-    p.add_argument(
-        "--wz", type=float, default=0.0,
-        help="회전 속도 명령(rad/s). 실행 내내 고정값임 (기본 0.0)",
-    )
-    p.add_argument(
-        "--hz", type=float, default=POLICY_HZ,
+        "--policy", required=True, metavar="NAME|DIR",
         help=(
-            f"모터 전송 주기. 기본 {POLICY_HZ:.0f}. 정책은 항상 {POLICY_HZ:.0f}Hz 로만 "
-            f"불리고, 이 값을 그보다 높이면 그 사이 주기는 직전 목표를 반복 전송함. "
-            f"{POLICY_HZ:.0f} 의 정수 배여야 함"
+            f"정책 꾸러미 (필수). 이름이면 {POLICIES_DIR}/<이름>/, 폴더 경로도 됨. "
+            f"예: generalized_walk, huphy_squat"
+        ),
+    )
+    p.add_argument(
+        "--checkpoint", metavar="N",
+        help="계약의 checkpoints 중 하나. 기본은 계약의 default_checkpoint",
+    )
+    p.add_argument(
+        "--cmd", action="append", default=[], metavar="NAME=VALUE",
+        help=(
+            "정책 명령. 여러 번 줄 수 있음 (예: --cmd vx=0.5 --cmd wz=0.1, "
+            "--cmd h_star=0.80). 이름은 정책 계약이 정함. 실행 내내 고정"
+        ),
+    )
+    p.add_argument(
+        "--hz", type=float,
+        help=(
+            "모터 전송 주기. 기본은 정책 주기(계약의 control_rate_hz). 정책은 항상 "
+            "그 주기로만 불리고, 이 값을 그보다 높이면 그 사이 주기는 직전 목표를 "
+            "반복 전송함. 정책 주기의 정수 배여야 함"
         ),
     )
     p.add_argument(
@@ -262,13 +257,13 @@ def _gain_line(robot, scale: float = 1.0, ankle_scale: float = 1.0) -> str:
     return f"  게인     {body}  ({source})"
 
 
-def _save_log(log: "policy_log.PolicyLog", args) -> None:
+def _save_log(log: "policy_log.PolicyLog", args, name: str) -> None:
     """정책 기록을 씀. **실패해도 올리지 않음** -- 토크는 이미 끊긴 뒤임."""
     if not len(log):
         print("  정책 기록: 정책이 한 번도 안 불려서 남길 것이 없음")
         return
     try:
-        path = log.save(policy_log.default_path(args.log, POLICY_NAME))
+        path = log.save(policy_log.default_path(args.log, name))
     except OSError as e:
         print(f"  정책 기록 저장 실패: {e}")
         return
@@ -289,28 +284,74 @@ def _resume_on_first_call(motion, latency: "latency_log.LatencyLog"):
     return wrapped
 
 
-def _save_latency(latency: "latency_log.LatencyLog", args) -> None:
+def _save_latency(latency: "latency_log.LatencyLog", args, name: str) -> None:
     """지연 요약을 찍고 CSV 로 씀. 실패해도 올리지 않음."""
     if not len(latency):
         return
     print("\n" + latency.summary())
     try:
-        path = latency.save(latency_log.default_path(args.log, POLICY_NAME))
+        path = latency.save(latency_log.default_path(args.log, name))
     except OSError as e:
         print(f"  지연 기록 저장 실패: {e}")
         return
     print(f"  지연 기록: {path}")
 
 
-def _weights_path(args) -> Path:
-    """쓸 가중치 파일. 없으면 멈춤."""
-    path = args.weights if args.weights else WEIGHTS_DIR / f"{POLICY_NAME}.pt"
-    if not path.is_file():
-        raise SystemExit(
-            f"가중치 파일이 없음: {path}\n"
-            f"--weights 로 경로를 지정하거나 {WEIGHTS_DIR} 에 넣을 것"
-        )
-    return path
+def _policy_folder(arg: str, config_path: Path) -> Path:
+    """`--policy` -> 꾸러미 폴더. 폴더 경로면 그대로, 이름이면 정책 폴더에서 찾음.
+
+    찾는 순서: 주어진 경로 / robot.yaml 옆의 `policies/<이름>` / `config/policies/<이름>`.
+    """
+    candidates = [
+        Path(arg),
+        Path(config_path).parent / "policies" / arg,
+        POLICIES_DIR / arg,
+    ]
+    for folder in candidates:
+        if (folder / deploy.CONTRACT_NAME).is_file():
+            return folder
+    raise SystemExit(
+        f"정책 꾸러미를 못 찾음: {arg}\n"
+        f"{POLICIES_DIR}/<이름>/{deploy.CONTRACT_NAME} 가 있어야 함. 찾아본 곳: "
+        + ", ".join(str(c) for c in candidates)
+    )
+
+
+def _parse_commands(items, policy: "deploy.DeployPolicy") -> "deploy.Commands":
+    """`--cmd 이름=값` 들 -> 명령. 이름이 틀리거나 범위 밖이면 멈춤 (CAN 을 열기 전)."""
+    targets = {}
+    for item in items:
+        name, sep, value = item.partition("=")
+        if not sep:
+            raise SystemExit(f"--cmd 는 이름=값 꼴이어야 함 (받은 값 {item!r})")
+        try:
+            targets[name.strip()] = float(value)
+        except ValueError:
+            raise SystemExit(f"--cmd {name}: 숫자가 아님 ({value!r})") from None
+    for name, value in targets.items():
+        spec = policy.commands.get(name)
+        if spec is not None and spec.range is not None and not spec.range[0] <= value <= spec.range[1]:
+            raise SystemExit(
+                f"--cmd {name}={value:g} 는 학습 범위 [{spec.range[0]:g}, {spec.range[1]:g}] 밖임"
+            )
+    try:
+        return deploy.Commands(policy.commands.values(), targets)
+    except deploy.ContractError as e:
+        raise SystemExit(f"--cmd: {e}") from e
+
+
+def _command_line(commands: "deploy.Commands") -> str:
+    """시작 화면의 명령 줄."""
+    if not commands.specs:
+        return "  명령     없음"
+    parts = []
+    for name, spec in commands.specs.items():
+        target = commands.targets[name]
+        if spec.max_rate is not None and target != spec.start:
+            parts.append(f"{name}={spec.start:g}->{target:g} ({spec.max_rate:g}/s)")
+        else:
+            parts.append(f"{name}={target:g}")
+    return "  명령     " + "  ".join(parts) + "  (고정값)"
 
 
 def main(argv=None) -> int:
@@ -319,11 +360,6 @@ def main(argv=None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s %(message)s",
     )
-
-    if args.hz < POLICY_HZ or (args.hz / POLICY_HZ) % 1.0 > 1e-6:
-        raise SystemExit(
-            f"--hz 는 {POLICY_HZ:.0f} 의 정수 배여야 함 (받은 값 {args.hz})"
-        )
 
     path = args.config or _find_config()
     if path is None:
@@ -335,10 +371,27 @@ def main(argv=None) -> int:
     except ConfigError as e:
         raise SystemExit(f"{e}") from e
 
-    # 이 정책은 양다리 12관절 전용임 -- 다리 하나로는 입력 개수가 안 맞음.
+    # 정책 꾸러미. 모터를 켜기 전에 다 읽고 검사함 -- 계약 모양, sha256, 입출력
+    # 개수, 참조 입출력(있으면). 어긋나면 여기서 멈춤.
+    try:
+        policy = deploy.load(_policy_folder(args.policy, path))
+        model = policy.load_model(args.checkpoint)
+    except (deploy.ContractError, ValueError, OSError) as e:
+        raise SystemExit(f"{e}") from e
+    commands = _parse_commands(args.cmd, policy)
+
+    policy_hz = policy.hz
+    if args.hz is None:
+        args.hz = policy_hz
+    if args.hz < policy_hz or (args.hz / policy_hz) % 1.0 > 1e-6:
+        raise SystemExit(
+            f"--hz 는 {policy_hz:.0f} 의 정수 배여야 함 (받은 값 {args.hz})"
+        )
+
+    # 계약의 관절 이름이 가리키는 다리가 설정에 다 있어야 함.
     limbs = all_legs(robot)
     names = {limb.name for limb in limbs}
-    expected = {name.split("/")[0] for name in ORDER}
+    expected = {name.split("/")[0] for name in policy.order}
     missing = sorted(expected - names)
     if missing:
         raise SystemExit(
@@ -346,14 +399,6 @@ def main(argv=None) -> int:
             f"(있는 것: {sorted(names)}). robot.yaml 의 limbs 이름이 "
             f"{sorted(expected)} 여야 함"
         )
-
-    # 모터를 켜기 전에 읽음. 규격이 어긋나면 여기서 멈추는 것이 안전함. 출력
-    # 개수도 대조함.
-    weights = _weights_path(args)
-    try:
-        model = rsl_rl.load(weights, spec=SPEC, action_dim=len(ORDER))
-    except (ValueError, OSError) as e:
-        raise SystemExit(f"{e}") from e
 
     if args.drain_ms < 0:
         raise SystemExit(f"--drain-ms 는 0 이상이어야 함 (받은 값 {args.drain_ms})")
@@ -396,18 +441,20 @@ def main(argv=None) -> int:
     loop = ControlLoop(leg, hz=args.hz, mode=Mode.CONTROL)
     signal.signal(signal.SIGINT, lambda *_: loop.stop())
 
-    # 기준 자세는 0 이 아님 (엉덩이 10도, 무릎 20도). 0 으로 데려다 놓으면
-    # 정책이 켜지는 순간 그 차이를 한 번에 메우려 함.
-    target_pose = generalized_walk.default_pose()
+    # 기준 자세 = 계약의 행동 오프셋. 0 이 아님. 0 으로 데려다 놓으면 정책이
+    # 켜지는 순간 그 차이를 한 번에 메우려 함.
+    target_pose = policy.default_pose()
 
-    hz_note = f" (정책 {POLICY_HZ:.0f}Hz)" if args.hz != POLICY_HZ else ""
+    golden = getattr(model, "golden_max_diff", None)
+    golden_note = f", 참조 입출력 통과 {golden:.1e}" if golden is not None else ""
+    hz_note = f" (정책 {policy_hz:.0f}Hz)" if args.hz != policy_hz else ""
     lines = [
         "",
         f"  {leg.id}  {' '.join(channels)}  전송 {args.hz:.0f}Hz{hz_note}",
-        f"  정책     {POLICY_NAME}  (입력 {SPEC.obs_dim}, x{SPEC.action_scale})",
-        f"  가중치   {weights}",
+        f"  정책     {policy.name}  (입력 {policy.obs_dim}, 출력 {len(policy.order)})",
+        f"  가중치   {model.path}  (체크포인트 {model.checkpoint}{golden_note})",
         _gain_line(leg, body_scale, ankle_scale),
-        f"  명령     vx={args.vx:g} m/s  wz={args.wz:g} rad/s (고정값)",
+        _command_line(commands),
         f"  IMU      {', '.join(i.name for i in leg.imus)}",
         "",
         f"  기준자세 무릎 {target_pose['right_leg/knee']:+.1f}도"
@@ -423,15 +470,13 @@ def main(argv=None) -> int:
 
     start_pose = {
         joint: float(leg.get_observation().get(f"{joint}.pos", 0.0))
-        for joint in ORDER
+        for joint in policy.order
     }
     log = None
     if args.log is not None:
-        log = policy_log.PolicyLog(generalized_walk.OBS_NAMES, ORDER, robot=leg)
+        log = policy_log.PolicyLog(policy.obs_names, policy.order, robot=leg)
         model = log.wrap_model(model)
-    policy_motion = generalized_walk.motion(
-        model, leg.imus[0], command=(args.vx, args.wz)
-    )
+    policy_motion = policy.motion(model, leg.imus[0], commands=commands)
     if log is not None:
         policy_motion = log.wrap_motion(policy_motion)
     # 정책이 도는 동안만 잼. 꺼 둔 채 시작해 정책이 처음 불릴 때 켜고, 감쇠 정지에
@@ -449,16 +494,16 @@ def main(argv=None) -> int:
         policy_motion,
         hold_pose=target_pose,
     )
-    if args.hz != POLICY_HZ:
-        motion = held(motion, inner_hz=POLICY_HZ, outer_hz=args.hz)
+    if args.hz != policy_hz:
+        motion = held(motion, inner_hz=policy_hz, outer_hz=args.hz)
 
     # 실시간 뷰어는 루프에 넘기는 쪽만 감쌈. EnterWatcher 는 원래 motion 의 start()
     # 를 불러야 함.
     looped, server = motion, None
     if args.live is not None:
         feed = live.LiveFeed(
-            hz=args.hz, title=f"huphy-run {POLICY_NAME} · {leg.id}",
-            name=POLICY_NAME, save_dir=args.log or Path("logs"),
+            hz=args.hz, title=f"huphy-run {policy.name} · {leg.id}",
+            name=policy.name, save_dir=args.log or Path("logs"),
             robot=leg,
         )
         server = live.start(feed, args.live)
@@ -481,9 +526,9 @@ def main(argv=None) -> int:
         if server is not None:
             server.stop()
         if log is not None:
-            _save_log(log, args)
+            _save_log(log, args, policy.name)
         if latency is not None:
-            _save_latency(latency, args)
+            _save_latency(latency, args, policy.name)
     return 0
 
 

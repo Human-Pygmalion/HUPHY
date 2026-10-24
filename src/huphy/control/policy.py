@@ -2,7 +2,8 @@
 
 과거엔 0.5의 `balance`/`hopping` 관찰 빌더(`observation_vector`, `BALANCE`,
 `HOPPING`, `policy_motion` 등)도 여기 있었음. 그 정책들은 더 이상 돌리지 않아
-지웠음 -- `generalized_walk.py`가 지금부터의 정식 규격임.
+지웠음 -- 지금은 정책마다 `config/policies/<이름>/deploy_contract.json` 이 규격이고
+`deploy.py` 가 읽음.
 
 남은 것 둘은 그 정책들과 무관하게 **지금도 쓰임**:
 

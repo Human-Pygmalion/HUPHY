@@ -1,6 +1,10 @@
 """정책 노드 — 작업 기계에서 돎. 어디로 갈지 정함.
 
-    ros2 run huphy_ros policy_node --ros-args -p weights:=config/policies/generalized_walk.pt
+    ros2 run huphy_ros policy_node --ros-args -p policy:=config/policies/generalized_walk
+    ros2 run huphy_ros policy_node --ros-args -p policy:=config/policies/huphy_squat
+
+정책은 꾸러미 폴더 하나임 (`huphy-run --policy` 와 같음). 관절 순서, 기본 자세, 관찰
+구성, 주기, 명령은 그 안의 `deploy_contract.json` 이 정하고 `control/deploy.py` 가 읽음.
 
 ## CAN 을 모름
 
@@ -11,8 +15,8 @@
 
 메시지 도착이 아니라 타이머임 (`ros/README.md` 결정 6). 도착으로 하면 **네트워크
 지터가 그대로 추론 간격의 지터**가 됨 -- 정책은 20ms 간격을 전제로 학습했고,
-관찰 6-17칸의 `q(t-1)` 이 정확히 한 주기 전 값이어야 함
-(`control/generalized_walk.py` 의 `HISTORY_FRAMES`, `HZ`).
+관찰의 관절 이력 `q(t-1)` 이 정확히 한 주기 전 값이어야 함 (계약의
+`motor_encoder_rel.history_frames`, `control_rate_hz`).
 
     타이머 20ms
       마지막 joint_states 나이 < 60ms  ->  추론하고 목표각을 냄
@@ -29,25 +33,24 @@
 `/huphy/start_policy` 가 꺼짐 -> 접근, `approach_s` 가 지나면 접근 -> 정책.
 `/huphy/stop_policy` 가 꺼짐으로.
 
-접근을 여기서 하는 이유 (`ros/README.md` 결정 3): 기준 자세
-(`generalized_walk.DEFAULT_POSE_DEG`)를 아는 쪽이 여기뿐임. 모션보드에도 두면 같은
-값이 두 군데가 됨.
+접근을 여기서 하는 이유 (`ros/README.md` 결정 3): 기준 자세(계약의 행동 오프셋)를
+아는 쪽이 여기뿐임. 모션보드에도 두면 같은 값이 두 군데가 됨.
 
-## motion() 을 안 쓰는 이유
+## 명령 토픽
 
-`generalized_walk.motion(model, imu, command=...)` 은 `command` 를 호출 전체에서
-고정으로 받음. `huphy-run --vx --wz` 가 시작할 때 한 번 정하는 구조임.
+    /huphy/cmd_vel   Twist     linear.x -> vx, linear.y -> vy, angular.z -> wz
+    /huphy/h_star    Float64   -> h_star
 
-여기는 `/huphy/cmd_vel` 로 매 주기 바뀔 수 있어서, `motion()` 대신 그 안의
-`observation_vector` 와 `joint_targets` 를 직접 부르고 `q(t-1)`·`last_action`
-보관을 이 노드가 함 (`ros/README.md` 9장).
+정책에 있는 명령 칸만 씀 (walk 는 vx·wz, squat 는 h_star). 없는 칸은 버림. 안 오면
+계약의 시작값임. 값은 `deploy.Runner` 의 `commands` 에 넣고, 이력·직전 행동 보관도
+`Runner` 가 함 -- `huphy-run` 과 같은 코드임.
 """
 
 from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
@@ -55,10 +58,10 @@ from geometry_msgs.msg import Twist, Vector3Stamped
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu, JointState
+from std_msgs.msg import Float64
 from std_srvs.srv import Trigger
 
-from huphy.control import generalized_walk as gw
-from huphy.control import rsl_rl
+from huphy.control import deploy
 from huphy.scripts.selftest import approach
 from huphy.sensors.base import ImuState
 
@@ -75,37 +78,35 @@ class PolicyNode(Node):
     def __init__(self) -> None:
         super().__init__("huphy_policy")
 
-        self.declare_parameter("weights", "")
-        self.declare_parameter("hz", gw.HZ)
+        self.declare_parameter("policy", "")
+        self.declare_parameter("checkpoint", "")
+        self.declare_parameter("hz", 0.0)
         self.declare_parameter("state_stale_ms", POLICY_STATE_STALE_S * 1000.0)
         self.declare_parameter("approach_s", 3.0)
 
-        weights = self.get_parameter("weights").value
-        if not weights:
-            raise SystemExit("weights 파라미터에 .pt 경로를 줄 것")
-        if not Path(weights).is_file():
-            raise SystemExit(f"가중치 파일이 없음: {weights}")
+        folder = self.get_parameter("policy").value
+        if not folder:
+            raise SystemExit("policy 파라미터에 정책 꾸러미 폴더를 줄 것 (config/policies/<이름>)")
+        checkpoint = self.get_parameter("checkpoint").value or None
         try:
-            self.model = rsl_rl.load(weights, spec=gw.SPEC, action_dim=len(gw.ORDER))
-        except (ValueError, OSError) as e:
+            self.policy = deploy.load(Path(folder))
+            model = self.policy.load_model(checkpoint)
+        except (deploy.ContractError, ValueError, OSError) as e:
             raise SystemExit(f"{e}") from e
+        self.runner = self.policy.runner(model)
 
-        self.hz = float(self.get_parameter("hz").value)
+        self.hz = float(self.get_parameter("hz").value) or self.policy.hz
         self.approach_s = float(self.get_parameter("approach_s").value)
         stale_s = float(self.get_parameter("state_stale_ms").value) / 1000.0
         self.joints = Freshness(stale_s)
         self.imu = Freshness(stale_s)
         self.gravity = Latest()
-        self.command = Latest()
-        """`cmd_vel` 은 나이를 안 봄. 안 오면 (0, 0) 이고 그게 제자리임
-        (`generalized_walk.COMMAND_ZERO`). 끊겼다고 멈출 이유가 아님."""
+        """명령 토픽은 나이를 안 봄. 안 오면 계약의 시작값이고(walk 는 제자리, squat 는
+        기본자세 높이), 끊겼다고 멈출 이유가 아님."""
 
         self.stage = OFF
         self.started_at: Optional[float] = None
         self.approach_motion = None
-        self.last_action: List[float] = [0.0] * len(gw.ORDER)
-        self.previous: List[float] = []
-        """`q(t-1)`. **추론 호출 기준**임 -- 상태가 두 번 와도 한 번만 씀."""
         self.emitted = 0
 
         self.targets_pub = self.create_publisher(
@@ -119,14 +120,16 @@ class PolicyNode(Node):
         self.create_subscription(
             Vector3Stamped, "/huphy/gravity", self._on_gravity, qos_profile_sensor_data)
         self.create_subscription(Twist, "/huphy/cmd_vel", self._on_cmd, 10)
+        self.create_subscription(Float64, "/huphy/h_star", self._on_h_star, 10)
         self.create_service(Trigger, "/huphy/start_policy", self._on_start)
         self.create_service(Trigger, "/huphy/stop_policy", self._on_stop)
 
         self.create_timer(1.0 / self.hz, self._tick)
         self.create_timer(1.0 / STATUS_HZ, self._publish_status)
         self.get_logger().info(
-            f"generalized_walk  입력 {gw.SPEC.obs_dim}  출력 {len(gw.ORDER)}  "
-            f"{self.hz:.0f}Hz  가중치 {weights}  — start_policy 를 기다림")
+            f"{self.policy.name}  입력 {self.policy.obs_dim}  출력 {len(self.policy.order)}  "
+            f"{self.hz:.0f}Hz  가중치 {model.path}  명령 {sorted(self.policy.commands)}"
+            f"  — start_policy 를 기다림")
 
     # ---- 구독 — 짧게 끝낼 것 -----------------------------------------------
     def _on_joints(self, msg: JointState) -> None:
@@ -143,8 +146,17 @@ class PolicyNode(Node):
         self.gravity.put((msg.vector.x, msg.vector.y, msg.vector.z))
 
     def _on_cmd(self, msg: Twist) -> None:
-        # linear.y 는 버림 -- 정책 관찰에 vy 칸이 없음 (generalized_walk.COMMAND_ZERO).
-        self.command.put((float(msg.linear.x), float(msg.angular.z)))
+        # 정책에 있는 칸만 씀. walk 는 vy 칸이 없어서 linear.y 를 버림.
+        self._set_commands(
+            vx=float(msg.linear.x), vy=float(msg.linear.y), wz=float(msg.angular.z))
+
+    def _on_h_star(self, msg: Float64) -> None:
+        self._set_commands(h_star=float(msg.data))
+
+    def _set_commands(self, **values) -> None:
+        for name, value in values.items():
+            if name in self.policy.commands:
+                self.runner.commands.set(name, value)
 
     # ---- 서비스 -----------------------------------------------------------
     def _on_start(self, request, response):
@@ -157,11 +169,10 @@ class PolicyNode(Node):
                 f"control_node 가 돌고 있는지 볼 것")
             return response
 
-        start = {n: float(observation.get(f"{n}.pos", 0.0)) for n in gw.ORDER}
-        self.approach_motion = approach(gw.default_pose(), start, self.approach_s)
+        start = {n: float(observation.get(f"{n}.pos", 0.0)) for n in self.policy.order}
+        self.approach_motion = approach(self.policy.default_pose(), start, self.approach_s)
         self.started_at = self._now()
-        self.last_action = [0.0] * len(gw.ORDER)
-        self.previous = []
+        self.runner.reset()
         self.stage = APPROACH
         response.success = True
         response.message = f"{self.approach_s:.0f}초에 걸쳐 기준 자세로"
@@ -204,9 +215,8 @@ class PolicyNode(Node):
     def _infer(self, observation):
         """한 번 추론. 관찰이 모자라면 `None`.
 
-        `q(t-1)` 은 **직전 추론 때 쓴 관절각**임. 첫 주기는 이력이 없으므로 지금
-        위치로 앞을 메움 (`generalized_walk.motion` 이 하는 것과 같음) -- 0 으로
-        두면 정책이 한 주기 만에 기본자세만큼 움직였다고 읽음.
+        이력(`q(t-1)`)은 **추론 호출 기준**으로 `Runner` 가 쌓음 -- 상태가 두 번 와도
+        한 번만 씀. 첫 주기는 지금 위치로 앞을 메움.
         """
         gyro, fresh = self.imu.take()
         if not fresh:
@@ -220,24 +230,14 @@ class PolicyNode(Node):
             gyro_dps=tuple(math.degrees(float(v)) for v in gyro),
             gravity=tuple(float(v) for v in gravity),
         )
-        """`observation_vector` 가 다시 라디안으로 바꾸므로 도로 되돌려 넣음 --
+        """`deploy` 가 다시 라디안으로 바꾸므로 도로 되돌려 넣음 --
         `ImuState` 의 계약이 도/초이고 (`sensors/base.py`), 그 계약을 ROS 때문에
         바꾸지 않음."""
 
-        now = [float(observation.get(f"{n}.pos", 0.0)) for n in gw.ORDER]
-        if not self.previous:
-            self.previous = list(now)
-
-        command = self.command.take() or gw.COMMAND_ZERO
-        vector = gw.observation_vector(
-            observation, state, self.last_action, self.previous, tuple(command))
-        action = self.model(vector)
-        self.last_action = [float(v) for v in action]
-        self.previous = now
-        return gw.joint_targets(self.last_action)
+        return self.runner.step(observation, state)
 
     def _emit(self, targets) -> None:
-        names, position = convert.targets_to_arrays(targets, gw.ORDER)
+        names, position = convert.targets_to_arrays(targets, self.policy.order)
         msg = JointState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.name, msg.position = names, position
@@ -248,19 +248,20 @@ class PolicyNode(Node):
         return self.get_clock().now().nanoseconds * 1e-9
 
     def _publish_status(self) -> None:
-        command = self.command.take() or gw.COMMAND_ZERO
         pairs = {
             "stage": self.stage,
             "joint_age_s": f"{self.joints.age():.3f}",
             "imu_age_s": f"{self.imu.age():.3f}",
             "joint_stale_count": str(self.joints.stale_count),
             "emitted": str(self.emitted),
-            "vx": f"{command[0]:.3f}",
-            "wz": f"{command[1]:.3f}",
         }
+        pairs.update({
+            f"cmd_{name}": f"{value:.3f}"
+            for name, value in self.runner.commands.values.items()
+        })
         status = DiagnosticStatus()
         status.name = "huphy/policy"
-        status.hardware_id = gw.SPEC.name
+        status.hardware_id = self.policy.name
         status.level = (
             DiagnosticStatus.OK if self.stage == RUNNING
             else DiagnosticStatus.WARN

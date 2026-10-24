@@ -8,7 +8,7 @@
     이름   huphy 는 right_leg/knee, ROS 는 right_leg__knee
 
 저장소 안에 도<->라디안 변환이 이미 두 곳 있음 -- 프로토콜 경계
-(`motors/robstride/codec/mit.py`)와 모델 경계(`control/generalized_walk.py`).
+(`motors/robstride/codec/mit.py`)와 모델 경계(`control/deploy.py`).
 둘은 서로 안 만남. 이 파일이 세 번째이고 **ROS 경계 밖으로는 안 나감.**
 
 ## 구분자
@@ -81,11 +81,11 @@ def arrays_to_observation(
 ) -> Dict[str, float]:
     """`JointState` 배열 -> 관찰 사전 (huphy 이름, 도).
 
-    `policy_node` 가 씀. `generalized_walk.observation_vector` 가 `{관절}.pos` 꼴로
+    `policy_node` 가 씀. `deploy.Runner.step` 이 `{관절}.pos` 꼴로
     읽으므로 그 모양으로 되돌림.
 
     속도는 안 줘도 됨 -- 정책 관찰에 관절 속도 칸이 없음. 받으면 넣어 두되 쓰이지
-    않음 (`generalized_walk` 는 위치 두 프레임으로 대신함).
+    않음 (지금 정책들은 위치 두 프레임으로 대신함).
     """
     ros_names = list(names)
     pos = list(position_rad)
@@ -148,7 +148,7 @@ def imu_arrays(state) -> Tuple[List[float], List[float], List[float]]:
     이미 단위벡터라 변환이 없음.
 
     **중력방향은 `sensor_msgs/Imu` 에 자리가 없음.** 정책이 쓰는 값이 그 3칸이라
-    (`generalized_walk` 관찰 3-5칸), 쿼터니언으로 바꿨다 되푸는 왕복을 안 만들고
+    (계약의 `imu_gravity` 칸), 쿼터니언으로 바꿨다 되푸는 왕복을 안 만들고
     `Vector3Stamped` 로 그대로 내보냄 (`ros/README.md` 4-1).
     """
     return (

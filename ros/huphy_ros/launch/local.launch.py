@@ -27,9 +27,9 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("config", default_value="config/robot.yaml"),
         DeclareLaunchArgument(
-            "weights", default_value="config/policies/generalized_walk.pt"),
+            "policy", default_value="config/policies/generalized_walk"),
         _include("control.launch.py",
                  [("config", LaunchConfiguration("config"))]),
         _include("policy.launch.py",
-                 [("weights", LaunchConfiguration("weights"))]),
+                 [("policy", LaunchConfiguration("policy"))]),
     ])

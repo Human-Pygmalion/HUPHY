@@ -1,4 +1,4 @@
-"""`config/policies/generalized_walk.pt` 민감도 테스트 — 실제 가중치로 돈다.
+"""`config/policies/generalized_walk/` 민감도 테스트 — 실제 가중치로 돈다.
 
     PYTHONPATH=src python3 -m pytest tests/test_generalized_walk_sensitivity.py -q -v
 
@@ -21,30 +21,39 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from huphy.control import generalized_walk as gw
-from huphy.control import rsl_rl
+from huphy.control import deploy
 from huphy.sensors.base import ImuState
 
 REPO = Path(__file__).resolve().parent.parent
-WEIGHTS = REPO / "config" / "policies" / "generalized_walk.pt"
+WALK = deploy.load(REPO / "config" / "policies" / "generalized_walk")
+WEIGHTS = WALK.weights_path()
 
 
 @pytest.fixture(scope="module")
 def model():
-    return rsl_rl.load(WEIGHTS, spec=gw.SPEC, action_dim=len(gw.ORDER))
+    return WALK.load_model()
+
+
+def obs_vector(observation, imu, last_action, previous_pos, command=(0.0, 0.0)) -> np.ndarray:
+    """관찰 44칸. 이력은 [한 주기 전, 지금] 두 프레임."""
+    now = {j: float(observation.get(f"{j}.pos", 0.0)) for j in WALK.order}
+    previous = dict(zip(WALK.order, previous_pos))
+    frame = deploy.Frame(observation, imu, [previous, now], list(last_action),
+                         {"vx": command[0], "wz": command[1]})
+    return WALK.observation_vector(frame)
 
 
 def _vector(pos=None, gyro=(0.0, 0.0, 0.0), gravity=(0.0, 0.0, -1.0),
             last_action=None, previous_pos=None, command=(0.0, 0.0)) -> np.ndarray:
-    pos = pos if pos is not None else dict(gw.DEFAULT_POSE_DEG)
-    observation = {f"{j}.pos": float(pos[j]) for j in gw.ORDER}
+    pos = pos if pos is not None else dict(WALK.default_pose_deg)
+    observation = {f"{j}.pos": float(pos[j]) for j in WALK.order}
     imu = ImuState(gyro_dps=tuple(gyro), gravity=tuple(gravity), is_valid=True)
-    last_action = last_action if last_action is not None else [0.0] * len(gw.ORDER)
+    last_action = last_action if last_action is not None else [0.0] * len(WALK.order)
     previous_pos = (
         previous_pos if previous_pos is not None
-        else [gw.DEFAULT_POSE_DEG[j] for j in gw.ORDER]
+        else [WALK.default_pose_deg[j] for j in WALK.order]
     )
-    return gw.observation_vector(observation, imu, last_action, previous_pos, command)
+    return obs_vector(observation, imu, last_action, previous_pos, command)
 
 
 # ===========================================================================
@@ -55,10 +64,10 @@ class TestLoad:
         assert WEIGHTS.is_file(), f"{WEIGHTS} 가 없음"
 
     def test_input_is_44(self, model):
-        assert model.obs_dim == 44 == gw.OBS_DIM
+        assert model.obs_dim == 44 == WALK.obs_dim
 
     def test_output_is_12(self, model):
-        assert model.action_dim == 12 == len(gw.ORDER)
+        assert model.action_dim == 12 == len(WALK.order)
 
 
 # ===========================================================================
@@ -149,7 +158,7 @@ class TestJointSensitivity:
 
     def test_current_position_changes_output(self, model):
         base = model(_vector())
-        pos = dict(gw.DEFAULT_POSE_DEG)
+        pos = dict(WALK.default_pose_deg)
         pos["right_leg/knee"] += 10.0
         perturbed = model(_vector(pos=pos))
         delta = np.linalg.norm(perturbed - base)
@@ -163,7 +172,7 @@ class TestJointSensitivity:
         현재값(q(t))과 같은 칸으로 섞여 있으면 둘을 동시에 반대로 바꿨을 때
         상쇄돼 버림(아래 보완 테스트)."""
         base = model(_vector())
-        previous = [gw.DEFAULT_POSE_DEG[j] for j in gw.ORDER]
+        previous = [WALK.default_pose_deg[j] for j in WALK.order]
         previous[3] += 10.0  # right_leg/knee 의 '한 주기 전' 값만 바꿈
         perturbed = model(_vector(previous_pos=previous))
         delta = np.linalg.norm(perturbed - base)
@@ -175,12 +184,12 @@ class TestJointSensitivity:
     def test_a_joint_outside_order_cannot_be_smuggled_in(self, model):
         """`observation.get(..., 0.0)` 기본값 때문에, ORDER 에 없는 관절 이름으로
         값을 넣어도 조용히 무시됨 -- 오타가 나도 에러가 안 난다는 뜻. 재현해 둠."""
-        pos = {f"{j}.pos": float(gw.DEFAULT_POSE_DEG[j]) for j in gw.ORDER}
+        pos = {f"{j}.pos": float(WALK.default_pose_deg[j]) for j in WALK.order}
         pos["right_leg/hip_pitc.pos"] = 999.0  # 오타: hip_pitch 가 아님
 
         imu = ImuState(gravity=(0, 0, -1), gyro_dps=(0, 0, 0), is_valid=True)
-        previous = [gw.DEFAULT_POSE_DEG[j] for j in gw.ORDER]
-        vector = gw.observation_vector(pos, imu, [0.0] * 12, previous)
+        previous = [WALK.default_pose_deg[j] for j in WALK.order]
+        vector = obs_vector(pos, imu, [0.0] * 12, previous)
         # 오타 키는 그냥 안 읽히고, 진짜 키가 없으므로 0.0(기본자세 기준 상대각)이
         # 아니라 "관찰에 없음" 취급돼 0.0 - DEFAULT 가 들어감. 에러는 안 남.
         assert vector.shape == (44,)

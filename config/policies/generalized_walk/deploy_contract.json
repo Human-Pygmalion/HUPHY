@@ -1,0 +1,231 @@
+{
+ "package": "generalized_walk",
+ "task": "HUPHY 1.0 biped velocity-command walking",
+ "what": "maido-39/HuphyChan-dev vibecoded-audit-20261012 deploy/generalized_walk. Written by hand from the values the HUPHY repo already used (control/generalized_walk.py); no golden I/O from training.",
+ "control_rate_hz": 50.0,
+ "obs_dim": 44,
+ "action_dim": 12,
+ "default_checkpoint": "37400",
+ "target_pos_rad": "target = offset_rad + scale_rad_per_unit * action, then clipped to clip_rad",
+ "actions": [
+  {
+   "index": 0,
+   "joint": "R_hip_pitch_joint",
+   "scale_rad_per_unit": 0.25,
+   "offset_rad": -0.17500067343896744,
+   "clip_rad": [
+    -1.9678639676113625,
+    0.3097959422289935
+   ]
+  },
+  {
+   "index": 1,
+   "joint": "R_hip_roll_joint",
+   "scale_rad_per_unit": 0.25,
+   "offset_rad": 0.0,
+   "clip_rad": [
+    -0.34033920413889424,
+    1.387536755335492
+   ]
+  },
+  {
+   "index": 2,
+   "joint": "R_hip_yaw_joint",
+   "scale_rad_per_unit": 0.25,
+   "offset_rad": 0.0,
+   "clip_rad": [
+    -0.7068583470577035,
+    0.7068583470577035
+   ]
+  },
+  {
+   "index": 3,
+   "joint": "R_knee_joint",
+   "scale_rad_per_unit": 0.25,
+   "offset_rad": 0.34999960154868287,
+   "clip_rad": [
+    0.10471975511965978,
+    1.9896805832612916
+   ]
+  },
+  {
+   "index": 4,
+   "joint": "R_crank_A_joint",
+   "scale_rad_per_unit": 0.25,
+   "offset_rad": 0.1439547567044923,
+   "clip_rad": [
+    -1.0799992691585791,
+    1.0799992691585791
+   ]
+  },
+  {
+   "index": 5,
+   "joint": "R_crank_B_joint",
+   "scale_rad_per_unit": 0.25,
+   "offset_rad": -0.1470631881022942,
+   "clip_rad": [
+    -1.0799992691585791,
+    1.0799992691585791
+   ]
+  },
+  {
+   "index": 6,
+   "joint": "L_hip_pitch_joint",
+   "scale_rad_per_unit": 0.25,
+   "offset_rad": 0.17500067343896744,
+   "clip_rad": [
+    -0.3097959422289935,
+    1.9678639676113625
+   ]
+  },
+  {
+   "index": 7,
+   "joint": "L_hip_roll_joint",
+   "scale_rad_per_unit": 0.25,
+   "offset_rad": 0.0,
+   "clip_rad": [
+    -1.387536755335492,
+    0.34033920413889424
+   ]
+  },
+  {
+   "index": 8,
+   "joint": "L_hip_yaw_joint",
+   "scale_rad_per_unit": 0.25,
+   "offset_rad": 0.0,
+   "clip_rad": [
+    -0.7068583470577035,
+    0.7068583470577035
+   ]
+  },
+  {
+   "index": 9,
+   "joint": "L_knee_joint",
+   "scale_rad_per_unit": 0.25,
+   "offset_rad": -0.34999960154868287,
+   "clip_rad": [
+    -1.9896805832612916,
+    -0.10471975511965978
+   ]
+  },
+  {
+   "index": 10,
+   "joint": "L_crank_A_joint",
+   "scale_rad_per_unit": 0.25,
+   "offset_rad": -0.14388494353441253,
+   "clip_rad": [
+    -1.0799992691585791,
+    1.0799992691585791
+   ]
+  },
+  {
+   "index": 11,
+   "joint": "L_crank_B_joint",
+   "scale_rad_per_unit": 0.25,
+   "offset_rad": 0.14686945655532282,
+   "clip_rad": [
+    -1.0799992691585791,
+    1.0799992691585791
+   ]
+  }
+ ],
+ "default_pose_rad": {
+  "R_hip_pitch_joint": -0.17500067343896744,
+  "R_hip_roll_joint": 0.0,
+  "R_hip_yaw_joint": 0.0,
+  "R_knee_joint": 0.34999960154868287,
+  "R_crank_A_joint": 0.1439547567044923,
+  "R_crank_B_joint": -0.1470631881022942,
+  "L_hip_pitch_joint": 0.17500067343896744,
+  "L_hip_roll_joint": 0.0,
+  "L_hip_yaw_joint": 0.0,
+  "L_knee_joint": -0.34999960154868287,
+  "L_crank_A_joint": -0.14388494353441253,
+  "L_crank_B_joint": 0.14686945655532282
+ },
+ "observations": [
+  {
+   "term": "base_ang_vel",
+   "slice": [
+    0,
+    3
+   ],
+   "width": 3,
+   "func": "imu_gyro",
+   "unit": "rad/s",
+   "history_frames": 0
+  },
+  {
+   "term": "projected_gravity",
+   "slice": [
+    3,
+    6
+   ],
+   "width": 3,
+   "func": "imu_gravity",
+   "unit": "unit vector",
+   "history_frames": 0
+  },
+  {
+   "term": "motor_pos",
+   "slice": [
+    6,
+    30
+   ],
+   "width": 24,
+   "func": "motor_encoder_rel",
+   "unit": "rad",
+   "history_frames": 2,
+   "joint_names": [
+    "R_hip_pitch_joint",
+    "R_hip_roll_joint",
+    "R_hip_yaw_joint",
+    "R_knee_joint",
+    "R_crank_A_joint",
+    "R_crank_B_joint",
+    "L_hip_pitch_joint",
+    "L_hip_roll_joint",
+    "L_hip_yaw_joint",
+    "L_knee_joint",
+    "L_crank_A_joint",
+    "L_crank_B_joint"
+   ],
+   "definition": "encoder angle minus default pose, [previous frame 12][current frame 12], oldest first"
+  },
+  {
+   "term": "actions",
+   "slice": [
+    30,
+    42
+   ],
+   "width": 12,
+   "func": "last_action",
+   "unit": "none",
+   "history_frames": 0
+  },
+  {
+   "term": "velocity_command",
+   "slice": [
+    42,
+    44
+   ],
+   "width": 2,
+   "func": "velocity_command",
+   "unit": "m/s, rad/s",
+   "history_frames": 0,
+   "components": [
+    "vx",
+    "wz"
+   ],
+   "definition": "(vx, wz). No vy slot."
+  }
+ ],
+ "checkpoints": {
+  "37400": {
+   "iteration": 37400,
+   "pt": "generalized_walk.pt",
+   "pt_sha256": "7bbd5cbc1431fb8085b6533f457b4cbb7eb20b960f4c033a6907c3e7fe0fbe00",
+   "source": "terrain10_2048_model_37400.pt"
+  }
+ }
+}

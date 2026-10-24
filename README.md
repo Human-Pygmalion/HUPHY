@@ -933,22 +933,33 @@ huphy-test --robot --hz 200 --drain-ms 4 zero      # 주기·수거 대기를 �
 
 Ctrl-Q 까지 계속함. 끝나면 실패 집계를 찍음. 자세한 것은 [6번](#6-동작-확인).
 
-### 정책 실행 — 학습한 걷기 정책으로 움직임
+### 정책 실행 — 학습한 정책으로 움직임
 
-**정책은 `generalized_walk` 하나뿐임.** 예전에 있던 `balance`/`hopping`/`stand`는
-더 이상 돌리지 않아 지웠음 — `control/generalized_walk.py`가 지금부터의 정식
-입출력 규격임(44칸 입력, 12관절 출력, 양다리 전용). 속도 명령(`vx`, `wz`)은
-실행할 때 고정값으로 줌.
+**정책은 꾸러미 폴더 하나임.** `config/policies/<이름>/` 에 `deploy_contract.json`
+(입출력 명세)과 `.pt`(가중치)가 들어 있고, `--policy <이름>` 으로 고름 (**필수**). 관절 순서,
+기본 자세, 자르기 범위, 관찰 구성, 주기, 명령 이름은 **전부 계약 파일이 정함** —
+읽는 코드는 `control/deploy.py` 하나이고 정책별 코드는 없음.
+
+| `--policy` | 무엇 | 입력 | 명령 (`--cmd`) |
+|---|---|---|---|
+| `generalized_walk` | 속도 명령 걷기 | 44 | `vx` m/s, `wz` rad/s. 기본 0 |
+| `huphy_squat` | 목표 골반 높이로 앉았다 일어섬 | 43 | `h_star` m. 0.65~0.895, 기본 0.8914 |
 
 ```bash
-huphy-run --vx 0.5 --wz 0.0                       # 앞으로 0.5m/s
+huphy-run --policy generalized_walk --cmd vx=0.5   # 걷기, 앞으로 0.5m/s
+huphy-run --policy huphy_squat --cmd h_star=0.80  # 스쿼트, 0.8914 -> 0.80 m 를 0.1 m/s 로
+huphy-run --policy huphy_squat --checkpoint 4500  # 같은 꾸러미의 다른 체크포인트
 
-# 정책 입출력을 logs/policy_generalized_walk_<시각>.csv 로 남김 (폴더 지정: --log 경로)
-huphy-run --vx 0.5 --log
+# 정책 입출력을 logs/policy_<정책>_<시각>.csv 로 남김 (폴더 지정: --log 경로)
+huphy-run --policy generalized_walk --cmd vx=0.5 --log
 
 # 권장 -- 50Hz, 수거 대기 4ms, 게인 나머지 0.5배 · 발목 0.8배
-huphy-run --vx 0.5 --hz 50 --drain-ms 4 --gain-scale 0.5 0.8 --log
+huphy-run --policy generalized_walk --cmd vx=0.5 --hz 50 --drain-ms 4 --gain-scale 0.5 0.8 --log
 ```
+
+새 정책은 학습 쪽 꾸러미(`deploy_contract.json` + `.pt`)를 `config/policies/<이름>/`
+에 넣으면 끝임. 계약에 이 코드가 모르는 관찰 항목(`func`)이 있으면 모터를 켜기 전에
+멈추고, 그때만 `control/deploy.py` 의 `OBSERVATIONS` 에 함수를 하나 더하면 됨.
 
 `--log` 파일은 모델이 본 관찰(정규화 전), 모델 출력, 관절 목표각·실측각을 정책
 호출마다 한 줄씩 담음. `tools/policy_viewer.html` 을 브라우저로 열고 파일을 끌어다
@@ -964,31 +975,37 @@ huphy-run --vx 0.5 --hz 50 --drain-ms 4 --gain-scale 0.5 0.8 --log
 메모리에 쌓았다가 끝날 때 한 번에 쓰므로, Ctrl-Q/Ctrl-C 로 끝내야 남고 강제로 죽이면
 안 남음.
 
-`.pt` 에는 신경망만 들어 있고 `action_scale` 이나 관찰 구성은 안 들어 있음. 그건
-`control/generalized_walk.py`가 정함. **파일의 입력·출력 개수가 그 규격(입력
-44, 출력 12)과 다르면 모터를 켜기 전에 멈춤.**
+`.pt` 에는 신경망만 들어 있고 행동 배율이나 관찰 구성은 안 들어 있음. 그건 계약
+파일이 정함. **모터를 켜기 전에** 다음을 검사하고 하나라도 어긋나면 멈춤.
+
+- `.pt` 의 sha256 이 계약의 `pt_sha256` 과 같음
+- 신경망 입력·출력 개수가 계약의 `obs_dim`·`action_dim` 과 같음
+- 계약에 참조 입출력(`golden`)이 있으면 그대로 넣어 학습 쪽 출력과 1e-4 안으로 같음
+  (squat 는 24쌍, 시작 화면에 `참조 입출력 통과` 로 찍힘)
+- `--cmd` 이름이 그 정책에 있고, 범위가 있으면 범위 안임
 
 관찰은 관절 속도를 안 받고 위치를 두 프레임(`q(t-1)`, `q(t)`) 받으며, 기준
-자세가 0 이 아님(엉덩이 10도, 무릎 20도로 살짝 웅크린 자세). 0 에서 시작하면
-정책이 켜지는 순간 그 차이를 한 번에 메우려 함.
+자세가 0 이 아님 (두 정책 다 엉덩이 10도·무릎 20도로 살짝 웅크린 자세. squat 는
+엉덩이 롤 2.9도 벌림과 크랭크 값이 walk 와 다름). 0 에서 시작하면 정책이 켜지는
+순간 그 차이를 한 번에 메우려 함.
 
 `--approach` 초에 걸쳐 그 자세로 옮긴 뒤 **Enter 를 눌러야** 정책이 시작됨. Ctrl-Q
 로 멈추고 (`huphy-test` 와 같은 키. Ctrl-C 도 됨), 멈출 때 `kp=0` 으로 속도를 죽인 뒤 토크를 끊음 (붙잡지 않음).
 
 | | 무엇 |
 |---|---|
-| `--vx` | 앞뒤 속도 명령(m/s). 실행 내내 고정값. 기본 0.0 |
-| `--wz` | 회전 속도 명령(rad/s). 실행 내내 고정값. 기본 0.0 |
-| `--weights` | 기본값은 `config/policies/generalized_walk.pt` |
-| `--hz 50` | 모터 전송 주기. **50 의 정수 배**만 받음. 정책은 늘 50Hz 로만 불리고 그 사이 주기는 직전 목표를 다시 보냄 |
+| `--policy` | 꾸러미 이름(`config/policies/<이름>/`) 또는 폴더 경로. **필수** — 기본값 없음 |
+| `--checkpoint` | 계약의 `checkpoints` 중 하나. 기본은 계약의 `default_checkpoint` |
+| `--cmd 이름=값` | 정책 명령. 여러 번 줄 수 있음. 실행 내내 고정값 |
+| `--hz` | 모터 전송 주기. 기본은 정책 주기(지금 둘 다 50). **그 정수 배**만 받음. 정책은 늘 정책 주기로만 불리고 그 사이 주기는 직전 목표를 다시 보냄 |
 | `--gain-scale A [B]` | kp/kd 배율. 숫자 하나면 전체, 둘이면 **나머지 A · 발목 B** (`ankle_a`/`ankle_b`). 0 초과 1 이하. 시작 화면에 실제로 걸린 값이 찍힘 |
 | `--log [DIR]` | 정책 입출력(`policy_*.csv`)과 관절별 응답 지연(`latency_*.csv`)을 남김. 폴더를 안 주면 `logs/` |
 | `--live [PORT]` | 도는 동안 관절 목표·실측을 브라우저로 봄. 기본 포트 8770 ([tools/README.md](tools/README.md)) |
 | `--duration` `--approach` `--drain-ms` `--allow-uncalibrated` | 위와 같음 |
 
 게인을 낮추면 같은 행동에도 관절이 덜 따라가 시뮬과 다르게 움직임. 첫 통전 확인용이고,
-실제로 세울 때는 1.0 으로 돌릴 것. 게인은 `robot.yaml`을 그대로 씀 — 이 정책이
-학습에서 가정한 사양값이라 덮어쓰지 않음.
+실제로 세울 때는 1.0 으로 돌릴 것. 게인은 `robot.yaml`을 그대로 씀 — 두 정책 모두
+학습에서 같은 값(135/75/130/60)을 썼고 그게 사양값이라 덮어쓰지 않음.
 
 IMU 가 없으면 시작 전에 멈춤 — 관찰의 6칸이 IMU 값임 (각속도 3, 중력방향 3).
 각속도는 rad/s 로, 중력방향은 서 있을 때 z 가 −1 이 되게 들어감. **부착 방향은

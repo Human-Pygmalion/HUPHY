@@ -1,21 +1,21 @@
 # 정책 실행 — 지금까지 만든 것
 
-> **지워짐 (2026-10-20).** 아래 문서가 설명하는 `balance`/`hopping`/`stand`
-> 정책과 `control/policy.py`의 `observation_vector`/`BALANCE`/`HOPPING`,
-> `control/stand.py` 전체는 더 이상 돌리지 않아 코드에서 지웠음.
-> **`control/generalized_walk.py`가 지금부터의 정식 정책임** (44칸 입력,
-> 12관절 출력, 양다리 전용. `huphy-run --vx --wz`). 아래 2장~8장은 그 정책들을
-> 만들던 당시의 설계 기록으로 **역사적 참고용으로만** 남겨 둠 — 지금 `huphy-run
-> --help`와 다름.
+> **2026-10-23 — 정책은 꾸러미 폴더 하나임.** `control/generalized_walk.py` 는
+> 지워졌고, `control/deploy.py` 가 `config/policies/<이름>/deploy_contract.json` 을
+> 읽어 어느 정책이든 같은 코드로 돌림. 0장이 지금 구조임.
+>
+> **지워짐 (2026-10-20).** 아래 2장~8장의 `balance`/`hopping`/`stand` 정책과
+> `control/policy.py`의 `observation_vector`/`BALANCE`/`HOPPING`, `control/stand.py`
+> 는 더 이상 없음. **역사적 참고용으로만** 남겨 둠 — 지금 `huphy-run --help`와 다름.
 
-**임시 상태임.** 정책 하나를 제어 루프에 태워 돌리는 데까지 만들었음. 상태 기계와
-토크 가드가 없어서 **사람이 지켜보며 돌려야 함.**
+상태 기계와 토크 가드가 없어서 **사람이 지켜보며 돌려야 함.**
 
 ```
-있음   관찰 -> 모델 입력 벡터        src/huphy/control/generalized_walk.py
-있음   모델 출력 -> 관절 목표        src/huphy/control/generalized_walk.py
-있음   .pt 파일 -> 부를 수 있는 함수  src/huphy/control/rsl_rl.py
-있음   실행 파일                     src/huphy/scripts/run.py
+있음   계약 파일 -> 규격            src/huphy/control/deploy.py   load()
+있음   관찰 -> 모델 입력 벡터        src/huphy/control/deploy.py   DeployPolicy.observation_vector()
+있음   모델 출력 -> 관절 목표        src/huphy/control/deploy.py   DeployPolicy.joint_targets()
+있음   .pt 파일 -> 부를 수 있는 함수  src/huphy/control/rsl_rl.py   load()
+있음   실행 파일                     src/huphy/scripts/run.py      main()
 없음   상태 기계
 없음   토크 가드
 ```
@@ -25,12 +25,83 @@
 ## 0. 실행 (지금)
 
 ```bash
-huphy-run --vx 0.5 --wz 0.0
+huphy-run --policy generalized_walk --cmd vx=0.5         # 걷기 (--policy 는 필수)
+huphy-run --policy huphy_squat --cmd h_star=0.80    # 스쿼트
 ```
 
-가중치는 `config/policies/generalized_walk.pt`를 기본으로 씀. 다른 파일은
-`--weights`로. 아래 "0. 실행"(옛 버전)부터 8장까지는 지워진 `balance`/`hopping`/
-`stand` 얘기임.
+### 0.1 꾸러미
+
+```
+config/policies/
+  generalized_walk/
+    deploy_contract.json     이 저장소가 씀 (옛 generalized_walk.py 의 값 그대로)
+    generalized_walk.pt      체크포인트 37400
+  huphy_squat/
+    deploy_contract.json     학습 쪽 export_deploy.py 가 만든 것 그대로
+    policy_5000.pt (기본)  policy_4500.pt  policy_4000.pt
+    README.md                학습 쪽 꾸러미 README (참고용)
+```
+
+새 정책은 폴더 하나를 넣으면 됨. 코드는 안 바뀜.
+
+### 0.2 계약의 어느 값이 어디로 가나
+
+`deploy.load(folder)` 가 계약을 읽어 `DeployPolicy` 를 만듦. 단위(rad -> 도)와 관절
+이름(`R_crank_A_joint` -> `right_leg/ankle_a`, `deploy.robot_name`) 은 여기서 한 번
+바뀜.
+
+| 계약 필드 | `DeployPolicy` | 쓰는 곳 |
+|---|---|---|
+| `actions[].joint` (index 순) | `order` | 행동 순서. `joint_targets()` 가 이 순서로 이름을 붙임 |
+| `actions[].offset_rad` | `default_pose_deg` | ① 목표 = 이것 + 배율 x 행동 ② 관찰 관절각의 기준점 ③ 시작 자세 (`run.py` 의 `approach`·`staged`) |
+| `actions[].scale_rad_per_unit` | `scale` | `joint_targets()` |
+| `actions[].clip_rad` | `limits_deg` | `joint_targets()` 가 목표를 자름 |
+| `observations[]` | `terms` | `observation_vector()` 가 이 순서로 `OBSERVATIONS[func]` 을 불러 이어 붙임 |
+| `observations[].history_frames` | `Term.history` | `motor_encoder_rel` 의 프레임 수. `Runner.history` 가 쌓음 |
+| `h_star` (`height_command` 일 때) | `commands["h_star"]` | 범위·시작값. 속도 제한 0.1 m/s (`H_STAR_MAX_RATE`) |
+| `observations[].components` (`velocity_command`) | `commands["vx"]` 등 | 시작값 0, 제한 없음 |
+| `control_rate_hz` | `hz` | 정책 주기. `held()` 의 안쪽 주기 |
+| `checkpoints.<번호>.pt` / `pt_sha256` / `golden` | `checkpoints` | `load_model()` 의 검사 |
+
+### 0.3 관찰 항목 표 (`deploy.OBSERVATIONS`)
+
+| `func` | 칸 | 계산 (`deploy.py`) |
+|---|---|---|
+| `imu_gyro` | 3 | `_gyro` — `ImuState.gyro_dps` 를 rad/s 로 |
+| `imu_gravity` | 3 | `_gravity` — `ImuState.gravity` 그대로 |
+| `motor_encoder_rel` | 관절 x 프레임 | `_encoder_rel` — (관절각 − 기본자세) rad, 오래된 프레임이 앞. 첫 주기는 지금 값으로 메움 |
+| `last_action` | 12 | `_last_action` — 직전 모델 출력, 자르기 전 |
+| `height_command` | 1 | `_command` — `h_star`, 범위로 자름 |
+| `velocity_command` | `components` 수 | `_command` — `vx`, `wz` 등 |
+
+모르는 `func` 이 계약에 있으면 `load()` 가 `ContractError` 로 멈춤 (0 으로 채우지 않음).
+
+### 0.4 모터를 켜기 전 검사 (`DeployPolicy.load_model`)
+
+```
+1  .pt 가 있음
+2  sha256 == 계약의 pt_sha256          다른 꾸러미의 가중치를 섞으면 여기서 걸림
+3  rsl_rl.load: 입력 == obs_dim, 출력 == action_dim
+4  golden 이 있으면 그 입력을 넣어 학습 쪽 출력과 1e-4 안 (GOLDEN_TOL)
+```
+
+`run.py` 는 여기에 더해 `--cmd` 이름·범위(`_parse_commands`), `--hz` 배수, 다리
+이름을 CAN 을 열기 전에 봄.
+
+### 0.5 한 주기 (`Runner.step`)
+
+```
+observation(도) ─┐
+IMU(ImuState)  ──┼─> history 에 지금 관절각 추가 (history_frames 개만 남김)
+명령           ──┘   commands.step(1/hz)        h_star 는 0.1 m/s 로 목표에 다가감
+                     observation_vector(Frame)  계약 순서대로 이어 붙임 (rad)
+                     model(vector)              rsl_rl: 정규화 + MLP
+                     last_action = 출력          다음 주기 관찰로
+                     joint_targets(출력)         기본자세 + 배율 x 행동, 자름, 도
+```
+
+`huphy-run` 은 `DeployPolicy.motion()` 으로 이것을 `Motion` 으로 감싸고, ROS
+`policy_node` 는 `Runner` 를 직접 들고 토픽 값을 `runner.commands.set()` 으로 넣음.
 
 ## 0-구. 실행 (옛 버전, 지워짐)
 

@@ -11,11 +11,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from huphy.control import generalized_walk, rsl_rl
+from huphy.control import deploy, rsl_rl
 
 REPO = Path(__file__).resolve().parent.parent
-WEIGHTS = REPO / "config" / "policies" / "generalized_walk.pt"
-SPEC = generalized_walk.SPEC
+WALK = deploy.load(REPO / "config" / "policies" / "generalized_walk")
+WEIGHTS = WALK.weights_path()
+SPEC = WALK.spec
 
 
 @pytest.fixture(scope="module")
@@ -34,7 +35,7 @@ class TestLoad:
         assert loaded.obs_dim == SPEC.obs_dim
 
     def test_output_is_twelve_joints(self, loaded):
-        assert loaded.action_dim == len(generalized_walk.ORDER)
+        assert loaded.action_dim == len(WALK.order)
 
     def test_a_mismatched_spec_is_refused(self):
         """입력 개수가 다른 규격을 주면 신경망이 엉뚱한 자리의 숫자를 읽음."""
@@ -58,7 +59,7 @@ class TestLoad:
 class TestForward:
     def test_it_runs(self, loaded):
         out = loaded(np.zeros(SPEC.obs_dim, dtype=np.float32))
-        assert out.shape == (len(generalized_walk.ORDER),)
+        assert out.shape == (len(WALK.order),)
 
     def test_the_output_is_finite(self, loaded):
         for scale in (0.0, 1.0, -1.0, 5.0):
@@ -111,7 +112,7 @@ class TestElu:
 # ===========================================================================
 class TestWithPolicy:
     def test_a_loaded_model_drives_a_motion(self, loaded):
-        """읽은 것을 그대로 `generalized_walk.motion` 에 넣을 수 있어야 함."""
+        """읽은 것을 그대로 `DeployPolicy.motion` 에 넣을 수 있어야 함."""
         from huphy.sensors.base import ImuState
 
         class FakeImu:
@@ -119,13 +120,13 @@ class TestWithPolicy:
                 return ImuState(is_valid=True)
 
         observation = {
-            f"{joint}.pos": generalized_walk.DEFAULT_POSE_DEG[joint]
-            for joint in generalized_walk.ORDER
+            f"{joint}.pos": WALK.default_pose_deg[joint]
+            for joint in WALK.order
         }
 
-        motion = generalized_walk.motion(loaded, FakeImu())
+        motion = WALK.motion(loaded, FakeImu())
         targets = motion(0.0, observation)
-        assert set(targets) == set(generalized_walk.ORDER)
+        assert set(targets) == set(WALK.order)
         assert all(np.isfinite(v) for v in targets.values())
 
 

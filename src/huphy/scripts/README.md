@@ -682,7 +682,7 @@ motion 이 안 불리므로 기록기(`track_log.ObservationTap`)를 루프의 �
 
 ```bash
 huphy-test --robot --hz 100 --drain-ms 4 zero
-huphy-run --vx 0.5 --drain-ms 4
+huphy-run --policy generalized_walk --cmd vx=0.5 --drain-ms 4
 ```
 
 기본 2ms. 다 오면 즉시 빠져나가므로 정상 주기에는 이만큼 쓰지 않음.
@@ -730,26 +730,29 @@ root 가 아니면 `sudo` 를 붙여 부름. 암호는 sudo 가 터미널에서 
 
 ## `run.py`
 
-학습한 걷기 정책(`generalized_walk`)으로 움직임. `selftest` 와 **같은 다리·같은
+정책 꾸러미(`config/policies/<이름>/`) 하나로 움직임. `selftest` 와 **같은 다리·같은
 루프**를 쓰고, 매 주기 관절 목표를 내는 것만 다름.
 
-**정책은 하나뿐임.** 예전 `balance`/`hopping`/`stand`(`--policy` 선택지,
-`control/stand.py`)는 지워짐 — 양다리 12관절, 입력 44, 출력 12
-(`control/generalized_walk.py`)로 고정임.
-
 ```bash
-huphy-run --vx 0.5 --wz 0.0
-huphy-run --vx 1.0 --weights runs/other_checkpoint.pt
+huphy-run --policy generalized_walk --cmd vx=0.5 --cmd wz=0.0
+huphy-run --policy huphy_squat --cmd h_star=0.80
+huphy-run --policy huphy_squat --checkpoint 4500
 ```
 
-`.pt` 에는 신경망만 들어 있음. `action_scale` 과 관찰 구성은
-`control/generalized_walk.py`가 정하고, **파일의 입력·출력 개수(44/12)가 그
-규격과 다르면 모터를 켜기 전에 멈춤** (`rsl_rl.load`).
+**정책별 코드가 없음.** `main()` 의 순서:
 
-관절 순서는 `generalized_walk.ORDER`(오른다리 먼저), 접근 자세는
-`generalized_walk.DEFAULT_POSE_DEG`(살짝 웅크림), 관찰은
-`generalized_walk.observation_vector`. 속도 명령(`--vx`/`--wz`)은 실행 내내
-고정값임 -- 매 주기 새로 읽지 않음.
+| 단계 | 함수 | 하는 일 |
+|---|---|---|
+| 1 | `_policy_folder(args.policy, path)` | `--policy` -> 꾸러미 폴더. 경로 / `robot.yaml` 옆 `policies/<이름>` / `config/policies/<이름>` 순으로 찾음 |
+| 2 | `deploy.load(folder)` | `deploy_contract.json` -> `DeployPolicy` (관절 순서, 기본 자세, 자르기 범위, 관찰 항목, 명령, 주기) |
+| 3 | `policy.load_model(args.checkpoint)` | sha256 대조 -> `rsl_rl.load` (입출력 개수 대조) -> 참조 입출력 대조 |
+| 4 | `_parse_commands(args.cmd, policy)` | `--cmd 이름=값` -> `deploy.Commands`. 없는 이름·범위 밖이면 멈춤 |
+| 5 | | `--hz` 가 `policy.hz` 의 정수 배인지, `policy.order` 의 다리가 `robot.yaml` 에 있는지 |
+| 6 | `build_biped` -> `connect` | 여기서 처음 CAN 을 엶 |
+| 7 | `policy.motion(model, imu, commands=...)` | 매 주기 `Runner.step` -> 관찰 -> 모델 -> 목표각 |
+| 8 | `staged(approach(policy.default_pose(), ...), ...)` | 기본 자세로 옮김 -> 대기 -> Enter -> 정책 |
+
+1~5 는 모터를 켜기 전임. 계약·가중치·명령이 어긋나면 여기서 멈춤.
 
 시작은 세 단계임 (`staged`). `--approach` 초에 걸쳐 시작 자세로 옮김 → 그 자세로
 대기 → **Enter** 를 누르면 정책. **Ctrl-Q** 로 멈춤 (`huphy-test` 와 같은 키). 끝나면
@@ -763,9 +766,10 @@ huphy-run --vx 1.0 --weights runs/other_checkpoint.pt
 
 | | 기본 | 무엇 |
 |---|---|---|
-| `--vx` | `0.0` | 앞뒤 속도 명령(m/s). 실행 내내 고정 |
-| `--wz` | `0.0` | 회전 속도 명령(rad/s). 실행 내내 고정 |
-| `--hz` | `50` | 모터 전송 주기. 50 의 정수 배. 정책은 늘 50Hz (`held`) |
+| `--policy` | **필수** | 꾸러미 이름 또는 폴더 (`generalized_walk`, `huphy_squat`) |
+| `--checkpoint` | 계약의 `default_checkpoint` | 같은 꾸러미의 다른 체크포인트 |
+| `--cmd 이름=값` | 계약의 시작값 | 정책 명령. 여러 번. 실행 내내 고정 |
+| `--hz` | 정책 주기 | 모터 전송 주기. 정책 주기의 정수 배. 정책은 늘 정책 주기 (`held`) |
 | `--drain-ms` | `2` | 응답 대기. slcan(1.0) 이면 `--hz 50 --drain-ms 4` |
 | `--gain-scale A [B]` | `1.0` | kp/kd 배율. 하나면 전체, 둘이면 나머지 A · 발목(`ANKLE_MOTORS`) B |
 | `--log [DIR]` | 끔 | 정책 입출력과 응답 지연 기록. 폴더를 안 주면 `logs/` |

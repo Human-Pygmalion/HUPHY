@@ -11,18 +11,22 @@
 """
 
 import math
+from pathlib import Path
 
 import pytest
 
 pytest.importorskip("huphy_ros", reason="ros/huphy_ros 가 경로에 없음")
 
-from huphy.control import generalized_walk as gw        # noqa: E402
+from huphy.control import deploy                       # noqa: E402
 from huphy.robots.biped import SEP                      # noqa: E402
 from huphy_ros import convert                           # noqa: E402
 
 
+WALK = deploy.load(Path(__file__).resolve().parent.parent / "config" / "policies" / "generalized_walk")
+
+
 def default_observation():
-    return {f"{n}.pos": gw.DEFAULT_POSE_DEG[n] for n in gw.ORDER}
+    return {f"{n}.pos": WALK.default_pose_deg[n] for n in WALK.order}
 
 
 # ===========================================================================
@@ -39,12 +43,12 @@ class TestNames:
         assert convert.to_huphy_name("knee") == "knee"
 
     def test_round_trip_for_every_joint(self):
-        for name in gw.ORDER:
+        for name in WALK.order:
             assert convert.to_huphy_name(convert.to_ros_name(name)) == name
 
     def test_ros_names_carry_no_slash(self):
         """ROS 에서 / 는 네임스페이스 구분자라 사람이 헷갈림."""
-        for name in gw.ORDER:
+        for name in WALK.order:
             assert SEP not in convert.to_ros_name(name)
 
 
@@ -58,7 +62,7 @@ class TestJointNames:
         assert convert.joint_names(observation) == ("knee",)
 
     def test_order_follows_the_observation(self):
-        assert convert.joint_names(default_observation()) == gw.ORDER
+        assert convert.joint_names(default_observation()) == WALK.order
 
 
 # ===========================================================================
@@ -91,7 +95,7 @@ class TestObservationOut:
 
     def test_names_come_out_in_ros_form(self):
         names, _, _, _ = convert.observation_to_arrays(
-            default_observation(), gw.ORDER)
+            default_observation(), WALK.order)
         assert names[0] == "right_leg__hip_pitch"
 
 
@@ -101,11 +105,11 @@ class TestObservationOut:
 class TestObservationIn:
     def test_round_trip_through_the_default_pose(self):
         names, position, _, _ = convert.observation_to_arrays(
-            default_observation(), gw.ORDER)
+            default_observation(), WALK.order)
         back = convert.arrays_to_observation(names, position)
-        for name in gw.ORDER:
+        for name in WALK.order:
             assert back[f"{name}.pos"] == pytest.approx(
-                gw.DEFAULT_POSE_DEG[name], abs=1e-9)
+                WALK.default_pose_deg[name], abs=1e-9)
 
     def test_velocity_is_optional(self):
         """정책 관찰에 관절 속도 칸이 없어서 안 줘도 됨."""
@@ -123,20 +127,20 @@ class TestObservationIn:
 class TestTargets:
     def test_order_comes_from_ORDER_not_the_dict(self):
         """사전 순서에 기대면 보내는 쪽이 바뀌었을 때 열이 섞임."""
-        targets = {n: 0.0 for n in reversed(gw.ORDER)}
-        names, _ = convert.targets_to_arrays(targets, gw.ORDER)
-        assert names == [convert.to_ros_name(n) for n in gw.ORDER]
+        targets = {n: 0.0 for n in reversed(WALK.order)}
+        names, _ = convert.targets_to_arrays(targets, WALK.order)
+        assert names == [convert.to_ros_name(n) for n in WALK.order]
 
     def test_a_missing_joint_is_refused(self):
-        targets = {n: 0.0 for n in gw.ORDER[:-1]}
+        targets = {n: 0.0 for n in WALK.order[:-1]}
         with pytest.raises(ValueError):
-            convert.targets_to_arrays(targets, gw.ORDER)
+            convert.targets_to_arrays(targets, WALK.order)
 
     def test_round_trip(self):
-        names, position = convert.targets_to_arrays(gw.default_pose(), gw.ORDER)
+        names, position = convert.targets_to_arrays(WALK.default_pose(), WALK.order)
         back = convert.arrays_to_targets(names, position)
-        for name in gw.ORDER:
-            assert back[name] == pytest.approx(gw.DEFAULT_POSE_DEG[name], abs=1e-9)
+        for name in WALK.order:
+            assert back[name] == pytest.approx(WALK.default_pose_deg[name], abs=1e-9)
 
     def test_incoming_is_radians(self):
         assert convert.arrays_to_targets(
@@ -174,16 +178,16 @@ class TestLoop:
 
         도 -> rad -> 네트워크 -> rad -> 도 를 지나도 값이 안 변해야 함.
         """
-        measured = {f"{n}.pos": gw.DEFAULT_POSE_DEG[n] + 3.0 for n in gw.ORDER}
-        names, position, _, _ = convert.observation_to_arrays(measured, gw.ORDER)
+        measured = {f"{n}.pos": WALK.default_pose_deg[n] + 3.0 for n in WALK.order}
+        names, position, _, _ = convert.observation_to_arrays(measured, WALK.order)
         seen = convert.arrays_to_observation(names, position)
-        for name in gw.ORDER:
+        for name in WALK.order:
             assert seen[f"{name}.pos"] == pytest.approx(
                 measured[f"{name}.pos"], abs=1e-9)
 
     def test_control_gets_what_the_policy_meant(self):
-        wanted = gw.joint_targets([0.3] * len(gw.ORDER))
-        names, position = convert.targets_to_arrays(wanted, gw.ORDER)
+        wanted = WALK.joint_targets([0.3] * len(WALK.order))
+        names, position = convert.targets_to_arrays(wanted, WALK.order)
         got = convert.arrays_to_targets(names, position)
-        for name in gw.ORDER:
+        for name in WALK.order:
             assert got[name] == pytest.approx(wanted[name], abs=1e-9)

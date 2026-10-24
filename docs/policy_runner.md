@@ -7,6 +7,11 @@
 >
 > 이번에 확인된 것 중 이 문서가 **예상하지 못했던 것** 세 가지는 13장에 적었음.
 >
+> **2026-10-23 — 이 문서의 방향대로 만들어짐.** 설정 파일은 YAML 이 아니라 학습 쪽이
+> 내보내는 `deploy_contract.json` 을 그대로 씀 (`config/policies/<이름>/`). 읽는 코드는
+> `control/deploy.py`, 실행은 `huphy-run --policy <이름> --cmd 이름=값`. 지금 구조는
+> [`control/POLICY.md`](../src/huphy/control/POLICY.md) 0장.
+>
 > **2026-10-20 — `balance`/`hopping`/`stand`/`control/stand.py` 는 전부 지워짐.**
 > `control/generalized_walk.py`(44칸 입력, 12관절 출력)가 지금의 정식 정책이고
 > `huphy-run --vx --wz` 로 돎. 아래 본문은 그 전 상태를 예로 든 설계 검토라

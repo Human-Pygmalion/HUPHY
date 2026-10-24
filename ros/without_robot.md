@@ -43,7 +43,7 @@ sed -e 's/channel: canr/channel: vcan0/' -e 's/channel: canl/channel: vcan1/' \
 ```bash
 ros2 launch huphy_ros local.launch.py \
   config:=/tmp/robot_vcan.yaml \
-  weights:=$HOME/HUPHY/config/policies/generalized_walk.pt
+  policy:=$HOME/HUPHY/config/policies/generalized_walk
 ```
 
 한 기계에서 둘 다 띄우는 런치임. `OBSERVE` 로 시작하므로 토크 경로를 안 탐.

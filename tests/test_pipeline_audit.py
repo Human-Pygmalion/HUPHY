@@ -144,7 +144,7 @@ class TestGainPropagation:
                 )
 
     def test_gain_groups_match_generalized_walk_requirement(self, fake_can):
-        """`generalized_walk.py`가 전제하는 관절 묶음별 게인(학습 쪽 README의
+        """걷기 정책(`config/policies/generalized_walk/`)이 전제하는 관절 묶음별 게인(학습 쪽 README의
         "Nominal gains" 표)이 실제 `robot.yaml`과 같은지 직접 대조함. 둘이
         어긋나면 로봇이 학습 때와 다른 강성으로 움직임.
 
@@ -238,7 +238,7 @@ class TestSignAndOffset:
 # 4. IMU 배선 — 못 읽었을 때 정책이 무엇을 보는가
 # ===========================================================================
 class TestImuWiring:
-    """`control/generalized_walk.py` 의 `observation_vector` 는
+    """`control/deploy.py` 의 관찰 함수(`imu_gyro`, `imu_gravity`)는
     `imu_state.is_valid` 나 `age_ms()` 를 **검사하지 않는다** -- `imu_state.gyro_dps`/
     `.gravity` 를 바로 읽음.
 
@@ -248,19 +248,28 @@ class TestImuWiring:
     """
 
     def test_invalid_imu_state_feeds_level_defaults_silently(self):
-        from huphy.control import generalized_walk as gw
+        from pathlib import Path
 
+        import numpy as np
+
+        from huphy.control import deploy
+
+        walk = deploy.load(
+            Path(__file__).resolve().parent.parent / "config" / "policies" / "generalized_walk")
         never_connected = ImuState()  # is_valid=False, 나머지 전부 기본값
         assert never_connected.is_valid is False
         assert never_connected.gravity == (0.0, 0.0, -1.0)
         assert never_connected.gyro_dps == (0.0, 0.0, 0.0)
 
-        observation = {f"{j}.pos": gw.DEFAULT_POSE_DEG[j] for j in gw.ORDER}
-        previous = [gw.DEFAULT_POSE_DEG[j] for j in gw.ORDER]
+        observation = {f"{j}.pos": walk.default_pose_deg[j] for j in walk.order}
 
         # is_valid=False 인데도 예외 없이 벡터가 나옴 -- 검사가 없다는 뜻.
-        vector = gw.observation_vector(observation, never_connected, [0.0] * 12, previous)
-        assert vector.shape == (gw.OBS_DIM,)
+        runner = walk.runner(lambda v: np.zeros(12))
+        runner.step(observation, never_connected)
+        frame = deploy.Frame(observation, never_connected, runner.history, [0.0] * 12,
+                             {"vx": 0.0, "wz": 0.0})
+        vector = walk.observation_vector(frame)
+        assert vector.shape == (walk.obs_dim,)
 
     def test_loop_link_check_does_not_cover_imu(self):
         """`ControlLoop._check_link` 은 `robot.link_status` 만 봄

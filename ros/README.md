@@ -73,23 +73,68 @@ ros/install.sh
 
 ## 실행
 
-### 1 — 모션보드: CAN 올리고 제어 노드
+**어떻게 띄우느냐에 따라 순서가 다름.** 노드를 띄운 뒤로는 같음.
+
+| 띄우는 방법 | 순서 |
+|---|---|
+| **두 기계** (실제 배치) | 1 → 2 → 3 → 4 → 5 → 6 |
+| **한 기계** (개발·로봇 없이 점검) | 1′ → 2 → 4 → 5 → 6 (1, 3 은 건너뜀) |
+
+| 기계 | 붙은 것 | 띄우는 것 |
+|---|---|---|
+| **모션보드** | CAN 어댑터 (모터) · IMU | `control_node` — 모터를 읽고 몲 |
+| **작업 기계** | 사람이 쓰는 PC | `policy_node` — 갈 자세를 계산해 모션보드로 보냄 |
+
+launch 는 **띄운 터미널을 계속 차지함** (끄면 노드도 꺼짐). 2 이후 명령은 **새 터미널**에서
+침. ROS 명령은 네트워크 전체에 통하므로 두 기계면 **어느 쪽에서 쳐도 됨** — 보통 작업 기계.
+
+### 1 — 모션보드: CAN 올리고 제어 노드  `두 기계`
+
+**어디서:** 모션보드.
+
+```bash
+huphy-can up            # CAN 채널 canr·canl 을 1 Mbps 로 올림
+ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml   # 제어 노드
+```
+
+| 명령 | 하는 일 |
+|---|---|
+| `huphy-can up` | CAN 어댑터를 켬. 켜야 모터와 말이 통함. 재부팅·어댑터 재연결 뒤마다 다시 |
+| `control.launch.py` | 모터·IMU 를 100Hz 로 읽어 `joint_states` 로 내보내고, 들어온 목표각으로 모터를 몲 |
+
+`OBSERVE` 로 시작함 — 읽기만 하고 **토크 안 들어감.** → 2 로.
+
+### 1′ — 한 기계에서 둘 다  `한 기계`
+
+**어디서:** CAN·IMU 가 붙은 그 기계 하나.
 
 ```bash
 huphy-can up
-ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml
+ros2 launch huphy_ros local.launch.py \
+  config:=$HOME/HUPHY/config/robot.yaml \
+  policy:=$HOME/HUPHY/config/policies/generalized_walk
 ```
 
-`OBSERVE` 로 시작함. **토크 안 들어감.**
+1 의 제어 노드와 3 의 정책 노드를 **한 번에** 띄움. 정책은 `policy:=` 로 고름 — 걷기는
+`generalized_walk`, 스쿼트는 `huphy_squat`. 로그 끝에 `start_policy 를 기다림` 과 `OBSERVE 로 시작` 이
+나오면 된 것임. → 2 로 (3 은 건너뜀).
 
-### 2 — 읽히는지 확인
+로봇 없이 점검할 때는 `huphy-can up` 대신 가짜 채널을 올리고 `config:=/tmp/robot_vcan.yaml`
+— [`without_robot.md`](without_robot.md).
+
+### 2 — 읽히는지 확인  `공통`
+
+**어디서:** 아무 기계, 새 터미널. **하는 일:** 제어 노드가 모터·IMU 값을 제대로 내보내는지
+봄. 토크 없음.
 
 ```bash
-ros2 topic hz   /huphy/joint_states     # 100 근처
-ros2 topic echo /huphy/joint_states --once
-ros2 topic echo /huphy/gravity --once
-ros2 topic echo /huphy/loop_status --once
+ros2 topic hz   /huphy/joint_states     # 초당 몇 번 오는지. 100 근처. Ctrl-C 로 멈춤
+ros2 topic echo /huphy/joint_states --once   # 관절 각도·속도 한 번
+ros2 topic echo /huphy/gravity --once        # IMU 가 본 중력 방향 한 번
+ros2 topic echo /huphy/loop_status --once    # 제어 루프 상태 (모드, 무응답 수)
 ```
+
+`hz` 는 1초마다 줄을 계속 찍고 안 끝남. 확인했으면 **Ctrl-C**. `--once` 는 하나 찍고 끝남.
 
 | 보는 것 | 맞는 값 |
 |---|---|
@@ -98,28 +143,49 @@ ros2 topic echo /huphy/loop_status --once
 | 중력방향 | 서 있으면 z 가 −1 근처 |
 | `missing_cycles` | 거의 안 늚 |
 
-**여기서 다 맞아야 다음으로.**
+**여기서 다 맞아야 다음으로.** 두 기계면 → 3, 한 기계면 → 4.
 
-### 3 — 작업 기계: 정책 노드
+### 3 — 작업 기계: 정책 노드  `두 기계`
+
+> **한 기계(1′)로 띄웠으면 이 단계는 건너뜀.** 정책 노드가 1′ 에서 이미 떴음. 정책을
+> 바꾸려면 1′ 의 `policy:=` 폴더를 바꿔서 다시 띄움 (`generalized_walk` 또는 `huphy_squat`).
+
+**어디서:** 작업 기계. **하는 일:** 정책 노드를 띄움 — 모션보드의 `joint_states` 를 받아
+목표각을 계산해 `joint_targets` 로 돌려보냄.
+
+**둘 중 하나만** 침. 어느 정책을 돌릴지 고르는 것임.
 
 ```bash
-ros2 launch huphy_ros policy.launch.py weights:=$HOME/HUPHY/config/policies/generalized_walk.pt
+# 걷기 -- /huphy/cmd_vel 로 앞뒤·회전 속도를 줌
+ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk
+
+# 제자리 스쿼트 -- /huphy/h_star 로 골반 높이를 줌
+ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
 ```
 
-띄우기만 하면 아무것도 안 냄. `policy_status` 의 `stage` 가 `off`.
+`policy` 는 꾸러미 폴더임 (`huphy-run --policy` 와 같음). `checkpoint:=4500` 으로
+다른 체크포인트, 안 주면 계약의 기본값.
 
-### 4 — 토크 없이 정책 먼저
+띄우기만 하면 아무것도 안 냄. `policy_status` 의 `stage` 가 `off`. → 4 로.
+
+### 4 — 토크 없이 정책 먼저  `공통`
+
+**어디서:** 아무 기계, 새 터미널. **하는 일:** 정책을 켜서 목표각이 제대로 나오는지만 봄.
+모터는 아직 `OBSERVE` 라 목표각을 받아도 안 움직임.
 
 ```bash
-ros2 service call /huphy/start_policy std_srvs/srv/Trigger
-ros2 topic hz   /huphy/joint_targets     # 50 근처
-ros2 topic echo /huphy/joint_targets --once
-ros2 service call /huphy/stop_policy std_srvs/srv/Trigger
+ros2 service call /huphy/start_policy std_srvs/srv/Trigger   # 정책 켬
+ros2 topic hz   /huphy/joint_targets     # 목표각이 초당 몇 번. launch 로그의 Hz 근처. Ctrl-C
+ros2 topic echo /huphy/joint_targets --once                  # 목표각 한 번
+ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔
 ```
 
-목표각이 −2 ~ 2 rad 면 정상. 아직 `OBSERVE` 라 모터는 안 움직임.
+목표각이 −2 ~ 2 rad 면 정상.
 
-### 5 — 토크
+### 5 — 토크  `공통`
+
+**어디서:** 아무 기계. **하는 일:** 제어 노드를 `OBSERVE` → `CONTROL` 로 바꿈. **이때부터
+모터에 힘이 들어감.**
 
 **로봇을 들거나 테더에 맨 상태에서.**
 
@@ -129,7 +195,9 @@ ros2 service call /huphy/enable std_srvs/srv/Trigger
 
 `success: true` 가 나와야 함. `false` 면 메시지에 이유가 있음.
 
-### 6 — 정책 시작
+### 6 — 정책 시작  `공통`
+
+**어디서:** 아무 기계. **하는 일:** 정책이 낸 목표각대로 로봇이 실제로 움직임.
 
 ```bash
 ros2 service call /huphy/start_policy std_srvs/srv/Trigger
@@ -137,29 +205,29 @@ ros2 service call /huphy/start_policy std_srvs/srv/Trigger
 
 3초에 걸쳐 기준 자세로 간 뒤 신경망으로 바뀜. `stage` 가 `off → approach → running`.
 
+명령을 줌 — 정책에 맞는 것 하나. `pub -r 20` 은 초당 20번 계속 보냄. **Ctrl-C 로 멈추면
+마지막 값이 유지됨.**
+
 ```bash
+# 걷기: linear.x 앞뒤 (m/s), angular.z 돌기 (rad/s). 안 보내면 (0, 0) = 제자리
 ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
   '{linear: {x: 0.2}, angular: {z: 0.0}}'
+
+# 스쿼트: 골반 높이 (m). 0.70 ~ 0.891, 시작값 0.8914
+ros2 topic pub -r 20 /huphy/h_star std_msgs/msg/Float64 '{data: 0.80}'
 ```
 
-`linear.x`(앞뒤) 와 `angular.z`(돌기) 만 씀. 안 보내면 `(0, 0)` = 제자리.
-
 ### 멈춤
+
+**어디서:** 아무 기계.
 
 ```bash
 ros2 service call /huphy/stop_policy std_srvs/srv/Trigger   # 목표각 중단
 ros2 service call /huphy/disable std_srvs/srv/Trigger       # 감쇠 5초 후 토크 차단
 ```
 
-급하면 런치 터미널에서 **Ctrl-C** — 같은 절차를 탐.
-
-### 한 기계에서 둘 다 (개발용)
-
-```bash
-ros2 launch huphy_ros local.launch.py \
-  config:=$HOME/HUPHY/config/robot.yaml \
-  weights:=$HOME/HUPHY/config/policies/generalized_walk.pt
-```
+급하면 런치 터미널에서 **Ctrl-C** — 같은 절차를 탐. 두 기계면 **모션보드** 쪽 런치를
+끊음.
 
 ---
 
@@ -257,9 +325,14 @@ ROS 1(Noetic)이 같이 깔려 있으면 **같은 셸에서 둘 다 `source` 하
 | 12 | 낡음 기준 **60ms / 100ms**, 통신두절 5주기 |
 | 13 | **기계 둘.** 모션보드에 `control_node`, 작업 기계에 `policy_node` 와 사람 |
 
-정책은 `generalized_walk` 하나임
-([`control/generalized_walk.py`](../src/huphy/control/generalized_walk.py)).
-관찰 44칸, 행동 12개, 명령 2칸(`vx`, `wz`). `vy` 는 **칸 자체가 없음.**
+정책은 꾸러미 폴더 하나임 (`config/policies/<이름>/deploy_contract.json` + `.pt`).
+`policy_node` 는 [`control/deploy.py`](../src/huphy/control/deploy.py) 로 그 계약을
+읽어 돌림 — `huphy-run` 과 같은 코드임. 명령은 정책에 있는 칸만 씀.
+
+| 정책 | 관찰 | 명령 토픽 |
+|---|---|---|
+| `generalized_walk` | 44 | `/huphy/cmd_vel` (Twist) 의 `linear.x` -> `vx`, `angular.z` -> `wz`. `vy` 칸 없음 |
+| `huphy_squat` | 43 | `/huphy/h_star` (Float64) -> `h_star` [m]. 0.1 m/s 로 다가감 |
 
 ---
 
@@ -357,8 +430,9 @@ ROS 1(Noetic)이 같이 깔려 있으면 **같은 셸에서 둘 다 `source` 하
  8  control_node ──> Biped ──> Leg ──> 가드 ──> MitCommand ──CAN──> 모터
 ```
 
-4번의 44칸 배치는 `generalized_walk.observation_vector` 가 정함. **`policy_node`
-가 그 함수를 그대로 부름** — 배치를 ROS 쪽에서 다시 만들지 않음.
+4번의 관찰 배치는 계약 파일이 정하고 `deploy.DeployPolicy.observation_vector` 가
+만듦. **`policy_node` 는 `deploy.Runner.step` 을 그대로 부름** — 배치를 ROS 쪽에서
+다시 만들지 않음.
 
 ### 노드가 들고 있는 상태
 
@@ -372,12 +446,11 @@ control_node
 policy_node
   Freshness   최신 관절 상태   구독 콜백   -> 추론 타이머   기준 60ms
   Freshness   최신 IMU         구독 콜백   -> 추론 타이머   기준 60ms
-  Latest      최신 cmd_vel     구독 콜백   -> 추론 타이머   나이 안 봄
-  (평범한 변수) q(t-1), last_action        추론 타이머만 씀
+  Runner      q(t-1), last_action, 명령    추론 타이머 (명령은 구독 콜백이 set)
 ```
 
-`cmd_vel` 만 나이를 안 보는 이유: 안 오면 `(0, 0)` 으로 두면 되고, 그게 제자리
-서기임 (`generalized_walk.COMMAND_ZERO`). 끊겼다고 로봇을 멈출 이유가 아님.
+명령 토픽만 나이를 안 보는 이유: 안 오면 계약의 시작값으로 두면 되고(walk 는
+제자리, squat 는 기본자세 높이), 끊겼다고 로봇을 멈출 이유가 아님.
 
 ---
 
@@ -452,7 +525,7 @@ rqt_plot /huphy/joint_states/position[3]
 이 저장소의 `ImuState` 는 자세를 중력방향으로만 들고 있음
 ([`sensors/base.py`](../src/huphy/sensors/base.py) 의 `gravity`). 벤더 모듈이
 쿼터니언이든 오일러든 받아서 중력방향으로 만들어 올리는 구조이고, 정책이 쓰는 것도
-그 3칸임 (`generalized_walk` 관찰 3-5칸).
+그 3칸임 (계약의 `imu_gravity` 항목).
 
 쿼터니언으로 되돌려 넣었다가 정책 쪽에서 다시 풀면 **왕복에서 틀릴 자리가 생김.**
 그래서 `Vector3Stamped` 로 그대로 내보냄.
@@ -497,7 +570,7 @@ ROS 는 SI 를 씀 (REP 103). 이 저장소는 도를 씀.
 | 토크 | Nm | Nm (같음) |
 
 변환은 `huphy_ros/convert.py` **한 곳에만** 둠. 저장소 안에 도↔라디안이 이미 두
-곳 있는데(프로토콜 경계 `codec/mit.py`, 모델 경계 `control/generalized_walk.py`)
+곳 있는데(프로토콜 경계 `codec/mit.py`, 모델 경계 `control/deploy.py`)
 서로 안 만남. 세 번째가 여기저기 흩어지면 어디서 한 번 더 변환됐는지 추적이 안 됨.
 
 ### 5-2. 관절 이름
@@ -523,10 +596,9 @@ ROS     right_leg__knee
 `policy_node` 가 20ms 타이머로 추론함 (결정 6). 메시지 도착이 아니라 타이머인
 이유: **네트워크 지터가 그대로 추론 간격의 지터가 되기 때문**임.
 
-정책은 20ms 간격으로 불린다고 가정하고 학습했고, 관찰 6-17칸이 `q(t-1)` 인데 그게
-정확히 한 정책 주기 전 값이어야 함
-([`generalized_walk.py`](../src/huphy/control/generalized_walk.py) 의
-`HISTORY_FRAMES`, `HZ`).
+정책은 20ms 간격으로 불린다고 가정하고 학습했고, 관찰의 관절 이력 `q(t-1)` 이
+정확히 한 정책 주기 전 값이어야 함 (계약의 `motor_encoder_rel.history_frames`,
+`control_rate_hz`).
 
 ```
 타이머 20ms
@@ -682,23 +754,19 @@ Latest()
 `/huphy/start_policy` 가 꺼짐 → 접근, `approach_s` 가 지나면 접근 → 정책.
 `/huphy/stop_policy` 가 꺼짐으로.
 
-접근을 여기서 하는 이유 (결정 3): 기준 자세
-(`generalized_walk.DEFAULT_POSE_DEG`)를 아는 쪽이 여기뿐임. 모션보드에도 두면 같은
-값이 두 군데가 됨.
+접근을 여기서 하는 이유 (결정 3): 기준 자세(계약의 행동 오프셋,
+`DeployPolicy.default_pose()`)를 아는 쪽이 여기뿐임. 모션보드에도 두면 같은 값이 두
+군데가 됨.
 
-**`generalized_walk.motion()` 을 안 씀.** 그 함수는 `command` 를 호출 전체에서
-고정으로 받음 — `huphy-run --vx --wz` 가 시작할 때 한 번 정하는 구조임. 여기는
-`/huphy/cmd_vel` 로 매 주기 바뀔 수 있어서, 안의 함수 둘을 직접 부르고
-`q(t-1)`·`last_action` 보관을 노드가 함.
+**`DeployPolicy.motion()` 대신 `Runner` 를 직접 들고 있음.** 명령이 토픽으로 매 주기
+바뀔 수 있어서, 구독 콜백이 `runner.commands.set(이름, 값)` 으로 넣고 타이머가
+`runner.step()` 을 부름. `huphy-run` 은 같은 `Runner` 를 `motion()` 으로 감싸 쓸 뿐임.
 
 ```python
-vector  = generalized_walk.observation_vector(obs, imu_state, last_action, prev, command)
-action  = model(vector)
-targets = generalized_walk.joint_targets(action)
+self.policy = deploy.load(folder)
+self.runner = self.policy.runner(self.policy.load_model(checkpoint))
+targets = self.runner.step(observation, imu_state)     # 20ms 타이머
 ```
-
-`motion()` 의 인자를 함수로 바꾸는 선택지도 있었는데, 그러면 ROS 를 안 쓰는
-`huphy-run` 경로까지 같이 바뀌어서 안 했음.
 
 접근 단계는 `scripts.selftest.approach(targets, start, seconds)` 를 그대로 씀.
 지금 자세에서 목표까지 선형 보간하는 함수를 내는 순수 함수라 ROS 와 무관함.
@@ -714,7 +782,7 @@ targets = generalized_walk.joint_targets(action)
 | 노드 | `huphy` 에서 쓰는 것 |
 |---|---|
 | `control_node` | `config.load_robot`, `scripts.bringup.build_biped`, `control.ControlLoop`, `control.Mode` |
-| `policy_node` | `control.rsl_rl.load`, `control.generalized_walk` 의 `ORDER`·`SPEC`·`DEFAULT_POSE_DEG`·`LIMITS_DEG`·`observation_vector`·`joint_targets`, `scripts.selftest.approach` |
+| `policy_node` | `control.deploy` 의 `load`·`DeployPolicy.load_model`·`runner`·`default_pose`·`order`, `scripts.selftest.approach` |
 
 ### `huphy` 를 ROS 패키지로 안 만드는 이유
 

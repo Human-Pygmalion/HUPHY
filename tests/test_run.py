@@ -3,7 +3,7 @@
     PYTHONPATH=src python3 -m pytest tests -q
 
 가짜 모터와 가짜 IMU 를 붙이고 **명령줄을 그대로 돌림.** `config/policies/` 의 진짜
-가중치(`generalized_walk.pt`)를 읽음.
+꾸러미(`generalized_walk/`, `huphy_squat/`)를 읽음.
 
 **이 정책은 양다리 12관절 전용임** -- `--limb`/`--robot` 선택지가 없음. 설정에
 `left_leg`/`right_leg` 가 둘 다 있어야 함.
@@ -24,7 +24,7 @@ import pytest
 
 from huphy.motors.robstride import tables as T
 from huphy.motors.robstride.codec import mit
-from huphy.control import generalized_walk
+from huphy.control import deploy
 from huphy.scripts import run
 from huphy.scripts.run import main
 from huphy.sensors.base import ImuState
@@ -93,10 +93,11 @@ def _calibration(limb: str) -> dict:
     }
 
 
-WEIGHTS = (
-    Path(__file__).resolve().parent.parent / "config" / "policies" / "generalized_walk.pt"
-)
-"""진짜 가중치. 입력 44 / 출력 12 를 확인하는 데만 씀."""
+POLICIES = Path(__file__).resolve().parent.parent / "config" / "policies"
+WALK = deploy.load(POLICIES / "generalized_walk")
+SQUAT = deploy.load(POLICIES / "huphy_squat")
+WEIGHTS = WALK.weights_path()
+"""진짜 가중치. 없으면 실행 테스트를 건너뜀."""
 
 
 # ===========================================================================
@@ -212,7 +213,9 @@ def go(fake_can, cfg, monkeypatch, capsys):
     return _go
 
 
-REAL = ["--approach", "0.05", "--duration", "0.3", "--hz", "50", "--allow-uncalibrated"]
+REAL = ["--approach", "0.05", "--duration", "0.3", "--hz", "50", "--allow-uncalibrated",
+        "--policy", "generalized_walk"]
+"""walk 로 짧게 돌림. 다른 정책은 뒤에 --policy 를 한 번 더 주면 그쪽이 씀."""
 
 
 def _position_commands(motor_id):
@@ -283,7 +286,7 @@ class TestRun:
         assert "can0" in out and "can1" in out
 
     def test_the_banner_shows_the_command(self, go):
-        _, out = go(*REAL, "--vx", "0.5", "--wz", "0.1")
+        _, out = go(*REAL, "--cmd", "vx=0.5", "--cmd", "wz=0.1")
         assert "vx=0.5" in out and "wz=0.1" in out
 
     def test_gain_scale_lowers_the_yaml_gains(self, go):
@@ -309,7 +312,7 @@ class TestRun:
         lines = files[0].read_text().splitlines()
         assert lines[0].startswith("# limits ")
         header = lines[1].split(",")
-        assert len(header) == 1 + generalized_walk.OBS_DIM + 12 * 3
+        assert len(header) == 1 + WALK.obs_dim + 12 * 3
 
     def test_log_also_writes_latency_for_all_twelve_joints(self, go, tmp_path):
         _, out = go(*REAL, "--log", str(tmp_path / "lg"))
@@ -323,12 +326,86 @@ class TestRun:
 
 
 # ===========================================================================
+# squat — 같은 실행기, 다른 꾸러미
+# ===========================================================================
+@pytest.mark.skipif(not SQUAT.weights_path().is_file(), reason="가중치 파일 없음")
+class TestSquat:
+    SQ = [*REAL, "--policy", "huphy_squat"]
+
+    def test_it_runs_to_the_end(self, go):
+        code, out = go(*self.SQ, "--cmd", "h_star=0.80")
+        assert code == 0, out
+        assert "huphy_squat" in out and "(입력 43, 출력 12)" in out
+
+    def test_the_golden_check_runs_before_the_motors(self, go):
+        _, out = go(*self.SQ)
+        assert "참조 입출력 통과" in out
+
+    def test_h_star_ramps_from_the_default_height(self, go):
+        _, out = go(*self.SQ, "--cmd", "h_star=0.80")
+        assert "h_star=0.8914->0.8 (0.1/s)" in out
+
+    def test_without_a_command_it_holds_the_default_height(self, go):
+        _, out = go(*self.SQ)
+        assert "h_star=0.8914" in out and "->" not in out.split("명령")[1].splitlines()[0]
+
+    def test_the_start_pose_is_the_squat_default_pose(self, go):
+        """walk 와 다른 기본 자세. 계약의 offset_rad 를 도로 바꾼 값."""
+        _, out = go(*self.SQ)
+        assert "기준자세 무릎 +20.1도" in out
+        assert SQUAT.default_pose_deg["right_leg/hip_roll"] == pytest.approx(2.8648, abs=1e-3)
+
+    def test_another_checkpoint(self, go):
+        code, out = go(*self.SQ, "--checkpoint", "4500")
+        assert code == 0, out
+        assert "policy_4500.pt" in out
+
+    def test_log_has_43_observation_columns(self, go, tmp_path):
+        go(*self.SQ, "--log", str(tmp_path / "lg"))
+        files = list((tmp_path / "lg").glob("policy_huphy_squat_*.csv"))
+        assert len(files) == 1
+        header = files[0].read_text().splitlines()[1].split(",")
+        assert len(header) == 1 + 43 + 12 * 3
+        assert "obs/cmd/h_star" in header
+
+
+# ===========================================================================
 # 거부 조건 — 모터를 켜기 전에 걸려야 함
 # ===========================================================================
 class TestRefusals:
-    def test_a_missing_weights_file_is_refused(self, go):
-        with pytest.raises(SystemExit, match="가중치 파일이 없음"):
-            go("--weights", "없는파일.pt")
+    def test_policy_is_required(self, go, capsys):
+        """기본 정책이 없음. 무엇을 돌릴지 사람이 꼭 적어야 함."""
+        with pytest.raises(SystemExit):
+            go("--approach", "0.05", "--duration", "0.3", "--allow-uncalibrated")
+        assert "--policy" in capsys.readouterr().err
+        assert FakeBus.instances == []
+
+    def test_a_missing_policy_is_refused(self, go):
+        with pytest.raises(SystemExit, match="정책 꾸러미를 못 찾음"):
+            go("--policy", "없는정책")
+        assert FakeBus.instances == []
+
+    def test_a_command_the_policy_does_not_have_is_refused(self, go):
+        """walk 에는 h_star 칸이 없음. 조용히 버리면 사람이 준 값이 안 들어간 줄 모름."""
+        with pytest.raises(SystemExit, match="이 정책에 없는 명령"):
+            go(*REAL, "--cmd", "h_star=0.8")
+        assert FakeBus.instances == []
+
+    def test_a_malformed_command_is_refused(self, go):
+        with pytest.raises(SystemExit, match="이름=값"):
+            go(*REAL, "--cmd", "vx")
+
+    def test_an_unknown_checkpoint_is_refused(self, go):
+        with pytest.raises(SystemExit, match="체크포인트 1 가 없음"):
+            go(*REAL, "--policy", "huphy_squat", "--checkpoint", "1")
+        assert FakeBus.instances == []
+
+    @pytest.mark.parametrize("value", ["0.5", "85"])
+    def test_h_star_outside_the_training_range_is_refused(self, go, value):
+        """85 는 cm 로 친 실수. 범위 밖이면 CAN 을 열기 전에 멈춤."""
+        with pytest.raises(SystemExit, match="학습 범위"):
+            go(*REAL, "--policy", "huphy_squat", "--cmd", f"h_star={value}")
+        assert FakeBus.instances == []
 
     @pytest.mark.parametrize("scales", [["0.5", "0"], ["0.5", "1.5"], ["0.5", "0.5", "0.5"]])
     def test_bad_ankle_gain_scale_is_refused(self, go, scales):
@@ -353,7 +430,7 @@ class TestRefusals:
                 json.dumps(_calibration(limb), ensure_ascii=False), encoding="utf-8"
             )
         with pytest.raises(SystemExit, match="IMU 가 없음"):
-            main(["--config", str(robot)])
+            main(["--config", str(robot), "--policy", "generalized_walk"])
 
     def test_missing_leg_names_are_refused(self, fake_can, tmp_path):
         """모델은 left_leg/right_leg 로 명령을 냄. 설정 이름이 다르면 못 나눔."""
@@ -494,3 +571,5 @@ class TestDrainAndReport:
     def test_negative_drain_is_refused(self, go):
         with pytest.raises(SystemExit, match="0 이상"):
             go(*REAL, "--drain-ms", "-1")
+
+

@@ -1,7 +1,8 @@
 # `control/` — 제어 루프
 
-> **`balance`/`hopping`/`stand`는 지워짐 (2026-10-20).** `generalized_walk.py`가
-> 지금부터의 정식 정책임. 아래 문서 중 `policy.py`의 관찰 빌더·`BALANCE`/
+> **`balance`/`hopping`/`stand`는 지워짐 (2026-10-20).** 정책은 이제 코드가 아니라
+> 꾸러미 폴더(`config/policies/<이름>/deploy_contract.json` + `.pt`)이고,
+> `deploy.py` 하나가 어느 꾸러미든 읽어 돌림 (2026-10-23). 아래 문서 중 `policy.py`의 관찰 빌더·`BALANCE`/
 > `HOPPING`·`stand.py`를 설명하는 부분은 **역사적 기록**이고, 지금 `policy.py`엔
 > `PolicySpec` 자료형만 남음. `POLICY.md`에 같은 안내가 있음.
 
@@ -10,7 +11,7 @@ control/
 ├── loop.py               정해진 주기로 한 사이클씩 돌림
 ├── motions.py            매 주기 무엇을 시킬지 정함
 ├── policy.py             `PolicySpec` -- 가중치 파일과 대조하는 규격 자료형
-├── generalized_walk.py   지금의 정식 걷기 정책. 관찰 빌더·규격
+├── deploy.py             정책 꾸러미(deploy_contract.json + .pt)를 읽어 돌리는 공통 실행기
 ├── rsl_rl.py             체크포인트(.pt) -> 부를 수 있는 함수. numpy 만 씀
 ├── studio.py             웹 요청으로 토크·게인·자세·동작 순서를 다루는 세션 (huphy-test studio)
 └── POLICY.md             정책 실행 -- 실행 방법, 제한사항, 앞으로 바꿀 것
