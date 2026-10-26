@@ -79,7 +79,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from ..robots.base import Action, Robot
 from ..safety.link import LinkLoss, LinkWatch
@@ -254,6 +254,40 @@ class LoopStats:
         )
 
 
+@dataclass
+class StageTimes:
+    """`step()` 안의 각 단계가 걸린 시간 (ms). `--profile` 로 켜짐.
+
+    `CONTROL` 모드에서만 채워짐 -- `OBSERVE` 는 `motion`/`send`/`collect` 가 아니라
+    `refresh` 하나만 돌아서 나눌 단계가 없음.
+    """
+
+    obs: List[float] = field(default_factory=list)
+    motion: List[float] = field(default_factory=list)
+    send: List[float] = field(default_factory=list)
+    collect: List[float] = field(default_factory=list)
+
+    def summary(self) -> str:
+        def row(name: str, values: List[float]) -> str:
+            if not values:
+                return f"  {name:<6} -"
+            ordered = sorted(values)
+            p95 = ordered[int(0.95 * (len(ordered) - 1))]
+            mean = sum(values) / len(values)
+            return (
+                f"  {name:<6} 평균 {mean:6.3f}ms  p95 {p95:6.3f}ms  "
+                f"최대 {max(values):6.3f}ms  (n={len(values)})"
+            )
+
+        lines = ["  단계별 소요 (ms)"]
+        for name, values in (
+            ("관측", self.obs), ("정책", self.motion),
+            ("송신", self.send), ("수거", self.collect),
+        ):
+            lines.append(row(name, values))
+        return "\n".join(lines)
+
+
 class ControlLoop:
     """로봇 하나를 정해진 주기로 돌림.
 
@@ -269,6 +303,7 @@ class ControlLoop:
         mode: Mode = Mode.OBSERVE,
         precise: bool = True,
         link_watch: Optional[LinkWatch] = None,
+        profile: bool = False,
     ) -> None:
         if hz <= 0:
             raise ValueError(f"hz 는 0보다 커야 함 (받은 값 {hz})")
@@ -288,6 +323,9 @@ class ControlLoop:
         """
 
         self.stats = LoopStats(target_hz=self.hz)
+        self.stage_times: Optional[StageTimes] = StageTimes() if profile else None
+        """단계별 소요 시간. `profile=True` 일 때만 채워짐 -- 평소엔 켤 이유가 없는
+        오버헤드(매 주기 `perf_counter` 4번)라 기본은 꺼 둠."""
         self._stop = False
         self.before_step: Optional[Callable[["ControlLoop", float], None]] = None
         """매 주기 `step` 앞에 부름 (`(loop, t)`). **제어 스레드에서 돎.**
@@ -317,7 +355,12 @@ class ControlLoop:
         **기다리지 않음** — 주기 유지는 `run` 이 함. 한 사이클만 떼어 시험하거나
         대화형으로 한 걸음씩 돌릴 때 이것을 씀.
         """
+        prof = self.stage_times
+        t0 = time.perf_counter() if prof is not None else 0.0
         observation = self.robot.get_observation()
+        if prof is not None:
+            t1 = time.perf_counter()
+            prof.obs.append((t1 - t0) * 1000.0)
 
         if self.mode is Mode.OBSERVE:
             # 아무것도 보내지 않으면 아무것도 오지 않음. MIT 모드에는 읽기 전용
@@ -325,9 +368,17 @@ class ControlLoop:
             missing = self.robot.refresh()
         else:
             action = motion(t, observation) if motion is not None else None
+            if prof is not None:
+                t2 = time.perf_counter()
+                prof.motion.append((t2 - t1) * 1000.0)
             if action:
                 self.robot.send(self.robot.build_commands(action))
+            if prof is not None:
+                t3 = time.perf_counter()
+                prof.send.append((t3 - t2) * 1000.0)
             missing = self.robot.collect()
+            if prof is not None:
+                prof.collect.append((time.perf_counter() - t3) * 1000.0)
             self._check_link()
 
         if missing:

@@ -248,6 +248,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-uncalibrated", action="store_true",
         help="실측 전에도 토크를 넣음",
     )
+    p.add_argument(
+        "--profile", action="store_true",
+        help=(
+            "한 주기 안 단계(관측/정책/송신/수거)별 소요 시간을 재서 끝에 찍음. "
+            "주기를 못 지킬 때 범인을 좁히는 용도"
+        ),
+    )
     p.add_argument("-v", "--verbose", action="store_true")
     return p
 
@@ -537,7 +544,7 @@ def main(argv=None) -> int:
         hint = f"\n{bring_up_hint(channels)}" if isinstance(e, ConnectionError) else ""
         raise SystemExit(f"{e}{hint}") from e
 
-    loop = ControlLoop(leg, hz=args.hz, mode=Mode.CONTROL)
+    loop = ControlLoop(leg, hz=args.hz, mode=Mode.CONTROL, profile=args.profile)
     signal.signal(signal.SIGINT, lambda *_: loop.stop())
 
     # 기준 자세 = 계약의 행동 오프셋. 0 이 아님. 0 으로 데려다 놓으면 정책이
@@ -619,6 +626,8 @@ def main(argv=None) -> int:
         with EnterWatcher(motion, loop):
             stats = loop.run(looped, duration_s=args.duration)
         print("\n" + failures.report(leg, stats))
+        if loop.stage_times is not None:
+            print("\n" + loop.stage_times.summary())
         if stats.link_loss is not None:
             # 정상 종료와 구분되어야 함 -- 둘 다 조용히 끝남.
             print(f"\n  ** 통신 두절로 멈춤: {stats.link_loss} **")
