@@ -48,7 +48,7 @@ class TestTrackLog:
     def test_default_path(self, tmp_path):
         """`<월일>_track_<이름>[_<인자들>].csv` (`telemetry/run_name.py`)."""
         path = track_log.default_path(tmp_path, "zero")
-        assert path.parent == tmp_path
+        assert path.parent == tmp_path / "track", "종류별 폴더로 나뉨"
         assert path.name.endswith("_track_zero.csv")
         assert path.name[:4].isdigit(), "월일로 시작해야 함"
 
@@ -59,6 +59,7 @@ class TestTrackLog:
     def test_default_path_does_not_overwrite(self, tmp_path):
         """같은 날 같은 인자로 또 돌려도 앞 기록이 남아야 함."""
         first = track_log.default_path(tmp_path, "zero")
+        first.parent.mkdir(parents=True, exist_ok=True)   # 폴더는 save() 가 만듦
         first.touch()
         assert track_log.default_path(tmp_path, "zero").name.endswith("_2.csv")
 

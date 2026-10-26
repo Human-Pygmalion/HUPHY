@@ -6,12 +6,12 @@
 
 ## 이름
 
-    <월일>_<무엇>_<정책이름>_<인자들>.csv
+    <폴더>/<종류>/<월일>_<종류>_<정책이름>_<인자들>.csv
 
-    1029_policy_generalized_walk.csv                      기본값만
-    1029_policy_generalized_walk_g0.3_vx0.3_wz0.2.csv
-    1029_policy_generalized_walk_g0.3_teleop.csv
-    1029_latency_huphy_squat_h0.80.csv
+    logs/policy/1029_policy_generalized_walk.csv                      기본값만
+    logs/policy/1029_policy_generalized_walk_g0.3_vx0.3_wz0.2.csv
+    logs/policy/1029_policy_generalized_walk_g0.3_teleop.csv
+    logs/latency/1029_latency_huphy_squat_h0.8.csv
 
 **기본값인 인자는 이름에서 뺌.** 전부 기본값이면 월일·무엇·정책만 남음. 뭘 바꿔
 돌린 것인지가 이름에서 바로 보이게 하려는 것임.
@@ -96,15 +96,25 @@ def tags(
 
 
 def path(directory: "str | Path", kind: str, name: str, parts: Sequence[str]) -> Path:
-    """`<폴더>/<월일>_<kind>_<name>[_<parts...>].csv`.
+    """`<폴더>/<kind>/<월일>_<kind>_<name>[_<parts...>].csv`.
 
-    `kind` 는 `policy` / `latency`. `name` 은 정책 이름이나 동작 이름.
+    `kind` 는 `policy` / `latency` / `track`. `name` 은 정책 이름이나 동작 이름.
+
+        logs/policy/1027_policy_generalized_walk_g0.3_vx0.3.csv
+        logs/latency/1027_latency_generalized_walk_g0.3_vx0.3.csv
+        logs/track/1027_track_zero_g0.3.csv
+
+    **종류별로 폴더를 나눔.** 한 폴더에 섞여 있으면 실행을 몇 번 하는 순간 목록이
+    길어져 같은 실행의 짝을 눈으로 찾기 어려움.
+
+    폴더에 이미 `kind` 가 있는데 파일 이름에도 넣는 이유: 파일 하나만 떼어
+    뷰어에 끌어다 놓거나 남에게 보낼 때 이름만으로 뭔지 알 수 있어야 함.
 
     같은 이름이 이미 있으면 `_2`, `_3` 을 붙임. **덮어쓰지 않음** -- 같은 날 같은
     인자로 두 번 돌린 것이 둘 다 남아야 비교가 됨.
     """
     stem = "_".join([time.strftime("%m%d"), kind, name, *parts])
-    base = Path(directory)
+    base = Path(directory) / kind
     candidate = base / f"{stem}.csv"
     n = 2
     while candidate.exists():

@@ -64,7 +64,7 @@ class TestLog:
     def test_default_path(self, tmp_path):
         """`<월일>_policy_<이름>[_<인자들>].csv` (`telemetry/run_name.py`)."""
         path = default_path(tmp_path, "generalized_walk")
-        assert path.parent == tmp_path
+        assert path.parent == tmp_path / "policy", "종류별 폴더로 나뉨"
         assert path.name.endswith("_policy_generalized_walk.csv")
         assert path.name[:4].isdigit(), "월일로 시작해야 함"
 

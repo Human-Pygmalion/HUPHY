@@ -317,7 +317,7 @@ class TestRun:
     def test_log_writes_one_row_per_policy_call(self, go, tmp_path):
         """100Hz 전송이어도 정책은 50Hz 라 줄 수는 정책 호출 수임."""
         _, out = go(*REAL, "--log", str(tmp_path / "lg"))
-        files = list((tmp_path / "lg").glob("*_policy_generalized_walk*.csv"))
+        files = list((tmp_path / "lg" / "policy").glob("*_generalized_walk*.csv"))
         assert len(files) == 1, out
         meta, rows = _split(files[0])
         assert any(m.startswith("# run ") for m in meta)
@@ -327,7 +327,7 @@ class TestRun:
 
     def test_log_also_writes_latency_for_all_twelve_joints(self, go, tmp_path):
         _, out = go(*REAL, "--log", str(tmp_path / "lg"))
-        files = list((tmp_path / "lg").glob("*_latency_generalized_walk*.csv"))
+        files = list((tmp_path / "lg" / "latency").glob("*_generalized_walk*.csv"))
         assert len(files) == 1, out
         meta, rows = _split(files[0])
         assert any(m.startswith("# run ") for m in meta)
@@ -374,7 +374,7 @@ class TestSquat:
 
     def test_log_has_43_observation_columns(self, go, tmp_path):
         go(*self.SQ, "--log", str(tmp_path / "lg"))
-        files = list((tmp_path / "lg").glob("*_policy_huphy_squat*.csv"))
+        files = list((tmp_path / "lg" / "policy").glob("*_huphy_squat*.csv"))
         assert len(files) == 1
         header = _split(files[0])[1][0].split(",")
         assert len(header) == 1 + 43 + 12 * 3
