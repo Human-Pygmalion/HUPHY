@@ -62,6 +62,12 @@ class TestLog:
         assert len(log) == 0
 
     def test_default_path(self, tmp_path):
+        """`<월일>_policy_<이름>[_<인자들>].csv` (`telemetry/run_name.py`)."""
         path = default_path(tmp_path, "generalized_walk")
         assert path.parent == tmp_path
-        assert path.name.startswith("policy_generalized_walk_") and path.suffix == ".csv"
+        assert path.name.endswith("_policy_generalized_walk.csv")
+        assert path.name[:4].isdigit(), "월일로 시작해야 함"
+
+    def test_default_path_carries_the_arguments(self, tmp_path):
+        path = default_path(tmp_path, "generalized_walk", ["g0.3", "vx0.3"])
+        assert path.name.endswith("_policy_generalized_walk_g0.3_vx0.3.csv")

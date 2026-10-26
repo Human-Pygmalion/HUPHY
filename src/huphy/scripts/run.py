@@ -53,7 +53,7 @@ from ..config import ConfigError, load_robot
 from ..control import ControlLoop, Mode, deploy, held, teleop
 from ..motors.canbus import DEFAULT_DRAIN_S, bring_up_hint
 from ..robots.leg import SEND_MODES, SEND_SEQ
-from ..telemetry import latency_log, live, policy_log
+from ..telemetry import latency_log, live, policy_log, run_name
 from . import failures
 from .bringup import build_biped
 from .commission import CONFIG_NAME, _find_config, all_legs
@@ -276,13 +276,49 @@ def _gain_line(robot, scale: float = 1.0, ankle_scale: float = 1.0) -> str:
     return f"  게인     {body}  ({source})"
 
 
-def _save_log(log: "policy_log.PolicyLog", args, name: str) -> None:
+def _log_naming(args, policy, model, commands) -> tuple:
+    """`(이름 조각들, 첫 줄)`. 두 기록이 같은 것을 씀.
+
+    이름에는 **기본값이 아닌 것만** 들어감 (`telemetry/run_name.py`). 첫 줄에는
+    기본값인 것까지 전부 들어감 -- 이름은 찾기용, 첫 줄은 정확한 기록임.
+
+    `teleop` 이면 명령값이 매 주기 바뀌어 이름에 못 넣음. 이름에는 `teleop` 만
+    적고 실제 값은 `obs/cmd/<이름>` 열에 주기마다 들어가 있음.
+    """
+    targets = dict(getattr(commands, "targets", {}) or {})
+    starts = {k: v.start for k, v in policy.commands.items()}
+    parts = run_name.tags(
+        gain_scale=args.gain_scale,
+        commands=targets,
+        defaults=starts,
+        teleop=bool(args.teleop),
+        extra={
+            "hz": args.hz if args.hz and args.hz != policy.hz else None,
+            "drain": args.drain_ms if args.drain_ms != 2.0 else None,
+            args.send_mode: True if args.send_mode != "seq" else None,
+        },
+    )
+    header = run_name.header(
+        policy=policy.name,
+        checkpoint=model.checkpoint,
+        gain=args.gain_scale,
+        hz=args.hz or policy.hz,
+        drain_ms=args.drain_ms,
+        send_mode=args.send_mode,
+        approach=args.approach,
+        teleop=bool(args.teleop),
+        **{k: float(v) for k, v in targets.items()},
+    )
+    return parts, header
+
+
+def _save_log(log: "policy_log.PolicyLog", args, name: str, parts, header) -> None:
     """정책 기록을 씀. **실패해도 올리지 않음** -- 토크는 이미 끊긴 뒤임."""
     if not len(log):
         print("  정책 기록: 정책이 한 번도 안 불려서 남길 것이 없음")
         return
     try:
-        path = log.save(policy_log.default_path(args.log, name))
+        path = log.save(policy_log.default_path(args.log, name, parts), header)
     except OSError as e:
         print(f"  정책 기록 저장 실패: {e}")
         return
@@ -303,13 +339,14 @@ def _resume_on_first_call(motion, latency: "latency_log.LatencyLog"):
     return wrapped
 
 
-def _save_latency(latency: "latency_log.LatencyLog", args, name: str) -> None:
+def _save_latency(latency: "latency_log.LatencyLog", args, name: str,
+                  parts, header) -> None:
     """지연 요약을 찍고 CSV 로 씀. 실패해도 올리지 않음."""
     if not len(latency):
         return
     print("\n" + latency.summary())
     try:
-        path = latency.save(latency_log.default_path(args.log, name))
+        path = latency.save(latency_log.default_path(args.log, name, parts), header)
     except OSError as e:
         print(f"  지연 기록 저장 실패: {e}")
         return
@@ -536,6 +573,9 @@ def main(argv=None) -> int:
         for joint in policy.order
     }
     log = None
+    # 이름 조각과 첫 줄은 한 번만 만들어 두 기록이 같이 씀.
+    naming = _log_naming(args, policy, model, commands) if args.log is not None else ((), "")
+
     if args.log is not None:
         log = policy_log.PolicyLog(policy.obs_names, policy.order, robot=leg)
         model = log.wrap_model(model)
@@ -593,9 +633,9 @@ def main(argv=None) -> int:
         if server is not None:
             server.stop()
         if log is not None:
-            _save_log(log, args, policy.name)
+            _save_log(log, args, policy.name, *naming)
         if latency is not None:
-            _save_latency(latency, args, policy.name)
+            _save_latency(latency, args, policy.name, *naming)
     return 0
 
 

@@ -159,11 +159,16 @@ class TrackLog:
         if self.errors == 1:
             logger.warning("추종 기록 실패 (제어는 계속함): %s", e)
 
-    def save(self, path: "str | Path") -> Path:
-        """CSV 로 씀. 폴더가 없으면 만듦."""
+    def save(self, path: "str | Path", header: str = "") -> Path:
+        """CSV 로 씀. 폴더가 없으면 만듦.
+
+        `header` 는 `run_name.header(...)` 가 만든 `# run ...` 한 줄임.
+        """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", newline="") as f:
+            if header:
+                f.write(header)
             write_limits(f, self.limits)
             writer = csv.writer(f)
             writer.writerow(self.columns)
@@ -295,7 +300,7 @@ def sent_targets(robot: Any, targets: Dict[str, float]) -> Optional[Dict[str, fl
     return dict(sent) if sent else None
 
 
-def default_path(directory: "str | Path", name: str) -> Path:
-    """`<폴더>/track_<이름>_<날짜_시각>.csv`. 실행마다 새 파일."""
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    return Path(directory) / f"track_{name}_{stamp}.csv"
+def default_path(directory: "str | Path", name: str, parts=()) -> Path:
+    """`<폴더>/<월일>_track_<이름>[_<인자들>].csv`. 규칙은 `run_name` 에 있음."""
+    from . import run_name
+    return run_name.path(directory, "track", name, parts)

@@ -39,6 +39,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 
+from . import run_name
 from .track_log import joint_limits, write_limits
 
 logger = logging.getLogger(__name__)
@@ -122,11 +123,17 @@ class PolicyLog:
             logger.warning("정책 기록 실패 (제어는 계속함): %s", e)
 
     # ---- 저장 -------------------------------------------------------------
-    def save(self, path: "str | Path") -> Path:
-        """CSV 로 씀. 폴더가 없으면 만듦."""
+    def save(self, path: "str | Path", header: str = "") -> Path:
+        """CSV 로 씀. 폴더가 없으면 만듦.
+
+        `header` 는 `run_name.header(...)` 가 만든 `# run ...` 한 줄임. 이름에서
+        뺀 값(초 단위 시각·체크포인트·기본값인 인자)이 거기 들어감.
+        """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", newline="") as f:
+            if header:
+                f.write(header)
             write_limits(f, self.limits)
             writer = csv.writer(f)
             writer.writerow(self.columns)
@@ -135,7 +142,6 @@ class PolicyLog:
         return path
 
 
-def default_path(directory: "str | Path", policy_name: str) -> Path:
-    """`<폴더>/policy_<이름>_<날짜_시각>.csv`. 실행마다 새 파일."""
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    return Path(directory) / f"policy_{policy_name}_{stamp}.csv"
+def default_path(directory: "str | Path", policy_name: str, parts=()) -> Path:
+    """`<폴더>/<월일>_policy_<이름>[_<인자들>].csv`. 규칙은 `run_name` 에 있음."""
+    return run_name.path(directory, "policy", policy_name, parts)

@@ -237,6 +237,16 @@ def _position_commands(motor_id):
 # 실행 — 끝까지 돌려 봄
 # ===========================================================================
 @pytest.mark.skipif(not WEIGHTS.is_file(), reason="가중치 파일 없음")
+def _split(path):
+    """`(# 로 시작하는 줄들, 나머지)`. 뷰어가 `#` 를 건너뛰는 것과 같게 봄.
+
+    첫 줄 번호를 고정하면 머리말이 한 줄 늘 때마다 테스트가 깨짐.
+    """
+    lines = path.read_text().splitlines()
+    meta = [l for l in lines if l.startswith("#")]
+    return meta, [l for l in lines if not l.startswith("#")]
+
+
 class TestRun:
     def test_it_runs_to_the_end(self, go):
         code, out = go(*REAL)
@@ -307,20 +317,22 @@ class TestRun:
     def test_log_writes_one_row_per_policy_call(self, go, tmp_path):
         """100Hz 전송이어도 정책은 50Hz 라 줄 수는 정책 호출 수임."""
         _, out = go(*REAL, "--log", str(tmp_path / "lg"))
-        files = list((tmp_path / "lg").glob("policy_generalized_walk_*.csv"))
+        files = list((tmp_path / "lg").glob("*_policy_generalized_walk*.csv"))
         assert len(files) == 1, out
-        lines = files[0].read_text().splitlines()
-        assert lines[0].startswith("# limits ")
-        header = lines[1].split(",")
+        meta, rows = _split(files[0])
+        assert any(m.startswith("# run ") for m in meta)
+        assert any(m.startswith("# limits ") for m in meta)
+        header = rows[0].split(",")
         assert len(header) == 1 + WALK.obs_dim + 12 * 3
 
     def test_log_also_writes_latency_for_all_twelve_joints(self, go, tmp_path):
         _, out = go(*REAL, "--log", str(tmp_path / "lg"))
-        files = list((tmp_path / "lg").glob("latency_generalized_walk_*.csv"))
+        files = list((tmp_path / "lg").glob("*_latency_generalized_walk*.csv"))
         assert len(files) == 1, out
-        lines = files[0].read_text().splitlines()
-        assert lines[0].startswith("# drain_ms=")
-        joints = {line.split(",")[1] for line in lines[2:]}
+        meta, rows = _split(files[0])
+        assert any(m.startswith("# run ") for m in meta)
+        assert any(m.startswith("# drain_ms=") for m in meta)
+        joints = {line.split(",")[1] for line in rows[1:]}
         assert len(joints) == 12, joints
         assert "응답 지연" in out
 
@@ -362,9 +374,9 @@ class TestSquat:
 
     def test_log_has_43_observation_columns(self, go, tmp_path):
         go(*self.SQ, "--log", str(tmp_path / "lg"))
-        files = list((tmp_path / "lg").glob("policy_huphy_squat_*.csv"))
+        files = list((tmp_path / "lg").glob("*_policy_huphy_squat*.csv"))
         assert len(files) == 1
-        header = files[0].read_text().splitlines()[1].split(",")
+        header = _split(files[0])[1][0].split(",")
         assert len(header) == 1 + 43 + 12 * 3
         assert "obs/cmd/h_star" in header
 

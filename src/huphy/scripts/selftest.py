@@ -89,7 +89,7 @@ from ..config import ConfigError, LimbConfig, load_robot
 from ..control import ControlLoop, Mode, motions, policy
 from ..control.studio import Studio
 from ..robots.biped import join_name
-from ..telemetry import latency_log, live, track_log
+from ..telemetry import latency_log, live, run_name, track_log
 from ..robots.leg import (
     ANKLE_JOINTS,
     ANKLE_MOTORS,
@@ -1011,18 +1011,46 @@ def main(argv=None) -> int:
     finally:
         if server is not None:
             server.stop()
+        naming = _log_naming(args)
         if args.track is not None:
-            _save_track(args.track, args.log, f"test_{args.command}")
+            _save_track(args.track, args.log, args.command, *naming)
         if latency is not None:
-            _save_latency(latency, args.log, f"test_{args.command}")
+            _save_latency(latency, args.log, args.command, *naming)
 
 
-def _save_track(track: "track_log.TrackLog", directory: Path, name: str) -> None:
+def _log_naming(args) -> tuple:
+    """`(이름 조각들, 첫 줄)`. 두 기록이 같은 것을 씀.
+
+    `huphy-run` 과 같은 규칙임 (`telemetry/run_name.py`). 정책이 없으므로 정책
+    이름 자리에 동작 이름(`zero`·`pose` 등)이 들어감.
+    """
+    return (
+        run_name.tags(
+            gain_scale=args.gain_scale,
+            extra={
+                "hz": args.hz or None,
+                "drain": args.drain_ms if args.drain_ms != 2.0 else None,
+                args.send_mode: True if args.send_mode != "seq" else None,
+            },
+        ),
+        run_name.header(
+            command=args.command,
+            gain=args.gain_scale,
+            hz=args.hz,
+            drain_ms=args.drain_ms,
+            send_mode=args.send_mode,
+            approach=args.approach,
+        ),
+    )
+
+
+def _save_track(track: "track_log.TrackLog", directory: Path, name: str,
+                parts=(), header: str = "") -> None:
     """추종 기록을 씀. 실패해도 올리지 않음."""
     if not len(track):
         return
     try:
-        path = track.save(track_log.default_path(directory, name))
+        path = track.save(track_log.default_path(directory, name, parts), header)
     except OSError as e:
         print(f"  추종 기록 저장 실패: {e}")
         return
@@ -1030,13 +1058,14 @@ def _save_track(track: "track_log.TrackLog", directory: Path, name: str) -> None
     print(f"  추종 기록: {path}  ({len(track)}줄{note})")
 
 
-def _save_latency(latency: "latency_log.LatencyLog", directory: Path, name: str) -> None:
+def _save_latency(latency: "latency_log.LatencyLog", directory: Path, name: str,
+                  parts=(), header: str = "") -> None:
     """지연 요약을 찍고 CSV 로 씀. **실패해도 올리지 않음** -- 토크는 이미 끊긴 뒤임."""
     if not len(latency):
         return
     print("\n" + latency.summary())
     try:
-        path = latency.save(latency_log.default_path(directory, name))
+        path = latency.save(latency_log.default_path(directory, name, parts), header)
     except OSError as e:
         print(f"  지연 기록 저장 실패: {e}")
         return

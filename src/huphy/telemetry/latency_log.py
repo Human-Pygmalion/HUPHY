@@ -33,6 +33,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from . import run_name
+
 import numpy as np
 
 
@@ -135,7 +137,8 @@ class LatencyLog:
         return "\n".join(lines)
 
     # ---- 저장 -------------------------------------------------------------
-    def save(self, path: "str | Path") -> Path:
+    def save(self, path: "str | Path", header: str = "") -> Path:
+        """CSV 로 씀. `header` 는 `run_name.header(...)` 의 `# run ...` 한 줄."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         meta = []
@@ -144,6 +147,8 @@ class LatencyLog:
         if self.hz is not None:
             meta.append(f"hz={self.hz:g}")
         with path.open("w", newline="") as f:
+            if header:
+                f.write(header)
             if meta:
                 f.write("# " + " ".join(meta) + "\n")
             writer = csv.writer(f)
@@ -198,7 +203,6 @@ def _row(name: str, lat: Iterable[float], sent: int, late: int, lost: int) -> st
     return f"  {name}{' ' * max(1, pad)} {body}  {pct(late):>6s} {pct(lost):>6s}"
 
 
-def default_path(directory: "str | Path", name: str) -> Path:
-    """`<폴더>/latency_<이름>_<날짜_시각>.csv`."""
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    return Path(directory) / f"latency_{name}_{stamp}.csv"
+def default_path(directory: "str | Path", name: str, parts=()) -> Path:
+    """`<폴더>/<월일>_latency_<이름>[_<인자들>].csv`. 규칙은 `run_name` 에 있음."""
+    return run_name.path(directory, "latency", name, parts)

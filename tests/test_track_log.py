@@ -46,9 +46,21 @@ class TestTrackLog:
         assert rows[1][1:] == ["30", "29.5"]
 
     def test_default_path(self, tmp_path):
-        path = track_log.default_path(tmp_path, "test_zero")
+        """`<월일>_track_<이름>[_<인자들>].csv` (`telemetry/run_name.py`)."""
+        path = track_log.default_path(tmp_path, "zero")
         assert path.parent == tmp_path
-        assert path.name.startswith("track_test_zero_") and path.suffix == ".csv"
+        assert path.name.endswith("_track_zero.csv")
+        assert path.name[:4].isdigit(), "월일로 시작해야 함"
+
+    def test_default_path_carries_the_arguments(self, tmp_path):
+        path = track_log.default_path(tmp_path, "zero", ["g0.3", "drain4"])
+        assert path.name.endswith("_track_zero_g0.3_drain4.csv")
+
+    def test_default_path_does_not_overwrite(self, tmp_path):
+        """같은 날 같은 인자로 또 돌려도 앞 기록이 남아야 함."""
+        first = track_log.default_path(tmp_path, "zero")
+        first.touch()
+        assert track_log.default_path(tmp_path, "zero").name.endswith("_2.csv")
 
 
 class TestSentTargets:
