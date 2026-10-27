@@ -53,7 +53,7 @@ from ..motors.base import Gains
 from ..motors.canbus import CanBus, bring_up_hint
 from ..motors.robstride.bus import RobStrideBus
 from ..robots.biped import Biped
-from ..robots.leg import ANKLE_JOINTS, SEND_SEQ, SINGLE_JOINTS, Leg
+from ..robots.leg import ANKLE_JOINTS, SEND_BURST, SINGLE_JOINTS, Leg
 from ..sensors import make_imus
 from . import table
 from .commission import CONFIG_NAME, _find_config, _pick_limb
@@ -82,7 +82,8 @@ def build_leg(
     reader: bool = False,
     imus: Optional[List[object]] = None,
     drain_s: Optional[float] = None,
-    send_mode: str = SEND_SEQ,
+    send_mode: str = SEND_BURST,
+    probe: int = 0,
 ) -> Leg:
     """설정에서 다리 하나를 만듦.
 
@@ -110,9 +111,13 @@ def build_leg(
     `drain_s` 는 응답을 기다리는 최대 시간임. 안 주면 버스 기본값(2ms). 양다리는
     다리마다 따로 기다리므로 두 다리 다 응답이 늦으면 최악 두 배가 됨.
 
-    `send_mode` 기본은 `seq` (모터마다 보내고 응답을 받은 뒤 다음). `Leg` 자체의 기본은
-    `burst` 로 남겨 둠 -- 진입점은 다 여기를 지나므로 실물은 `seq` 로 돎.
-    `docs/can_communication.md` 4절.
+    `send_mode` 기본은 `burst` (모터 6대에 연달아 보내고 모음). **burst 면 연결할 때
+    모터마다 호스트 id 가 규칙(0xF0 + id)대로인지 봄** -- 아니면 응답이 부딪혀 빠지므로
+    `HostIdError` 로 멈춤. 호스트 id 를 못 맞춘 모터가 있으면 `seq` 로 돌림.
+    `docs/can_communication.md` 4절, `docs/motor_setup.md` 14절.
+
+    `probe` 를 주면 한 주기에 그만큼 파라미터 읽기(전류·전압)를 명령에 실어 보냄.
+    burst 에서만 됨. 값은 `telemetry.motor_log` 가 받아 적음.
     """
     if gains is not None:
         limb = replace(
@@ -154,6 +159,8 @@ def build_leg(
         ankle_kp=ankle_kp,
         ankle_kd=ankle_kd,
         send_mode=send_mode,
+        verify_host_ids=(send_mode == SEND_BURST),
+        probe=probe,
     )
 
 

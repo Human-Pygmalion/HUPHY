@@ -45,7 +45,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Mapping, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from ..base import Motor, MotorFault, MotorState, MotorsBus, resolve_motor_list
 from ..canbus import DEFAULT_DRAIN_S, CanBus, CanFrame
@@ -152,6 +152,28 @@ class RobStrideBus(MotorsBus):
         늦게 온 응답이라 상태 캐시에는 반영하지만 "이번 주기에 답함" 으로 세지 않음.
         """
 
+        self.reply_ids: Dict[int, int] = {}
+        """모터 id -> 그 모터의 상태 프레임이 실려 온 11비트 CAN id (= 호스트 id).
+
+        `Leg` 가 연결할 때 `tables.HOST_ID_BASE + id` 인지 봄 -- 아니면 burst 가
+        안전하지 않음 (docs/motor_setup.md 14절)."""
+
+        # ---- 파라미터 읽기 (Command 14) ----
+        self.param_sink = None
+        """읽은 값을 받는 곳. 붙이면 `sample(mid, index, value, stamp, late)` 를 부름.
+        `telemetry.motor_log` 가 붙임."""
+        self.params: Dict[int, Dict[int, Tuple[float, float]]] = {mid: {} for mid in self.motors}
+        """모터 id -> 인덱스 -> (값, 도착 시각). 마지막으로 읽은 것."""
+        self.param_counts: Dict[int, Dict[str, int]] = {
+            mid: {"sent": 0, "ok": 0, "late": 0} for mid in self.motors
+        }
+        """모터별 누적. ok = 그 주기 수거 안에 옴, late = 다음 주기 이후에 옴 (값은
+        씀 -- 누구 것인지 CAN id 로 앎). 끝내 안 온 것은 sent - ok - late."""
+        self._pending_reads: Set[Tuple[int, int]] = set()
+        """이번 주기에 물은 것. 수거 안에 오면 ok 로 셈."""
+        self._overdue_reads: Set[Tuple[int, int]] = set()
+        """지난 주기에 물었는데 아직 안 온 것. 나중에 오면 late 로 셈."""
+
     def __repr__(self) -> str:
         return f"RobStrideBus({self.bus.channel}, 모터 {len(self.motors)}개)"
 
@@ -210,16 +232,25 @@ class RobStrideBus(MotorsBus):
         self.bus.send_many([_command_frame(mid, tables.CMD_FAULT) for mid in ids])
 
     # ---- 명령 -------------------------------------------------------------
-    def send_mit(self, commands: Mapping[int, MitCommand]) -> int:
+    def send_mit(
+        self,
+        commands: Mapping[int, MitCommand],
+        reads: Sequence[Tuple[int, int]] = (),
+    ) -> int:
         """MIT 명령들을 **한 번에** 보냄. 보낸 개수를 반환함.
 
         수거하지 않음 — 응답은 `collect()` 로 받음. 버스가 둘일 때 전송을 먼저
         몰아야 두 다리의 명령 시각이 붙음 (이슈 #10).
 
+        `reads` 를 주면 명령 뒤에 파라미터 읽기(Command 14)를 같이 실어 보냄 --
+        `(모터 id, 인덱스)` 목록. 응답은 `collect()` 가 같이 받음. **모터마다 호스트
+        id 가 달라야 함** -- 읽기 응답에는 모터 id 가 없어서 CAN id 로 가림.
+
         여기서 한계를 검사하지 않음. 그건 `safety.guards` 가 cal 공간에서 이미 함.
         같은 검사를 두 군데 두면 한쪽만 고쳐졌을 때 어느 쪽이 맞는지 알 수 없음.
         """
         unknown = [mid for mid in commands if mid not in self.motors]
+        unknown += [mid for mid, _ in reads if mid not in self.motors]
         if unknown:
             raise ValueError(
                 f"이 버스에 없는 모터 id: {unknown} (가용: {list(self.motor_ids)})"
@@ -239,8 +270,20 @@ class RobStrideBus(MotorsBus):
             )
             for mid, c in commands.items()
         ]
+        frames += [
+            CanFrame(can_id=mit.param_read_id(mid), data=mit.pack_param_read(index))
+            for mid, index in reads
+        ]
         self._note_sent(commands)
+        self._note_reads(reads)
         return self.bus.send_many(frames)
+
+    def _note_reads(self, reads: Sequence[Tuple[int, int]]) -> None:
+        """이번에 물은 것을 기억함. 지난번에 물었는데 안 온 것은 '늦음 후보' 로 넘김."""
+        self._overdue_reads |= self._pending_reads
+        self._pending_reads = set((int(m), int(i)) for m, i in reads)
+        for mid, _ in self._pending_reads:
+            self.param_counts[mid]["sent"] += 1
 
     def _note_sent(self, commands: Mapping[int, MitCommand]) -> None:
         """보낸 시각을 모터별로 남김. **묶음을 보내기 직전 한 시각**을 씀.
@@ -288,10 +331,28 @@ class RobStrideBus(MotorsBus):
 
         `timeout_s` 를 안 주면 `self.drain_s` 를 씀. 예전에는 여기에 0.002 가 따로
         박혀 있어서 `canbus.DEFAULT_DRAIN_S` 를 바꿔도 제어 경로에는 안 닿았음.
+
+        `expect` 는 **이번 주기 몫의 응답** 수임 -- 상태 프레임과, 이번에 실어 보낸
+        파라미터 읽기의 응답. 지난 주기의 늦은 응답은 세지 않고 계속 받음. 프레임
+        개수로만 세면 늦게 온 것 하나가 자리를 차지해, 이번 응답 하나를 남겨 둔 채
+        빠져나가고 그 모터가 무응답으로 잡힘.
         """
         wait = self.drain_s if timeout_s is None else float(timeout_s)
-        frames = self.bus.drain(expect=expect, timeout_s=wait)
-        seen = self._absorb(frames)
+        deadline = time.monotonic() + max(0.0, wait)
+        seen: Set[int] = set()
+        got = 0
+        budget = wait                       # 첫 번은 예산 그대로, 그다음은 남은 만큼
+        while True:
+            need = None if expect is None else max(0, int(expect) - got)
+            frames = self.bus.drain(expect=need, timeout_s=max(0.0, budget))
+            budget = deadline - time.monotonic()
+            new_seen, n_reads = self._absorb_counted(frames)
+            got += len(new_seen - seen) + n_reads
+            seen |= new_seen
+            if expect is None or got >= expect or not frames:
+                break
+            if time.monotonic() >= deadline:
+                break
         return [mid for mid in self.motor_ids if mid not in seen]
 
     def collect_until(self, motor_id: int, *, timeout_s: Optional[float] = None) -> Set[int]:
@@ -324,9 +385,31 @@ class RobStrideBus(MotorsBus):
         수신 스레드가 없으면 도착 시각이 수거 시각이라 늦은 것을 가릴 수 없음 (전부
         이번 응답으로 봄).
         """
+        return self._absorb_counted(frames)[0]
+
+    def _absorb_counted(self, frames: Iterable[CanFrame]) -> Tuple[Set[int], int]:
+        """`_absorb` 와 같고, 이번 주기에 물은 파라미터 읽기의 응답 수를 같이 냄.
+
+        **프레임 가르기.** 호스트 id 가 `HOST_ID_BASE + 모터 id` 로 설정돼 있으면
+        CAN id 로 모터를 앎 (docs/motor_setup.md 14절):
+
+            data[0] == 그 모터 id                 상태 프레임 (Response Command 1)
+            data[2:4] == 00 00, data[1] == 0x70   파라미터 읽기 응답 (Command 14)
+
+        상태 프레임의 data[0] 은 늘 모터 id 라 둘이 섞이지 않음. 호스트 id 가 규칙과
+        다르면(출하값 0xFD 등) 예전처럼 data[0] 으로 상태 프레임만 봄.
+        """
         seen: Set[int] = set()
+        n_reads = 0
         now = time.monotonic()
         for f in frames:
+            by_id = f.can_id - tables.HOST_ID_BASE
+            if (
+                by_id in self.motors and len(f.data) >= 8 and f.data[0] != by_id
+                and f.data[1] == 0x70 and f.data[2] == 0 and f.data[3] == 0
+            ):
+                n_reads += self._absorb_param(by_id, f, now)
+                continue
             try:
                 mid, pos, vel, tau, temp = mit.decode_state(f.data, enc=self._encoding_for_frame(f))
             except (ValueError, KeyError) as e:
@@ -335,6 +418,7 @@ class RobStrideBus(MotorsBus):
             if mid not in self.motors:
                 logger.debug("%s 모르는 모터 응답 id=%d", self.bus.channel, mid)
                 continue
+            self.reply_ids[mid] = f.can_id
             self._states[mid] = MotorState(
                 position_deg=pos,
                 velocity_deg_s=vel,
@@ -349,7 +433,35 @@ class RobStrideBus(MotorsBus):
                 seen.add(mid)
             if self.latency is not None:
                 self._note_received(mid, f.stamp)
-        return seen
+        return seen, n_reads
+
+    def _absorb_param(self, mid: int, f: CanFrame, now: float) -> int:
+        """파라미터 읽기 응답 하나. 이번 주기에 물은 것이면 1 을 냄.
+
+        늦게 온 것도 값은 씀 -- CAN id 로 누구 것인지 알므로 다른 모터 값으로 착각할
+        일이 없음. 도착 시각이 그 값의 시각임.
+        """
+        index = f.data[0] | (f.data[1] << 8)
+        value = mit.decode_param_float(f.data)
+        stamp = f.stamp or now
+        key = (mid, index)
+        if key in self._pending_reads:
+            self._pending_reads.discard(key)
+            self.param_counts[mid]["ok"] += 1
+            late, counted = False, 1
+        elif key in self._overdue_reads:
+            self._overdue_reads.discard(key)
+            self.param_counts[mid]["late"] += 1
+            late, counted = True, 0
+        else:
+            return 0                                # 묻지 않은 것. 다른 프로그램 몫
+        self.params[mid][index] = (value, stamp)
+        if self.param_sink is not None:
+            try:
+                self.param_sink.sample(mid, index, value, stamp, late)
+            except Exception as e:  # noqa: BLE001 - 기록 때문에 제어가 멈추면 안 됨
+                logger.debug("%s 파라미터 기록 실패: %s", self.bus.channel, e)
+        return counted
 
     def _encoding_for_frame(self, frame: CanFrame) -> tables.EncodingRange:
         """응답 프레임의 인코딩 범위를 고름.
@@ -361,7 +473,11 @@ class RobStrideBus(MotorsBus):
             raise ValueError("빈 프레임")
         return self._encoding[frame.data[0]]
 
-    def refresh_states(self, motors: Optional[Iterable[int]] = None) -> List[int]:
+    def refresh_states(
+        self,
+        motors: Optional[Iterable[int]] = None,
+        reads: Sequence[Tuple[int, int]] = (),
+    ) -> List[int]:
         """상태를 요청하고 응답을 수거함. 응답이 없었던 모터 id 를 반환함.
 
         게인과 토크가 0인 명령을 보냄 — MIT 모드에는 읽기 전용 명령이 없고, 모터는
@@ -378,8 +494,8 @@ class RobStrideBus(MotorsBus):
         """
         ids = resolve_motor_list(motors, self.motor_ids)
         self.bus.flush_rx()
-        self.send_mit({mid: PASSIVE for mid in ids})
-        missing = self.collect(expect=len(ids))
+        self.send_mit({mid: PASSIVE for mid in ids}, reads=reads)
+        missing = self.collect(expect=len(ids) + len(reads))
         return [mid for mid in ids if mid in set(missing)]
 
     def state(self, motor_id: int) -> MotorState:

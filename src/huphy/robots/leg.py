@@ -69,7 +69,9 @@ from .. import calibration as calib
 from ..config.schema import LimbConfig, SafetyConfig
 from ..kinematics.ankle import AnkleKinematics, AnkleUnreachableError
 from ..motors.base import Gains, MotorCalibration
+from ..motors.robstride import tables
 from ..motors.robstride.bus import PASSIVE, MitCommand, RobStrideBus
+from ..motors.robstride.codec import mit
 from ..safety import guards
 from ..sensors.group import ImuGroup
 from .base import Action, Observation, Robot
@@ -136,15 +138,27 @@ SEND_SEQ = "seq"
 SEND_MODES = (SEND_BURST, SEND_SEQ)
 """명령을 버스에 내는 방식.
 
-    burst   모터 6개에 연달아 보내고 응답을 모음. 응답이 서로 겹칠 수 있음
-    seq     한 모터에 보내고 그 응답을 받은 뒤 다음 모터. 한 버스에서 응답이 안 겹침
+    burst   모터 6개에 연달아 보내고 응답을 모음. **기본**
+    seq     한 모터에 보내고 그 응답을 받은 뒤 다음 모터
 
-**RobStride MIT 응답은 모든 모터가 같은 CAN id(호스트 id)를 씀.** 두 모터가 같은
-순간에 응답을 시작하면 id 가 같아 CAN 중재로 순서가 안 정해지고 데이터에서 부딪힘 --
-둘 다 깨지고, 재전송이 다시 부딪히면 결국 빠짐. 2026-10-15 실측(gs_usb, 토크 0 상태
-조회 1800프레임): burst 7.6~9.0% 유실(빠질 때 둘씩), seq 0%. seq 의 한 다리 6모터는
-p50 4.3ms / p95 5.3ms 로 burst 의 마지막 응답(약 3.5ms)보다 1ms 남짓 김.
+**burst 는 모터마다 호스트 id 가 달라야 안전함** (`tables.HOST_ID_BASE + id`). 응답의
+CAN id 가 호스트 id 인데, 모두 같으면(출하값 0xFD) 두 모터가 같은 순간에 응답을 시작할
+때 CAN 중재로 순서가 안 정해지고 데이터에서 부딪혀 둘 다 깨짐. 2026-10-15 실측: burst
+7.6~9.0% 유실, seq 0% -- 그래서 한동안 seq 가 기본이었음.
+
+2026-10-27 12대 모두 호스트 id 를 다르게 바꾼 뒤 실측(100Hz 관찰): burst 유실 0%,
+한 다리 6대 응답을 다 받는 데 약 1.8ms (seq 는 6번 왕복이라 3ms 이상). 명령이 6대에
+0.6ms 안에 다 나가서 시각도 붙음. docs/can_communication.md 4절.
+
+seq 는 호스트 id 가 규칙과 다른 모터가 섞였을 때 쓰는 길로 남겨 둠.
 """
+
+PROBE_PARAMS = (tables.PARAM_IQF, tables.PARAM_VBUS)
+"""`--probe` 로 읽는 파라미터. iq 필터값(A), 버스 전압(V)."""
+
+
+class HostIdError(RuntimeError):
+    """응답 CAN id 가 규칙(`HOST_ID_BASE + id`)과 다른 모터가 있음. burst 가 안전하지 않음."""
 
 
 class Leg(Robot):
@@ -177,6 +191,8 @@ class Leg(Robot):
         ankle_kp: Tuple[float, float] = (0.0, 0.0),
         ankle_kd: Tuple[float, float] = (0.0, 0.0),
         send_mode: str = SEND_BURST,
+        verify_host_ids: bool = False,
+        probe: int = 0,
     ) -> None:
         self.config = config
         self._base_gains = {name: motor.gains for name, motor in config.motors.items()}
@@ -213,6 +229,34 @@ class Leg(Robot):
         """
         self._seq_pending: Tuple[Tuple[int, MitCommand], ...] = ()
         self._seq_seen: set = set()
+
+        self.verify_host_ids = bool(verify_host_ids)
+        """연결할 때 모터마다 응답 CAN id 가 `HOST_ID_BASE + id` 인지 봄. 아니면
+        `HostIdError`. 스크립트(`build_leg`)는 burst 일 때 켬."""
+
+        self.probe = int(probe)
+        """한 주기에 같이 실어 보낼 파라미터 읽기(Command 14) 수. 0 이면 안 읽음.
+
+        `PROBE_PARAMS` x 모터를 순서대로 돎 -- 전류를 모터마다 먼저, 다음에 전압.
+        2 면 100Hz 에서 값 하나가 약 17Hz 로 갱신됨. 응답은 상태 응답과 같이 수거하고,
+        빠져도 무응답으로 세지 않음 (`RobStrideBus.param_counts`).
+        """
+        if self.probe < 0:
+            raise ValueError(f"{config.name}: probe 는 0 이상이어야 함 (받은 값 {probe})")
+        if self.probe and send_mode != SEND_BURST:
+            raise ValueError(
+                f"{config.name}: probe 는 burst 에서만 됨 -- 읽기 응답을 CAN id 로 가르는데 "
+                f"seq 는 호스트 id 가 같은 모터를 위한 길임"
+            )
+        ids = tuple(config.motor_ids)
+        unsafe = [hex(i) for i in PROBE_PARAMS if not mit.param_index_safe(i, ids)]
+        if self.probe and unsafe:
+            raise ValueError(f"{config.name}: 인덱스 낮은 바이트가 모터 id 와 겹침 {unsafe}")
+        self._probe_slots: Tuple[Tuple[int, int], ...] = tuple(
+            (mid, index) for index in PROBE_PARAMS for mid in ids
+        )
+        self._probe_next = 0
+        self._reads_sent = 0
 
         self.ankle_kp = (float(ankle_kp[0]), float(ankle_kp[1]))
         self.ankle_kd = (float(ankle_kd[0]), float(ankle_kd[1]))
@@ -357,8 +401,53 @@ class Leg(Robot):
 
     def connect(self) -> None:
         self.bus.connect()
+        if self.verify_host_ids:
+            try:
+                self._check_host_ids()
+            except Exception:
+                self.bus.disconnect()
+                raise
         self.refresh()
         self._connect_imus()
+
+    def _check_host_ids(self) -> None:
+        """모터마다 응답 CAN id 가 `HOST_ID_BASE + id` 인지 봄. 아니면 `HostIdError`.
+
+        **한 대씩 물음** -- 규칙과 다른(같은 id 를 쓰는) 모터가 섞여 있어도 응답이 안
+        부딪힘. 토크가 0인 명령이라 아무 일도 일어나지 않음.
+
+        답이 없는 모터는 여기서 따지지 않음 -- 그건 통신 문제이고 연결 뒤 링크 감시가
+        봄. 모터를 갈아 끼우고 호스트 id 설정을 빠뜨리면 여기서 걸림.
+        """
+        self.bus.bus.flush_rx()
+        for mid in self.config.motor_ids:
+            self.bus.send_mit({mid: PASSIVE})
+            self.bus.collect_until(mid)
+        wrong = {
+            mid: rid for mid, rid in self.bus.reply_ids.items()
+            if rid != tables.HOST_ID_BASE + mid
+        }
+        if wrong:
+            names = {m.id: n for n, m in self.config.motors.items()}
+            detail = ", ".join(
+                f"{names.get(mid, mid)}({mid}) 응답 0x{rid:03X} (0x{tables.HOST_ID_BASE + mid:03X} 이어야 함)"
+                for mid, rid in sorted(wrong.items())
+            )
+            raise HostIdError(
+                f"{self.id} ({self.config.channel}): 호스트 id 가 규칙과 다른 모터 -- {detail}.\n"
+                f"burst 는 모터마다 응답 id 가 달라야 안전함 (docs/motor_setup.md 14절). "
+                f"`python3 tools/can_scan.py` 로 확인하고 Command 9 로 맞추거나, "
+                f"--send-mode seq 로 돌릴 것"
+            )
+
+    def _next_reads(self) -> Tuple[Tuple[int, int], ...]:
+        """이번 주기에 실어 보낼 파라미터 읽기. `probe` 가 0 이면 빈 것."""
+        if not self.probe or not self._probe_slots:
+            return ()
+        n = len(self._probe_slots)
+        out = tuple(self._probe_slots[(self._probe_next + k) % n] for k in range(min(self.probe, n)))
+        self._probe_next = (self._probe_next + len(out)) % n
+        return out
 
     def disconnect(self) -> None:
         self.imus.disconnect()
@@ -774,7 +863,9 @@ class Leg(Robot):
                 self._seq_wait(self._seq_send(i))
             return len(self._seq_pending)
         self._awaiting = tuple(commands)
-        return self.bus.send_mit(dict(commands))
+        reads = self._next_reads()
+        self._reads_sent = len(reads)
+        return self.bus.send_mit(dict(commands), reads=reads)
 
     # ---- 하나씩 보내기 (seq) ------------------------------------------------
     # 모든 모터가 같은 응답 id(호스트 id)로 답하므로, 몰아서 보내면 두 응답이 동시에
@@ -817,7 +908,8 @@ class Leg(Robot):
             self.send({m: PASSIVE for m in self.config.motor_ids})
             return self._seq_finish()
         self._awaiting = tuple(self.config.motor_ids)
-        missing = self.bus.refresh_states()
+        reads = self._next_reads()
+        missing = self.bus.refresh_states(reads=reads) if reads else self.bus.refresh_states()
         self._note_link(missing)
         self._update_ankle_pose()
         return tuple(missing)
@@ -826,7 +918,8 @@ class Leg(Robot):
         """응답을 수거함. **직전에 명령한 모터만** 기다림."""
         if self.send_mode == SEND_SEQ:
             return self._seq_finish()
-        missing = self.bus.collect(expect=len(self._awaiting))
+        missing = self.bus.collect(expect=len(self._awaiting) + self._reads_sent)
+        self._reads_sent = 0
         self._note_link(missing)
         self._update_ankle_pose()
         return tuple(m for m in missing if m in self._awaiting)

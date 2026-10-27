@@ -115,7 +115,8 @@ def _state_frame(mid, pos_deg):
     q = mit.float_to_uint(math.radians(pos_deg), -enc.pmax_rad, enc.pmax_rad, 16)
     v = mit.float_to_uint(0.0, -enc.vmax_rad_s, enc.vmax_rad_s, 12)
     tau = mit.float_to_uint(0.0, -enc.tmax_nm, enc.tmax_nm, 12)
-    return FakeMessage(mid, bytes([
+    # 응답 CAN id 는 그 모터의 호스트 id (실물은 0xF0 + id 로 설정해 둠)
+    return FakeMessage(T.HOST_ID_BASE + mid, bytes([
         mid, (q >> 8) & 0xFF, q & 0xFF, (v >> 4) & 0xFF,
         ((v & 0x0F) << 4) | ((tau >> 8) & 0x0F), tau & 0xFF, 1, 69,
     ]))

@@ -89,14 +89,15 @@ from ..config import ConfigError, LimbConfig, load_robot
 from ..control import ControlLoop, Mode, motions, policy
 from ..control.studio import Studio
 from ..robots.biped import join_name
-from ..telemetry import latency_log, live, run_name, track_log
+from ..telemetry import latency_log, live, motor_log, run_name, track_log
 from ..robots.leg import (
     ANKLE_JOINTS,
     ANKLE_MOTORS,
     ANKLE_SPACE_MOTOR,
+    SEND_BURST,
     SEND_MODES,
-    SEND_SEQ,
     SINGLE_JOINTS,
+    HostIdError,
     Leg,
 )
 from .bringup import build_biped, build_leg
@@ -110,6 +111,8 @@ QUIT_KEY = "\x11"
 """Ctrl-Q. 터미널이 흘려보내는 문자라 raw 모드에서만 읽힘."""
 
 LOG_SKIP_S = 2.0
+PROBE_DEFAULT = 2
+"""`--probe` 만 줬을 때 다리당 한 주기 읽기 수 (`huphy-run` 과 같음)."""
 """`--log-skip` 기본값. 연결 직후 첫 주기들은 수신 스레드·USB 가 막 돌기 시작해 느림."""
 
 DEFAULT_APPROACH_S = 3.0
@@ -765,11 +768,25 @@ def _add_common(parser, *, suppress: bool) -> None:
     parser.add_argument(
         "--send-mode",
         choices=SEND_MODES,
-        default=default(SEND_SEQ),
+        default=default(SEND_BURST),
         help=(
-            "명령을 버스에 내는 방식. seq=한 모터씩 보내고 응답을 받은 뒤 다음 (기본), "
-            "burst=6개를 연달아 보내고 모음. RobStride 응답은 모든 모터가 같은 CAN id 라 "
-            "burst 에서 응답이 겹치면 둘 다 깨짐 -- docs/can_communication.md"
+            "명령을 버스에 내는 방식. burst=6개를 연달아 보내고 모음 (기본), "
+            "seq=한 모터씩 보내고 응답을 받은 뒤 다음. burst 는 모터마다 호스트 id 가 "
+            "0xF0+id 여야 함 -- 연결할 때 확인하고 아니면 멈춤. 못 맞춘 모터가 있으면 seq. "
+            "docs/can_communication.md 4절"
+        ),
+    )
+    parser.add_argument(
+        "--probe",
+        nargs="?",
+        const=PROBE_DEFAULT,
+        type=int,
+        default=default(None),
+        metavar="N",
+        help=(
+            f"모터 전류(iq)·전압(VBUS)을 읽어 기록함. 한 주기에 다리마다 N 개씩 명령에 실어 "
+            f"보냄 (안 주면 {PROBE_DEFAULT}). burst 에서만. 끝에 요약을 찍고 "
+            f"<--log 폴더 또는 logs>/motor/ 에 JSON 으로 남김"
         ),
     )
     parser.add_argument(
@@ -936,12 +953,17 @@ def main(argv=None) -> int:
     )
     if args.drain_ms < 0:
         raise SystemExit(f"--drain-ms 는 0 이상이어야 함 (받은 값 {args.drain_ms})")
+    if args.probe is not None and args.probe < 1:
+        raise SystemExit(f"--probe 는 1 이상이어야 함 (받은 값 {args.probe})")
+    if args.probe and args.send_mode != SEND_BURST:
+        raise SystemExit("--probe 는 --send-mode burst 에서만 됨 (읽기 응답을 CAN id 로 가름)")
     options = dict(
         # studio 는 실행 중에 배율을 바꿈 -- 설정의 게인 그대로 만들고 배율은 세션이 걺.
         gain_scale=1.0 if args.command == "studio" else args.gain_scale,
         allow_uncalibrated=args.allow_uncalibrated,
         drain_s=args.drain_ms / 1000.0,
         send_mode=args.send_mode,
+        probe=args.probe or 0,
     )
 
     # 팔다리가 하나면 다리 그대로 씀 -- 관절 이름에 접두어가 붙지 않아 화면과
@@ -955,6 +977,8 @@ def main(argv=None) -> int:
     # 있어 **가장 느린 쪽**에 맞춤 -- 빠른 쪽에 맞추면 느린 쪽이 매 주기 밀림.
     hz = args.hz if args.hz else min(limb.control_hz for limb in limbs)
     loop = ControlLoop(machine, hz=hz, mode=Mode.OBSERVE)
+    # 연결 전에 붙임 -- 연결할 때의 첫 읽기부터 셈이 맞음.
+    motors = motor_log.MotorLog(hz=hz, probe=args.probe).attach(machine) if args.probe else None
 
     # 지연은 첫 상태 읽기부터 잼 -- 통신은 패턴이 시작했는지와 무관함. 추종은 접근
     # 구간부터 매 주기 한 줄 (`_run`).
@@ -1005,6 +1029,8 @@ def main(argv=None) -> int:
     except ConnectionError as e:
         channels = sorted({limb.channel for limb in limbs})
         raise SystemExit(f"{e}\n{bring_up_hint(channels)}") from e
+    except HostIdError as e:
+        raise SystemExit(str(e)) from e
     except KeyboardInterrupt:
         print()
         return 130
@@ -1016,6 +1042,8 @@ def main(argv=None) -> int:
             _save_track(args.track, args.log, args.command, *naming)
         if latency is not None:
             _save_latency(latency, args.log, args.command, *naming)
+        if motors is not None:
+            _save_motors(motors, args.log or Path("logs"), args.command, *naming)
 
 
 def _log_naming(args) -> tuple:
@@ -1030,7 +1058,8 @@ def _log_naming(args) -> tuple:
             extra={
                 "hz": args.hz or None,
                 "drain": args.drain_ms if args.drain_ms != 2.0 else None,
-                args.send_mode: True if args.send_mode != "seq" else None,
+                args.send_mode: True if args.send_mode != SEND_BURST else None,
+                "probe": args.probe,
             },
         ),
         run_name.header(
@@ -1039,6 +1068,7 @@ def _log_naming(args) -> tuple:
             hz=args.hz,
             drain_ms=args.drain_ms,
             send_mode=args.send_mode,
+            probe=args.probe,
             approach=args.approach,
         ),
     )
@@ -1056,6 +1086,22 @@ def _save_track(track: "track_log.TrackLog", directory: Path, name: str,
         return
     note = f", 기록 실패 {track.errors}회" if track.errors else ""
     print(f"  추종 기록: {path}  ({len(track)}줄{note})")
+
+
+def _save_motors(motors: "motor_log.MotorLog", directory: Path, name: str,
+                 parts=(), run_meta=None) -> None:
+    """전류·전압 요약을 찍고 JSON 으로 씀. 실패해도 올리지 않음."""
+    print("\n" + motors.summary())
+    if not len(motors):
+        print("  모터 기록: 받은 값이 없음")
+        return
+    try:
+        path = motors.save(motor_log.default_path(directory, name, parts), run_meta or {})
+    except OSError as e:
+        print(f"  모터 기록 저장 실패: {e}")
+        return
+    note = f", 기록 실패 {motors.errors}회" if motors.errors else ""
+    print(f"  모터 기록: {path}  ({len(motors)}줄{note})")
 
 
 def _save_latency(latency: "latency_log.LatencyLog", directory: Path, name: str,

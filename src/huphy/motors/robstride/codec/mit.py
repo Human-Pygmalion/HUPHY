@@ -58,6 +58,7 @@ private 프로토콜(Type 2)에서는 이 플래그들이 29비트 CAN ID 안에
 from __future__ import annotations
 
 import math
+import struct
 from typing import NamedTuple, Tuple
 
 from ..tables import EncodingRange
@@ -195,3 +196,47 @@ def decode_fault(data: bytes) -> Tuple[int, int]:
     motor_id = int(data[0])
     word = data[1] | (data[2] << 8) | (data[3] << 16) | (data[4] << 24)
     return motor_id, word
+
+
+# ---------------------------------------------------------------------------
+# 파라미터 읽기 — Command 14 (매뉴얼 6.17절). RS04 0.4.1.29 / RS03 0.3.1.41 이상
+#
+#   요청  11-bit ID = (3 << 8) | 모터 CAN ID
+#         Byte0~1 인덱스 (작은 자리 먼저), 나머지 0
+#   응답  11-bit ID = 그 모터의 호스트 ID (상태 프레임과 같음)
+#         Byte0~1 인덱스, Byte2~3 0, Byte4~7 값 (작은 자리 먼저)
+#
+# **응답에 모터 ID 가 없음.** 모터마다 호스트 ID 를 다르게 두고(0xF0 + id) CAN ID 로
+# 가림 -- `RobStrideBus._absorb_counted`. 상태 프레임은 Byte0 이 늘 모터 ID 라, 같은
+# CAN ID 로 와도 Byte0 이 그 모터 ID 가 아니면 읽기 응답임.
+#
+# Byte0 이 인덱스 낮은 바이트라, 호스트 ID 가 출하값(모든 모터 0xFD)이면 상태 해석기가
+# 이것을 그 번호 모터의 상태로 읽을 수 있음 (0x7005 -> 모터 5). `param_index_safe` 참조.
+# ---------------------------------------------------------------------------
+PARAM_READ_SELECTOR = 3
+
+
+def param_read_id(motor_id: int) -> int:
+    """Command 14 요청의 11비트 ID."""
+    return (PARAM_READ_SELECTOR << 8) | (int(motor_id) & 0xFF)
+
+
+def pack_param_read(index: int) -> bytes:
+    """Command 14 요청의 데이터 8바이트."""
+    index = int(index)
+    return bytes([index & 0xFF, (index >> 8) & 0xFF, 0, 0, 0, 0, 0, 0])
+
+
+def decode_param_float(data: bytes) -> float:
+    """응답 Byte4~7 을 float 로 읽음 (작은 자리 먼저)."""
+    if len(data) < FRAME_LEN:
+        raise ValueError(f"파라미터 응답은 {FRAME_LEN}바이트여야 함 (받은 길이 {len(data)})")
+    return float(struct.unpack_from("<f", data, 4)[0])
+
+
+def param_index_safe(index: int, motor_ids) -> bool:
+    """응답 Byte0(인덱스 낮은 바이트)이 이 버스의 모터 ID 와 안 겹치는지.
+
+    겹치면 그 응답이 그 모터의 상태 프레임과 Byte0 이 같아져 가를 수 없음.
+    """
+    return (int(index) & 0xFF) not in set(int(m) for m in motor_ids)

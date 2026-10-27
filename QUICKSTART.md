@@ -173,7 +173,8 @@ huphy-run --policy generalized_walk --drain-ms 4
 | 인자 | 무엇 |
 |---|---|
 | `--drain-ms 4` | 응답을 기다리는 시간을 늘림. 기본 2ms |
-| `--send-mode burst` | 6개를 연달아 보냄. 기본은 `seq`(하나씩). **RobStride 는 모든 모터가 같은 CAN id 라 `burst` 에서 응답이 겹치면 깨짐** |
+| `--send-mode seq` | 한 모터씩 보냄. 기본은 `burst`(6개를 연달아). burst 는 모터마다 호스트 id 가 0xF0+id 여야 하고, 아니면 연결할 때 멈춤 -- 그때 쓰는 길 |
+| `--probe [N]` | 모터 전류·전압을 읽어 `logs/motor/` 에 남김. 다리당 한 주기 N 개 (기본 2). burst 에서만 |
 | `--hz 100` | 모터 전송 주기. 정책은 항상 자기 주기(50Hz)로만 불리고, 그 사이는 직전 목표를 반복 전송 |
 
 끝나면 실패 집계가 찍힘. 자세한 것은

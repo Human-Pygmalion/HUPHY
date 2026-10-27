@@ -52,8 +52,8 @@ from pathlib import Path
 from ..config import ConfigError, load_robot
 from ..control import ControlLoop, Mode, deploy, held, teleop
 from ..motors.canbus import DEFAULT_DRAIN_S, bring_up_hint
-from ..robots.leg import SEND_MODES, SEND_SEQ
-from ..telemetry import latency_log, live, policy_log, run_name
+from ..robots.leg import SEND_BURST, SEND_MODES, HostIdError
+from ..telemetry import latency_log, live, motor_log, policy_log, run_name
 from . import failures
 from .bringup import build_biped
 from .commission import CONFIG_NAME, _find_config, all_legs
@@ -65,6 +65,9 @@ ANKLE_MOTORS = ("ankle_a", "ankle_b")
 """`--gain-scale` 의 두 번째 숫자가 걸리는 모터. `robot.yaml` 의 모터 이름임."""
 
 LOG_SKIP_S = 0.0
+PROBE_DEFAULT = 2
+"""`--probe` 만 줬을 때 다리당 한 주기 읽기 수. 모터 6 x (전류, 전압) = 12칸을 도므로
+100Hz 에서 값 하나가 약 17Hz 로 갱신됨."""
 """`--log-skip` 기본값. **정책 시작 부분은 버리지 않음** -- 정책이 켜진 직후가 가장 많이
 보는 구간임. 연결 직후의 느린 첫 주기들은 접근 구간에 들어가 이미 빠짐."""
 
@@ -200,11 +203,20 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
-        "--send-mode", choices=SEND_MODES, default=SEND_SEQ,
+        "--send-mode", choices=SEND_MODES, default=SEND_BURST,
         help=(
-            "명령을 버스에 내는 방식. seq=한 모터씩 보내고 응답을 받은 뒤 다음 (기본), "
-            "burst=6개를 연달아 보내고 모음. RobStride 응답은 모든 모터가 같은 CAN id 라 "
-            "burst 에서 응답이 겹치면 둘 다 깨짐 -- docs/can_communication.md"
+            "명령을 버스에 내는 방식. burst=6개를 연달아 보내고 모음 (기본), "
+            "seq=한 모터씩 보내고 응답을 받은 뒤 다음. burst 는 모터마다 호스트 id 가 "
+            "0xF0+id 여야 함 -- 연결할 때 확인하고 아니면 멈춤. 못 맞춘 모터가 있으면 seq. "
+            "docs/can_communication.md 4절"
+        ),
+    )
+    p.add_argument(
+        "--probe", nargs="?", const=PROBE_DEFAULT, type=int, metavar="N",
+        help=(
+            f"모터 전류(iq)·전압(VBUS)을 읽어 기록함. 한 주기에 다리마다 N 개씩 명령에 실어 "
+            f"보냄 (안 주면 {PROBE_DEFAULT}). burst 에서만. 끝에 요약을 찍고 "
+            f"<--log 폴더 또는 logs>/motor/ 에 JSON 으로 남김"
         ),
     )
     p.add_argument(
@@ -302,7 +314,8 @@ def _log_naming(args, policy, model, commands) -> tuple:
         extra={
             "hz": args.hz if args.hz and args.hz != policy.hz else None,
             "drain": args.drain_ms if args.drain_ms != 2.0 else None,
-            args.send_mode: True if args.send_mode != "seq" else None,
+            args.send_mode: True if args.send_mode != SEND_BURST else None,
+            "probe": args.probe,
         },
     )
     run_meta = run_name.header(
@@ -312,6 +325,7 @@ def _log_naming(args, policy, model, commands) -> tuple:
         hz=args.hz or policy.hz,
         drain_ms=args.drain_ms,
         send_mode=args.send_mode,
+        probe=args.probe,
         approach=args.approach,
         teleop=bool(args.teleop),
         **{k: float(v) for k, v in targets.items()},
@@ -331,6 +345,22 @@ def _save_log(log: "policy_log.PolicyLog", args, name: str, parts, run_meta) -> 
         return
     note = f", 기록 실패 {log.errors}회" if log.errors else ""
     print(f"  정책 기록: {path}  ({len(log)}줄{note})")
+
+
+def _save_motors(motors: "motor_log.MotorLog", directory: Path, name: str,
+                 parts=(), run_meta=None) -> None:
+    """전류·전압 요약을 찍고 JSON 으로 씀. 실패해도 올리지 않음 -- 토크는 이미 끊긴 뒤임."""
+    print("\n" + motors.summary())
+    if not len(motors):
+        print("  모터 기록: 받은 값이 없음")
+        return
+    try:
+        path = motors.save(motor_log.default_path(directory, name, parts), run_meta or {})
+    except OSError as e:
+        print(f"  모터 기록 저장 실패: {e}")
+        return
+    note = f", 기록 실패 {motors.errors}회" if motors.errors else ""
+    print(f"  모터 기록: {path}  ({len(motors)}줄{note})")
 
 
 def _resume_on_first_call(motion, latency: "latency_log.LatencyLog"):
@@ -502,6 +532,10 @@ def main(argv=None) -> int:
 
     if args.drain_ms < 0:
         raise SystemExit(f"--drain-ms 는 0 이상이어야 함 (받은 값 {args.drain_ms})")
+    if args.probe is not None and args.probe < 1:
+        raise SystemExit(f"--probe 는 1 이상이어야 함 (받은 값 {args.probe})")
+    if args.probe and args.send_mode != SEND_BURST:
+        raise SystemExit("--probe 는 --send-mode burst 에서만 됨 (읽기 응답을 CAN id 로 가름)")
     if len(args.gain_scale) > 2:
         raise SystemExit(
             f"--gain-scale 은 숫자 하나(전체) 또는 둘(나머지 발목)임 (받은 값 {args.gain_scale})"
@@ -519,8 +553,13 @@ def main(argv=None) -> int:
         allow_uncalibrated=args.allow_uncalibrated,
         drain_s=args.drain_ms / 1000.0,
         send_mode=args.send_mode,
+        probe=args.probe or 0,
     )
     leg = build_biped(robot, limbs, **options)
+    # 연결 전에 붙임 -- 연결할 때의 첫 읽기부터 셈이 맞음.
+    motors = (
+        motor_log.MotorLog(hz=args.hz, probe=args.probe).attach(leg) if args.probe else None
+    )
 
     # IMU 는 다리가 아니라 로봇에 붙음 (build_biped 가 센서를 다리가 아니라
     # 로봇에 붙임). .imus 로 꺼냄.
@@ -538,7 +577,7 @@ def main(argv=None) -> int:
     channels = [limb.channel for limb in limbs]
     try:
         leg.connect()
-    except (ImportError, ConnectionError) as e:
+    except (ImportError, ConnectionError, HostIdError) as e:
         if pad is not None:
             pad.close()
         hint = f"\n{bring_up_hint(channels)}" if isinstance(e, ConnectionError) else ""
@@ -581,7 +620,10 @@ def main(argv=None) -> int:
     }
     log = None
     # 이름 조각과 첫 줄은 한 번만 만들어 두 기록이 같이 씀.
-    naming = _log_naming(args, policy, model, commands) if args.log is not None else ((), "")
+    naming = (
+        _log_naming(args, policy, model, commands)
+        if args.log is not None or motors is not None else ((), "")
+    )
 
     if args.log is not None:
         log = policy_log.PolicyLog(policy.obs_names, policy.order, robot=leg)
@@ -645,6 +687,8 @@ def main(argv=None) -> int:
             _save_log(log, args, policy.name, *naming)
         if latency is not None:
             _save_latency(latency, args, policy.name, *naming)
+        if motors is not None:
+            _save_motors(motors, args.log or Path("logs"), policy.name, *naming)
     return 0
 
 

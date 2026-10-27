@@ -211,9 +211,10 @@ F_CMD_FAULT_QUERY = 0x00 # 고장값 조회 (0xFF가 아니면 무엇이든 조�
 #   선택자가 0 이면 위쪽 형식(ID 가 통째로 모터 CAN ID)임. 모터 CAN ID 가 1~127
 #   이라 8비트에 들어가므로 겹치지 않음.
 #
-#   **아직 아무것도 구현 안 함.** `_command_frame` 은 선택자를 못 만듦 -- 쓰려면
-#   프레임 조립부터 손대야 함. 여기 적어 두는 이유는 "MIT 모드에서는 파라미터를
-#   못 만진다" 는 오해를 막기 위함임 (실제로는 됨. 아래 참조).
+#   **Command 14(읽기)만 구현됨** -- `codec/mit.pack_param_read` 와
+#   `RobStrideBus.send_mit(reads=...)`. 나머지는 `_command_frame` 이 선택자를 못
+#   만들어서 아직 없음. "MIT 모드에서는 파라미터를 못 만진다" 는 오해를 막으려고
+#   전부 적어 둠.
 # ---------------------------------------------------------------------------
 SEL_POSITION = 1         # Command 10. Byte0~3 목표위치, Byte4~7 속도 (float, 작은 자리 먼저)
 SEL_VELOCITY = 2         # Command 11. Byte0~3 목표속도, Byte4~7 전류제한
@@ -223,11 +224,21 @@ SEL_PARAM_WRITE = 4      # Command 15. Byte0~1 인덱스, Byte4~7 값
 PARAM_CMD_FIRMWARE = {   # 선택자 명령을 쓰려면 이 펌웨어 이상이어야 함
     Model.RS00: "0.0.3.27",
     Model.RS02: "0.2.3.32",
+    Model.RS03: "0.3.1.41",  # 같은 배포판 기준 추정. 0.3.1.37 무응답, 0.3.1.50 응답 (실측)
+    Model.RS04: "0.4.1.29",  # 매뉴얼. 0.4.1.24 무응답 (실측)
 }
 """Command 12~15 의 펌웨어 요구사항. 구형이면 응답이 없음.
 
 버전은 private 프로토콜의 버전 읽기 프레임으로만 확인됨 (Type 4, Byte0=0x00
-Byte1=0xC4 -> 응답 Byte3~6 이 버전, 큰 자리 먼저). 이 저장소에 읽는 코드는 없음.
+Byte1=0xC4 -> 응답 Byte3~6 이 버전, 큰 자리 먼저). `tools/rs_ota.py --info` 가 읽음.
+업데이트 절차는 docs/motor_setup.md 15절.
+"""
+
+HOST_ID_BASE = 0xF0
+"""모터 호스트 id 규칙: `0xF0 + 모터 CAN id`. 응답 프레임의 11비트 id 가 이것임.
+
+모터마다 다르게 둬서 몰아 보내도 응답이 중재로 줄을 섬 (docs/can_communication.md 4절).
+0x80 이상이라 어떤 모터 CAN id(최대 0x7F)와도 안 겹침. docs/motor_setup.md 14절.
 """
 
 
@@ -276,8 +287,13 @@ FAULT_BITS: Dict[str, int] = {
 # 읽고 쓰는 경로가 둘 있음. 표는 같음.
 #   private   Type 17 읽기 / Type 18 쓰기 (RAM) / Type 22 저장 (플래시)
 #   MIT       SEL_PARAM_READ / SEL_PARAM_WRITE / CMD_SAVE
-# 둘 다 이 저장소에는 미구현임. 지금은 사람이 docs/motor_setup.md 절차대로
-# cansend 로 함.
+# MIT 읽기만 `RobStrideBus.send_mit(reads=...)` 로 구현됨 (`--probe`). 쓰기·저장은 미구현이라
+# 사람이 docs/motor_setup.md 절차대로 cansend 로 함.
 # ---------------------------------------------------------------------------
 PARAM_PROTOCOL_FLAG = 0x201F   # 현재 통신 프로토콜
+PARAM_IQF = 0x701A             # iq 필터값 (A, float). 읽기 전용
+PARAM_VBUS = 0x701C            # 버스 전압 (V, float). 읽기 전용
+"""Command 14 로 읽히는 것은 0x70xx 표뿐임. 0x30xx 관측 표(mcuTemp, motorTemp,
+boardTemp 등)와 0x1003 펌웨어 버전은 0 만 돌아옴 (RS04 실물 확인). 온도는 상태
+프레임에 매번 실려 오므로 따로 읽을 필요 없음."""
 PARAM_ZERO_STA = 0x7029        # 0 = 위치 보고 [0,360), 1 = [-180,180)
