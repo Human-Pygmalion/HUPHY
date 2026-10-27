@@ -63,6 +63,9 @@ imus:
     # baudrate 를 안 적으면 센서 출하 기본값을 씀 (EBIMU 115200).
     # baudrate: 230400
 
+# 모터 쪽 설정 (cansend 로 한 번 해 둠. docs/motor_setup.md 14~16절):
+#   호스트 id = 0xF0 + id  -- 응답이 0F1 ... 0FC 로 옴. 0FD 로 오면 설정 안 된 모터
+#   펌웨어는 Command 14(파라미터 읽기)를 받는 판. 확인: python3 tools/can_scan.py
 limbs:
   right_leg:
     kind: leg

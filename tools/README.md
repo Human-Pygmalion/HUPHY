@@ -7,7 +7,9 @@ tools/
 │   (실시간 뷰어)          huphy-test / huphy-run --live -- 도는 동안 목표·실측
 ├── imu_viewer.py         정책이 받는 IMU 값을 실시간으로 보고 단위·좌표계를 검사
 ├── make_sequences.py     studio 시퀀스(스쿼트, 정적 보행)를 계산으로 만들고 한계를 검사
-└── sequence_preview.html 그 시퀀스를 막대 그림으로 재생 (make_sequences.py 가 채워 씀)
+├── sequence_preview.html 그 시퀀스를 막대 그림으로 재생 (make_sequences.py 가 채워 씀)
+├── can_scan.py           CAN 라인을 훑어 모터마다 호스트 id·전압·전류·zero_sta 를 표로
+└── rs_ota.py             RobStride 펌웨어 업데이트 (CAN, private 프로토콜)
 ```
 
 **셋 다 외부 라이브러리가 없음.** 로봇(Jetson)에서 인터넷 없이 열려야 해서임. html 은
@@ -254,4 +256,33 @@ roll ±25), 모터각을 봄. 하나라도 넘으면 파일을 안 씀. 걷기�
 안 보여주는 것: 중력·무게중심(골반이 공중에 고정된 그림), 발목 roll(발판은 늘 수평으로
 그림), 모터 추종 오차. 원본 html 을 직접 열면 빈 화면임 -- `make_sequences.py` 가 계산
 결과를 넣어 씀.
+
+---
+
+## `can_scan.py` · `rs_ota.py` -- 모터 설정 확인과 펌웨어
+
+자세한 절차는 [docs/motor_setup.md](../docs/motor_setup.md) 14~16절. 둘 다 python-can 만 씀.
+
+```bash
+python3 tools/can_scan.py               # canl, canr. id 1~12 + 0x7F
+python3 tools/can_scan.py canr --ids 7-12
+```
+
+출력 예 (11번이 설정 전이라고 할 때):
+
+```
+ch     id proto   host  mode  fault   temp    VBUS    iqf zero  note
+canr   10 mit     0xFA  0     False   25.0   48.47   0.00    1
+canr   11 mit     0xFD  0     False   24.0       -      -    -  호스트 id 가 0xFB 이어야 함; Command 14 무응답 -> 펌웨어 업데이트 대상
+```
+
+**제어가 돌고 있을 때 쓰지 말 것** -- 모터마다 정지 명령을 보내 상태를 받음.
+
+```bash
+python3 tools/rs_ota.py --channel canr --motor 8 --info                    # UID·버전 (private 일 때만)
+python3 tools/rs_ota.py --channel canr --motor 8 --bin rs04_0.4.1.38.bin   # 약 10초
+```
+
+`rs_ota.py` 는 쓰기 전에 모터의 버전과 파일 이름의 모델(rs03 / rs04)을 맞춰 보고 다르면
+멈춤. 모델이 다른 펌웨어도 파일 앞부분이 같아서 이 확인이 없으면 못 가림.
 

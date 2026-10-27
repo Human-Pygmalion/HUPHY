@@ -5,8 +5,9 @@
 루트 README 는 이게 끝난 상태를 전제함 — 거기서부터는 `huphy-commission` 으로 관절
 이름을 부르면 됨. 여기는 그 이전임.
 
-    출하 상태            private 프로토콜, CAN id 0x7F, 1 Mbps
-    이 저장소가 쓰는 것  MIT 프로토콜, CAN id 7~12(오른다리), zero_sta = 1
+    출하 상태            private 프로토콜, CAN id 0x7F, 1 Mbps, 호스트 id 0xFD
+    이 저장소가 쓰는 것  MIT 프로토콜, CAN id 1~6(왼다리) 7~12(오른다리), zero_sta = 1,
+                         호스트 id = 0xF0 + CAN id, 펌웨어는 Command 14 를 받는 판
 
 **이 단계에서는 `huphy-commission` 을 못 씀.** 그 도구는 `robot.yaml` 에 적힌 id 로만
 프레임을 보내는데, 출하 상태 모터는 그 id 를 안 쓰고 프레임 형식도 다름. 그래서
@@ -28,6 +29,10 @@ cansend can1 07<NN>FD<DD>#0000000000000000      # Type 7   id 를 <NN> 으로   
 cansend can1 1200FD<DD>#2970000001000000        # Type 18  zero_sta -> 1     RAM 에만
 cansend can1 1600FD<DD>#0102030405060708        # Type 22  플래시 저장
 cansend can1 1900FD<DD>#0102030405060200        # Type 25  프로토콜 -> MIT    재투입
+# 여기부터 MIT (3자리 id)
+cansend can1 <DDD>#FFFFFFFFFFFF<HH>01           # Command 9  호스트 id -> <HH> = F0+id  즉시·영구
+cansend can1 3<DD>#1C70000000000000             # Command 14 VBUS 읽기. 답이 없으면 15절(펌웨어)
+python3 tools/can_scan.py                       # 전체 확인
 ```
 
 응답은 `candump -x can1` 의 `RX` 줄만 봄. 자세한 것은 아래 절.
@@ -88,7 +93,9 @@ ip -details link show can1       # state UP 이 보여야 함
 4  프로토콜 -> MIT       Type 25       private, 전원 재투입 후 적용
 5  전원 재투입
 6  확인                 MIT 표준 프레임에 답하는지
-7  선을 빼고 다음 모터
+7  호스트 id 를 F0+id 로  Command 9     MIT, 즉시·영구          (14절)
+8  펌웨어 확인           Command 14     답이 없으면 업데이트     (15절)
+9  선을 빼고 다음 모터
 ```
 
 **프로토콜을 맨 마지막에 바꿈.** 1~3 이 전부 private 확장 프레임이라, 먼저 MIT 로
@@ -142,15 +149,28 @@ cansend can1 DDD#FFFFFFFFFFFFFFCC
 | `FD` | 2 | `FF` | 정지. 살아 있는지 볼 때 씀 |
 | `FA` | 7 | **새 id** | CAN id 부여 |
 | `FD` | 8 | **프로토콜** | 프로토콜 전환 |
+| `01` | 9 | **새 호스트 id** | 응답 프레임의 CAN id 를 바꿈 (14절) |
 
 `FD` 가 두 번 나오는데 `F_CMD` 로 갈림 — `FF` 면 정지, 다른 값이면 프로토콜 전환임.
+
+**파라미터 읽기(Command 14)는 틀이 다름.** 11비트 id 의 위 3비트에 명령 번호가 들어감.
+
+```
+cansend can1 3DD#<인덱스>000000000000
+             │
+             └── 3 = 읽기. 7번 모터면 307, 10번이면 30A
+```
+
+응답은 `<인덱스>0000<값 4바이트>` 이고, 값은 하위 바이트 먼저임. **0x70xx 표만
+읽힘** -- 0x30xx 관측 표(온도 등)와 0x1003 버전은 0 만 돌아옴. 온도는 상태 프레임에
+늘 실려 오므로 따로 읽을 필요가 없음.
 
 ### 자리에 넣는 값
 
 | 자리 | 값 |
 |---|---|
 | `DD` / `DDD` 대상 모터 id | 출하 상태는 `7F` / `07F`. 부여한 뒤에는 그 id |
-| `HH` 호스트 id | `FD`. 이 문서 전체에서 이 값을 씀 |
+| `HH` 호스트 id | private 요청에는 `FD` 를 실어 보냄. MIT 응답이 오는 id 는 모터에 저장된 호스트 id (14절, `F0`+모터 id) |
 | `PP` 프로토콜 | `00` private / `01` CANopen / `02` **MIT** |
 | 인덱스 | 파라미터 번호를 **하위 바이트 먼저**. `0x7029` -> `2970` |
 | 값 | 4바이트, **하위 바이트 먼저**. 1 -> `01000000` |
@@ -486,11 +506,12 @@ cansend can1 <DDD>#FFFFFFFFFFFFFFFD             # <DDD> = 대상 모터 id. 16�
 cansend can1 00A#FFFFFFFFFFFFFFFD
 ```
 
-**`RX` 가 3자리 id 로 오면 MIT 임.**
+**`RX` 가 3자리 id 로 오면 MIT 임.** 응답의 id 는 모터 id 가 아니라 **호스트 id** 임 --
+출하 상태 그대로면 `0FD`, 14절을 마쳤으면 `0F0`+모터 id (무릎이면 `0FA`).
 
 ```
 can1  TX  00A       [8]  FF FF FF FF FF FF FF FD     <- 보낸 것. 에코
-can1  RX  00A       [8]  0A 85 53 80 08 5F 01 3A     <- 표준 프레임. MIT
+can1  RX  0FD       [8]  0A 85 53 80 08 5F 01 3A     <- 표준 프레임. MIT
                          ─┬ ──┬── ──┬── ─┬ ──┬──
                           │   │     │    │   └── 온도 x10
                           │   │     │    └────── 토크
@@ -504,7 +525,7 @@ Response Command 1(일반 상태 프레임)이라 `Byte0` 이 모터 id 임. 값
 
 | `RX` 로 뜨는 것 | 뜻 |
 |---|---|
-| `00A` 3자리 | MIT 로 바뀜. 성공 |
+| `0FD`·`0FA` 등 3자리 | MIT 로 바뀜. 성공 |
 | `00000AFE` 8자리 | 아직 private. 재투입을 안 했거나 Type 25 가 안 먹음 |
 | 없음 | id·배선·전원. 4절의 Type 0 로 되짚음 |
 
@@ -621,6 +642,9 @@ cansend can1 1900FD<NN>#0102030405060200        # Type 25  프로토콜 -> MIT  
 
 # MIT -- 11-bit 표준 프레임 (id 3자리)
 cansend can1 <DDD>#FFFFFFFFFFFFFFFD             # Command 2  정지. 응답 오면 MIT
+cansend can1 <DDD>#FFFFFFFFFFFF<HH>01           # Command 9  호스트 id -> F0+id
+cansend can1 3<DD>#1C70000000000000             # Command 14 VBUS. 답 없으면 15절
+python3 tools/can_scan.py                       # 전체 확인
 huphy-commission --limb right_leg scan          # 여기서부터 저장소 도구가 붙음
 ```
 
@@ -636,6 +660,8 @@ cansend can1 1100FD0A#2970000000000000
 cansend can1 1900FD0A#0102030405060200
 # 전원 재투입
 cansend can1 00A#FFFFFFFFFFFFFFFD
+cansend can1 00A#FFFFFFFFFFFFFA01
+cansend can1 30A#1C70000000000000
 ```
 
 ---
@@ -652,7 +678,9 @@ cansend can1 00A#FFFFFFFFFFFFFFFD
 | `1600FD<DD>` | `0000<DD>FE` | Type 0 | 저장 명령이 전달됨 |
 | `1100FD<DD>` | `1100<DD>FD` | Type 17 | `Byte4` 가 읽은 값 |
 | `1900FD<DD>` | `0000<DD>FE` | Type 0 | 전환 명령이 전달됨. 재투입 필요 |
-| `<DDD>` (재투입 후) | `<DDD>` + 상태값 | Response Cmd 1 | **MIT 로 바뀜** |
+| `<DDD>` (재투입 후) | `0FD` + 상태값 | Response Cmd 1 | **MIT 로 바뀜** |
+| `<DDD>#…<HH>01` | `<DDD>` + MCU 고유번호 | Response Cmd 2 | 호스트 id 변경 전달됨. 이 뒤로 응답은 `0<HH>` |
+| `3<DD>#<인덱스>…` | `0<HH>` + `<인덱스>0000<값>` | Command 14 응답 | 값은 하위 바이트 먼저. 없으면 구판 펌웨어 |
 
 **응답의 마지막 두 바이트가 요청과 뒤집힘.** 보낼 때는 `<호스트><모터>` 이고 받을
 때는 `<모터><호스트>` 임 — Type 0 만 예외로 `<모터>FE` 임.
@@ -666,3 +694,176 @@ Type 2 피드백의 `0200` 자리는 모드·고장 비트임. 토크가 켜져 
     프로토콜   재투입 후 표준 프레임(3자리)에 답하는지
 
 `RX` 가 아예 없으면 프로토콜 얘기가 아니라 **배선·전원·종단저항** 문제임.
+
+---
+
+## 14. 호스트 id — Command 9
+
+**모터마다 응답 id 를 다르게 함.** 출하 상태는 모든 모터가 `0x0FD` 로 응답함.
+
+| 공통 id 일 때의 문제 | 결과 |
+|---|---|
+| 두 모터가 동시에 응답하면 CAN 중재로 못 가름 | 둘 다 깨짐. 그래서 한 모터씩 보내는 `seq` 가 생겼음 ([can_communication.md](can_communication.md) 4절) |
+| 파라미터 읽기(Command 14) 응답에는 모터 id 가 없음 | 누구의 값인지 "방금 누구에게 물었나" 로만 알 수 있음 |
+
+id 가 다르면 동시에 응답해도 중재가 정상 동작하고(작은 id 가 먼저, 나머지는 기다림),
+응답의 CAN id 만 보고 모터를 앎.
+
+### 규칙 -- `0xF0 + 모터 id`
+
+| 왼다리 (canl) | 호스트 id | 오른다리 (canr) | 호스트 id |
+|---|---|---|---|
+| 1 hip_pitch | `F1` | 7 hip_pitch | `F7` |
+| 2 hip_roll | `F2` | 8 hip_roll | `F8` |
+| 3 hip_yaw | `F3` | 9 hip_yaw | `F9` |
+| 4 knee | `F4` | 10 knee | `FA` |
+| 5 ankle_a | `F5` | 11 ankle_a | `FB` |
+| 6 ankle_b | `F6` | 12 ankle_b | `FC` |
+
+이 범위를 고른 이유:
+
+- **명령과 안 겹침.** 호스트 id 는 1바이트라 최대 `0x0FF`. Command 10~15 는 `0x100`
+  이상이라 닿지 않음
+- **어떤 모터의 id 도 될 수 없음.** 모터 CAN id 는 최대 `0x7F`. 응답 id 가 다른 모터의
+  id 와 같으면 그 모터가 응답을 **동작 명령으로 받음** -- `0x80` 이상이면 그럴 일이 없음.
+  출하 상태 모터(`0x7F`)를 새로 꽂아도 안전함
+- **`FD` 를 비워 둠.** `0FD` 로 응답이 오면 이 설정을 안 한 모터임
+- **우선순위.** 숫자가 작은 쪽이 중재에서 이김. 호스트의 명령(`0x001`~)이 응답(`0x0F1`~)
+  보다 늘 먼저 나감
+- 두 다리는 버스가 따로라 다리 안에서만 안 겹치면 되지만, 모터를 다른 다리로 옮겨 달아도
+  되도록 12개를 다 다르게 둠
+
+### 명령
+
+MIT 로 바뀐 뒤(8절)에 보냄.
+
+```bash
+cansend can1 <DDD>#FFFFFFFFFFFF<HH>01      # <HH> = F0 + id
+cansend can1 00A#FFFFFFFFFFFFFA01          # 무릎(10) -> FA
+```
+
+```
+can1  TX  00A  [8]  FF FF FF FF FF FF FA 01
+can1  RX  00A  [8]  9C 1E 3B C0 00 20 30 0F     <- Response Cmd 2. id 는 모터 id, 데이터는 MCU 고유번호
+```
+
+확인은 정지(Command 2)를 보내 **응답의 id** 를 봄.
+
+```bash
+cansend can1 00A#FFFFFFFFFFFFFFFD          # RX 0FA ... 이면 됨. 0FD 면 안 됨
+```
+
+- **즉시 적용되고 영구임.** 저장 명령(Command 12)이 필요 없음. 전원 재투입·펌웨어
+  업데이트 뒤에도 남음 (2026-10-27, 12대 확인)
+- 상태 프레임, Command 14 응답, 고장 조회(Command 5) 응답이 **전부** 새 id 로 옴
+- 바꾼 직후 **첫 Command 14 는 가끔 답이 없음** (12대 중 4대). 두 번째부터는 정상
+
+---
+
+## 15. 펌웨어 -- 확인과 업데이트
+
+**Command 12~15(저장·능동 보고·파라미터 읽기·쓰기)는 새 펌웨어에만 있음.** 구판은
+아예 답하지 않음.
+
+| 모델 | Command 14 가 되는 판 | 근거 |
+|---|---|---|
+| RS04 | 0.4.1.29 이상 | 매뉴얼 6.15~6.18절. 0.4.1.24 는 안 됨 (실측) |
+| RS03 | 0.3.1.41 이상 (추정) | 같은 배포판(V26.04.07) 기준. 0.3.1.37 은 안 되고 0.3.1.50 은 됨 (실측) |
+
+### 확인
+
+MIT 상태에서 Command 14 에 답하는지 봄. 정확한 버전 숫자는 MIT 로는 못 읽음 (0x1003 이
+0 으로 옴) -- private 으로 바꿔야 보임 (`tools/rs_ota.py --info`).
+
+```bash
+cansend can1 30A#1C70000000000000          # RX 0FA 1C 70 00 00 <값> 이면 됨. 무응답이면 업데이트
+python3 tools/can_scan.py                  # 전체. "Command 14 무응답" 표시가 업데이트 대상
+```
+
+### 펌웨어 파일
+
+[RobStride/Product_Information Releases](https://github.com/RobStride/Product_Information/releases).
+2026-10-27 에 쓴 것:
+
+| 파일 | 배포판 | sha256 |
+|---|---|---|
+| `rs04_0.4.1.38.bin` | V26.05.19 | `a90d83b81455639ddbcf270cc491faa74a354bccbdd7d4322f5cb937bf0351a5` |
+| `rs03_0.3.1.50.bin` | V26.05.19 | `76a46c5cd3c029043491faba74a4645e3ce5b9de52c962f2969e176314aeb34a` |
+
+**모델이 다른 파일도 앞부분이 똑같음.** 파일만 보고는 구분이 안 되므로 `rs_ota.py` 가 쓰기
+전에 모터의 지금 버전(0.**3**.x / 0.**4**.x)과 파일 이름의 모델을 맞춰 보고, 다르면 멈춤.
+
+### 순서
+
+OTA 는 **private 프로토콜로만** 됨. MIT 모드 모터는 private 프레임에 아예 답하지 않음.
+그래서 MIT -> private -> 업데이트 -> MIT 로 돌아옴. 전원 재투입이 두 번 필요함.
+
+```bash
+# 1  private 으로 (Command 8, F_CMD=00). 응답은 Response Cmd 2
+cansend canr <DDD>#FFFFFFFFFFFF00FD
+
+# 2  전원 재투입 -- 2~3 초 확실히 끌 것
+
+# 3  지금 버전
+python3 tools/rs_ota.py --channel canr --motor <id> --info
+
+# 4  기록. 약 10 초. 이 동안 전원을 끄지 말 것
+python3 tools/rs_ota.py --channel canr --motor <id> --bin rs03_0.3.1.50.bin
+
+# 5  새 버전 확인 (모터가 다시 뜰 때까지 몇 초 걸림)
+python3 tools/rs_ota.py --channel canr --motor <id> --info
+
+# 6  MIT 로 (Type 25). 응답은 0000<DD>FE
+cansend canr 1900FD<DD>#0102030405060200
+
+# 7  전원 재투입
+
+# 8  확인 -- 호스트 id 와 Command 14
+python3 tools/can_scan.py canr
+```
+
+### 업데이트 뒤에 남는 것
+
+CAN id, 호스트 id, zero_sta, 영점이 다 남음. 각도는 업데이트 전후 0~0.1° 차이였음 (5번만
+약 2° -- 재투입 중에 발목이 움직인 것으로 봄).
+
+**속도·위치 모드용 기본값은 판마다 다를 수 있음.** 0.4.1.38 로 올린 8번만 `limit_spd`
+(0x7017) 20, `spd_kp`(0x701F) 6 이고 구판 RS04 들은 1 / 5 임. MIT 제어에는 안 쓰이는 값임.
+RobStride 도 "파라미터를 맞추려면 옛 모터를 최신판으로 올리라" 고 함 (V26.04.07 노트).
+
+### 겪은 것
+
+| 증상 | 원인 / 대처 |
+|---|---|
+| 재투입했는데 private 으로 안 바뀜 (11번 첫 시도) | 전원이 덜 꺼졌던 것으로 봄. 다시 보내고 확실히 끄니 됨. 모터에 계속 신호를 보내면서 응답이 끊겼다 돌아오는지 보면 정말 꺼졌는지 앎 |
+| 재투입 뒤 `canr` 이 `STOPPED` (두 번) | 어댑터가 같이 리셋됨. `huphy-can --channel canr up` (sudo) |
+| 기록이 중간에 멈춤 | 겪지 않았음. 매뉴얼 3.3.3절: 실패해도 기존 프로그램은 안 지워짐. 재투입 후 다시 |
+
+RobStride 의 2025-02 배포판 노트는 "RS03·RS04 는 업데이트 뒤 기계 영점을 다시 잡으라" 고
+함. 이번(0.3.1.37 -> 0.3.1.50, 0.4.1.24 -> 0.4.1.38)에는 영점이 그대로였지만, 커미셔닝
+때 확인할 것.
+
+---
+
+## 16. 모터 현황 (2026-10-27)
+
+| id | 관절 | 모델 | 호스트 id | 펌웨어 | MCU 고유번호 |
+|---|---|---|---|---|---|
+| 1 | L hip_pitch | RS04 | `F1` | 0.4.1.29 이상 (판 모름) | `9E 93 3B C0 00 20 30 18` |
+| 2 | L hip_roll | RS04 | `F2` | 0.4.1.29 이상 (판 모름) | `0F 5B 3B C0 00 20 30 19` |
+| 3 | L hip_yaw | RS03 | `F3` | **0.3.1.50** (0.3.1.37 에서) | `CB 42 93 C7 9C 90 B0 14` |
+| 4 | L knee | RS04 | `F4` | 0.4.1.29 이상 (판 모름) | `9A 21 3B C0 00 20 30 0F` |
+| 5 | L ankle_a | RS03 | `F5` | **0.3.1.50** (0.3.1.37 에서) | `B5 44 93 C7 9C 90 B0 14` |
+| 6 | L ankle_b | RS03 | `F6` | **0.3.1.50** (0.3.1.37 에서) | `0D 41 93 C7 9C 90 B0 15` |
+| 7 | R hip_pitch | RS04 | `F7` | 0.4.1.29 이상 (판 모름) | `3A 8F 93 C7 9C 90 B0 0D` |
+| 8 | R hip_roll | RS04 | `F8` | **0.4.1.38** (0.4.1.24 에서) | `2F 88 3B C0 00 20 30 10` |
+| 9 | R hip_yaw | RS03 | `F9` | **0.3.1.50** (0.3.1.37 에서) | `9C 6B 93 C7 9C 90 B0 14` |
+| 10 | R knee | RS04 | `FA` | 0.4.1.29 이상 (판 모름) | `9C 1E 3B C0 00 20 30 0F` |
+| 11 | R ankle_a | RS03 | `FB` | **0.3.1.50** (0.3.1.37 에서) | `BB 6A 93 C7 9C 90 B0 14` |
+| 12 | R ankle_b | RS03 | `FC` | **0.3.1.50** (0.3.1.37 에서) | `3E 64 93 C7 9C 90 B0 15` |
+
+- 12대 모두 MIT, zero_sta 1, Command 14 응답, 고장 없음 (`tools/can_scan.py`)
+- MCU 고유번호는 Command 7·9 의 응답(Response Cmd 2)에 실려 옴. 모터를 바꿔 달았을 때 어느
+  실물인지 가리는 데 씀
+- 모델은 `limit_cur`(0x7018) 기본값으로도 가림 -- RS04 97 A, RS03 43 A. 7번은 MCU 번호가
+  RS03 들과 같은 묶음이지만 97 A 라 RS04 가 맞음
