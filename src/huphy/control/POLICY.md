@@ -136,7 +136,7 @@ huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stan
 | `--hz` | `50` | 모터 **전송** 주기. 50 의 정수 배만. 정책은 늘 50Hz 로 불리고 사이 주기는 직전 목표를 다시 보냄. slcan 이면 50 |
 | `--drain-ms` | `2` | 응답을 기다리는 최대 시간. slcan 이면 4 |
 | `--gain-scale A [B]` | `1.0` | kp/kd 배율. 하나면 전체, 둘이면 나머지 A · 발목 B. 0 초과 1 이하 |
-| `--log [DIR]` | 끔 (`logs/`) | 정책 입출력과 관절별 응답 지연을 CSV 로 남김 -- [`tools/README.md`](../../../tools/README.md) |
+| `--log [DIR]` | 끔 (`logs/`) | 정책 입출력과 관절별 응답 지연을 JSON 으로 남김 -- [`tools/README.md`](../../../tools/README.md) |
 | `--approach` | `3` | 시작 자세까지 옮기는 시간(초) |
 | `--duration` | 없음 | 이 초만큼만. 생략하면 Ctrl-Q 까지 |
 

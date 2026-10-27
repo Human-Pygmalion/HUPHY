@@ -24,8 +24,8 @@
 없음. 목표가 없으므로 기록에는 실측(`pos/`)과 IMU 만 있음.
 
 실시간 뷰어(`--live`)가 **기본으로 켜짐** -- 화면 없이 할 일이 없어서임. 화면의
-녹화 버튼으로 원하는 구간만 `logs/track_live_test_watch_*.csv` 로 남김. `--log` 을 같이
-주면 실행 전체도 `track_test_watch_*.csv` 로 남김.
+녹화 버튼으로 원하는 구간만 `logs/track/<월일>_track_live_watch.json` 으로 남김.
+`--log` 을 같이 주면 실행 전체도 `logs/track/<월일>_track_watch.json` 으로 남김.
 
 
 ## 무엇을 보는 것인가
@@ -797,7 +797,7 @@ def _add_common(parser, *, suppress: bool) -> None:
         default=default(None),
         metavar="DIR",
         help=(
-            "관절별 목표·실측각과 응답 지연을 CSV 로 남김. 폴더를 안 주면 logs/. "
+            "관절별 목표·실측각과 응답 지연을 JSON 으로 남김. 폴더를 안 주면 logs/. 종류별 폴더로 나뉨. "
             "tools/policy_viewer.html, tools/latency_viewer.html 로 열어 볼 수 있음"
         ),
     )
@@ -1019,7 +1019,7 @@ def main(argv=None) -> int:
 
 
 def _log_naming(args) -> tuple:
-    """`(이름 조각들, 첫 줄)`. 두 기록이 같은 것을 씀.
+    """`(이름 조각들, run 칸)`. 두 기록이 같은 것을 씀.
 
     `huphy-run` 과 같은 규칙임 (`telemetry/run_name.py`). 정책이 없으므로 정책
     이름 자리에 동작 이름(`zero`·`pose` 등)이 들어감.
@@ -1045,12 +1045,12 @@ def _log_naming(args) -> tuple:
 
 
 def _save_track(track: "track_log.TrackLog", directory: Path, name: str,
-                parts=(), header: str = "") -> None:
+                parts=(), run_meta=None) -> None:
     """추종 기록을 씀. 실패해도 올리지 않음."""
     if not len(track):
         return
     try:
-        path = track.save(track_log.default_path(directory, name, parts), header)
+        path = track.save(track_log.default_path(directory, name, parts), run_meta or {})
     except OSError as e:
         print(f"  추종 기록 저장 실패: {e}")
         return
@@ -1059,13 +1059,13 @@ def _save_track(track: "track_log.TrackLog", directory: Path, name: str,
 
 
 def _save_latency(latency: "latency_log.LatencyLog", directory: Path, name: str,
-                  parts=(), header: str = "") -> None:
-    """지연 요약을 찍고 CSV 로 씀. **실패해도 올리지 않음** -- 토크는 이미 끊긴 뒤임."""
+                  parts=(), run_meta=None) -> None:
+    """지연 요약을 찍고 JSON 으로 씀. **실패해도 올리지 않음** -- 토크는 이미 끊긴 뒤임."""
     if not len(latency):
         return
     print("\n" + latency.summary())
     try:
-        path = latency.save(latency_log.default_path(directory, name, parts), header)
+        path = latency.save(latency_log.default_path(directory, name, parts), run_meta or {})
     except OSError as e:
         print(f"  지연 기록 저장 실패: {e}")
         return

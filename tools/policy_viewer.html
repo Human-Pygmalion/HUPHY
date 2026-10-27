@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Policy Log Viewer</title>
 <!--
-  huphy-run --log 이 남긴 CSV 를 재생하듯 봄. 외부 라이브러리 없음 -- 로봇에서
+  huphy-run --log 이 남긴 JSON 을 재생하듯 봄. 외부 라이브러리 없음 -- 로봇에서
   인터넷 없이 열려야 해서임. 파일을 끌어다 놓거나 "파일 열기" 로 고름.
 
   단축키   Space 재생/정지   ← → 한 줄   Shift+← → 1초   Home/End 처음/끝
@@ -72,8 +72,8 @@ th { color: var(--muted); font-weight: 500; }
 <header>
   <h1>정책 기록 뷰어</h1>
   <button id="open">파일 열기</button>
-  <input id="file" type="file" accept=".csv" class="hidden">
-  <span class="meta" id="meta">huphy-run --log 이 남긴 CSV</span>
+  <input id="file" type="file" accept=".json" class="hidden">
+  <span class="meta" id="meta">huphy-run --log 이 남긴 JSON</span>
 </header>
 
 <div class="controls hidden" id="controls">
@@ -92,7 +92,7 @@ th { color: var(--muted); font-weight: 500; }
   <label class="row" title="관절별 추종 그래프의 y 축을 모터 가동범위(최소~최대)로 고정함. 눈금은 실제 각도"><input type="checkbox" id="lnorm" checked> 가동범위 정규화</label>
 </div>
 
-<div id="drop">CSV 파일을 여기로 끌어다 놓거나 <b>파일 열기</b>를 누르세요.</div>
+<div id="drop">JSON 파일을 여기로 끌어다 놓거나 <b>파일 열기</b>를 누르세요.</div>
 
 <main class="hidden" id="main">
   <aside>
@@ -119,7 +119,7 @@ const IMU_TITLE = { att: ["자세", "deg"], gyro: ["각속도", "deg/s"], grav: 
 const UNITS = { gyro: "rad/s", grav: "", q: "rad (기본자세 기준)", q_prev: "rad (기본자세 기준)",
   pos: "rad", vel: "rad/s", last_act: "모델 출력", cmd: "", phase: "" };
 
-const S = { cols: [], data: null, n: 0, t: null, idx: 0, playing: false, joints: [], on: new Set(),
+const S = { cols: [], data: null, n: 0, run: {}, t: null, idx: 0, playing: false, joints: [], on: new Set(),
   panels: [], shown: new Set(), last: 0 };
 const $ = (id) => document.getElementById(id);
 
@@ -135,29 +135,28 @@ const DEFAULT_LIMITS = {
   "left_leg/ankle_pitch": [-40, 40], "left_leg/ankle_roll": [-25, 25],
 };
 
-function parseLimits(lines) {         // "# limits right_leg/knee=6:114 ..." -> {name: [lo, hi]}
-  const out = {};
-  lines.filter((l) => l.startsWith("# limits ")).forEach((l) => l.slice(9).trim().split(/\s+/).forEach((kv) => {
-    const [k, v] = kv.split("="); if (!v) return;
-    const [lo, hi] = v.split(":").map(parseFloat); if (isFinite(lo) && isFinite(hi) && hi > lo) out[k] = [lo, hi];
-  }));
-  return out;
-}
-
 function limitOf(j) { return S.limits[j] || DEFAULT_LIMITS[j] || null; }
 
-function parseCsv(text) {
-  const all = text.split(/\r?\n/).filter((l) => l.length);
-  const limits = parseLimits(all.filter((l) => l.startsWith("#")));
-  const lines = all.filter((l) => !l.startsWith("#"));
-  const cols = lines[0].split(",");
-  const n = lines.length - 1;
+// 파일 한 개 = {run, limits, columns, rows}. rows 의 null 은 값이 없던 자리 -> NaN.
+// 열마다 Float64Array 를 두는 이유: 그리는 쪽이 한 열을 통째로 훑음.
+function parseJson(text) {
+  const doc = JSON.parse(text);
+  const cols = doc.columns || [];
+  const src = doc.rows || [];
+  const n = src.length;
   const data = cols.map(() => new Float64Array(n));
   for (let r = 0; r < n; r++) {
-    const cells = lines[r + 1].split(",");
-    for (let c = 0; c < cols.length; c++) data[c][r] = cells[c] === undefined ? NaN : parseFloat(cells[c]);
+    const cells = src[r];
+    for (let c = 0; c < cols.length; c++) {
+      const v = cells[c];
+      data[c][r] = v === null || v === undefined ? NaN : v;
+    }
   }
-  return { cols, data, n, limits };
+  const limits = {};
+  for (const [k, v] of Object.entries(doc.limits || {})) {
+    if (Array.isArray(v) && v.length === 2 && v[1] > v[0]) limits[k] = [v[0], v[1]];
+  }
+  return { cols, data, n, limits, run: doc.run || {} };
 }
 
 function jointOf(col) {            // "obs/q/right_leg/knee" -> "right_leg/knee", "act/knee" -> "knee"
@@ -166,11 +165,15 @@ function jointOf(col) {            // "obs/q/right_leg/knee" -> "right_leg/knee"
 }
 
 function load(name, text) {
-  const { cols, data, n, limits } = parseCsv(text);
+  let parsed;
+  try { parsed = parseJson(text); }
+  catch (e) { alert("JSON 이 아님 — huphy-run / huphy-test --log 가 만든 파일을 열 것\n" + e.message); return; }
+  const { cols, data, n, limits, run } = parsed;
   S.limits = limits;
+  S.run = run;
   S.limitSrc = Object.keys(limits).length ? "파일" : "기본값(v1.0)";
   if (cols[0] !== "t" || n < 2) { alert("huphy-run / huphy-test --log 형식이 아님 (첫 칸이 t 여야 함)"); return; }
-  // 관절 목록은 act/ 에서. huphy-test 기록(track_*.csv)은 정책 칸이 없어 tgt/ 에서,
+  // 관절 목록은 act/ 에서. huphy-test 기록(track_*.json)은 정책 칸이 없어 tgt/ 에서,
   // watch 기록(토크 없이 손으로)은 목표도 없어 pos/ 에서.
   const prefix = ["act/", "tgt/", "pos/"].find((p) => cols.some((c) => c.startsWith(p))) || "pos/";
   const joints = cols.filter((c) => c.startsWith(prefix)).map((c) => c.slice(prefix.length));

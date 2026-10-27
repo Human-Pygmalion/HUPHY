@@ -54,7 +54,9 @@ import csv
 import logging
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+
+from . import run_name
 
 logger = logging.getLogger(__name__)
 
@@ -159,22 +161,20 @@ class TrackLog:
         if self.errors == 1:
             logger.warning("추종 기록 실패 (제어는 계속함): %s", e)
 
-    def save(self, path: "str | Path", header: str = "") -> Path:
-        """CSV 로 씀. 폴더가 없으면 만듦.
+    def save(self, path: "str | Path", run: Mapping[str, Any] = {}) -> Path:
+        """JSON 으로 씀. 폴더가 없으면 만듦.
 
-        `header` 는 `run_name.header(...)` 가 만든 `# run ...` 한 줄임.
+        `run` 은 `run_name.header(...)` 가 만든 사전.
         """
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", newline="") as f:
-            if header:
-                f.write(header)
-            write_limits(f, self.limits)
-            writer = csv.writer(f)
-            writer.writerow(self.columns)
-            for row in self.rows:
-                writer.writerow(f"{v:.6g}" for v in row)
-        return path
+        # JSON 에 NaN 을 못 넣으므로 없는 값은 null 로. 자리수는 6 -- 모터
+        # 해상도(0.022도)보다 촘촘해서 정보를 안 잃음.
+        rows = [[None if v != v else round(float(v), 6) for v in row] for row in self.rows]
+        return run_name.write(
+            path, run,
+            limits={k: [lo, hi] for k, (lo, hi) in self.limits.items()} or None,
+            columns=list(self.columns),
+            rows=rows,
+        )
 
 
 def joint_limits(robot: Any) -> Dict[str, Tuple[float, float]]:
@@ -301,6 +301,5 @@ def sent_targets(robot: Any, targets: Dict[str, float]) -> Optional[Dict[str, fl
 
 
 def default_path(directory: "str | Path", name: str, parts=()) -> Path:
-    """`<폴더>/<월일>_track_<이름>[_<인자들>].csv`. 규칙은 `run_name` 에 있음."""
-    from . import run_name
+    """`<폴더>/track/<월일>_track_<이름>[_<인자들>].json`. 규칙은 `run_name` 에 있음."""
     return run_name.path(directory, "track", name, parts)

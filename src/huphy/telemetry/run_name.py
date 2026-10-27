@@ -1,19 +1,21 @@
-"""로그 파일 이름과 첫 줄 `# run ...` 을 만듦.
+"""로그 파일의 이름·`run` 칸·쓰기를 한 곳에 모음.
 
-`policy_log` 와 `latency_log` 가 같은 규칙을 쓰게 한 곳에 모음. 한쪽만 고치면 같은
-실행의 두 파일이 다른 이름으로 나가 짝을 못 찾음.
+`policy_log`·`latency_log`·`track_log` 가 같은 규칙을 쓰게 함. 한쪽만 고치면 같은
+실행의 파일들이 다른 이름으로 나가, 어느 `latency` 가 어느 `policy` 와 같은 실행
+것인지 이름으로 못 가림.
 
 
 ## 이름
 
-    <폴더>/<종류>/<월일>_<종류>_<정책이름>_<인자들>.csv
+    <폴더>/<종류>/<월일>_<종류>_<이름>[_<인자들>].json
 
-    logs/policy/1029_policy_generalized_walk.csv                      기본값만
-    logs/policy/1029_policy_generalized_walk_g0.3_vx0.3_wz0.2.csv
-    logs/policy/1029_policy_generalized_walk_g0.3_teleop.csv
-    logs/latency/1029_latency_huphy_squat_h0.8.csv
+    logs/policy/1027_policy_generalized_walk.json              기본값만
+    logs/policy/1027_policy_generalized_walk_g0.3_vx0.3.json
+    logs/policy/1027_policy_generalized_walk_g0.5-0.8_teleop.json
+    logs/latency/1027_latency_huphy_squat_h0.8.json
+    logs/track/1027_track_zero_g0.3.json
 
-**기본값인 인자는 이름에서 뺌.** 전부 기본값이면 월일·무엇·정책만 남음. 뭘 바꿔
+**기본값인 인자는 이름에서 뺌.** 전부 기본값이면 월일·종류·이름만 남음. 뭘 바꿔
 돌린 것인지가 이름에서 바로 보이게 하려는 것임.
 
 `teleop` 이면 명령값 자리에 `teleop` 을 적음 -- 값이 매 주기 바뀌어 이름에 넣을 수
@@ -23,19 +25,23 @@
 않음.**
 
 
-## 첫 줄
+## 파일 안
 
-    # run 2026-10-29 14:30:52 policy=generalized_walk checkpoint=37400 gain=0.3 ...
+    {"run":     {"at": "2026-10-27 14:30:52", "policy": "generalized_walk", ...},
+     "limits":  {"right_leg/knee": [6, 114], ...},
+     "columns": ["t", "obs/gyro/x", ...],
+     "rows":    [[0.0, 0.01, ...], [0.02, ...]]}
 
-이름에서 뺀 것이 전부 여기 들어감 -- 초 단위 시각, 체크포인트, 기본값인 인자들.
-**이름은 찾기용, 첫 줄은 정확한 기록**임.
+`run` 에 **이름에서 뺀 것이 전부** 들어감 -- 초 단위 시각, 체크포인트, 기본값인
+인자들. 이름은 찾기용, `run` 은 정확한 기록임.
 
-뷰어(`tools/policy_viewer.html`, `tools/latency_viewer.html`)는 `#` 로 시작하는
-줄을 건너뛰므로 줄이 늘어도 안 깨짐.
+CSV 였다가 JSON 으로 바꿨음. 전에는 `# limits ...` 와 `# run ...` 을 문자열로
+쪼개 읽어야 했는데, 지금은 뷰어가 `data.run.gain` 으로 바로 읽음.
 """
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence
@@ -96,13 +102,13 @@ def tags(
 
 
 def path(directory: "str | Path", kind: str, name: str, parts: Sequence[str]) -> Path:
-    """`<폴더>/<kind>/<월일>_<kind>_<name>[_<parts...>].csv`.
+    """`<폴더>/<kind>/<월일>_<kind>_<name>[_<parts...>].json`.
 
     `kind` 는 `policy` / `latency` / `track`. `name` 은 정책 이름이나 동작 이름.
 
-        logs/policy/1027_policy_generalized_walk_g0.3_vx0.3.csv
-        logs/latency/1027_latency_generalized_walk_g0.3_vx0.3.csv
-        logs/track/1027_track_zero_g0.3.csv
+        logs/policy/1027_policy_generalized_walk_g0.3_vx0.3.json
+        logs/latency/1027_latency_generalized_walk_g0.3_vx0.3.json
+        logs/track/1027_track_zero_g0.3.json
 
     **종류별로 폴더를 나눔.** 한 폴더에 섞여 있으면 실행을 몇 번 하는 순간 목록이
     길어져 같은 실행의 짝을 눈으로 찾기 어려움.
@@ -115,32 +121,50 @@ def path(directory: "str | Path", kind: str, name: str, parts: Sequence[str]) ->
     """
     stem = "_".join([time.strftime("%m%d"), kind, name, *parts])
     base = Path(directory) / kind
-    candidate = base / f"{stem}.csv"
+    candidate = base / f"{stem}.json"
     n = 2
     while candidate.exists():
-        candidate = base / f"{stem}_{n}.csv"
+        candidate = base / f"{stem}_{n}.json"
         n += 1
     return candidate
 
 
-def header(**fields: Any) -> str:
-    """첫 줄 `# run <날짜 시각> key=value ...`. 줄바꿈까지 포함함.
+def header(**fields: Any) -> Dict[str, Any]:
+    """파일의 `run` 칸. 이 실행이 무엇이었는지.
 
-    값이 `None` 인 항목은 건너뜀. 참/거짓은 `1`/`0` 으로 적음 -- `teleop=0` 이
-    `teleop=False` 보다 짧고 읽기 같음.
+        {"at": "2026-10-27 14:30:52", "policy": "generalized_walk",
+         "checkpoint": "37400", "gain": 0.3, "vx": 0.3, ...}
+
+    **이름에서 뺀 것이 전부 여기 들어감** -- 초 단위 시각, 체크포인트, 기본값인
+    인자들. 이름은 찾기용, 이 칸은 정확한 기록임.
+
+    값이 `None` 인 항목은 건너뜀. 참/거짓은 그대로 `true`/`false` 로 나감.
     """
-    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    out = []
+    out: Dict[str, Any] = {"at": time.strftime("%Y-%m-%d %H:%M:%S")}
     for key, value in fields.items():
-        if value is None:
-            continue
-        if isinstance(value, bool):
-            out.append(f"{key}={1 if value else 0}")
-        elif isinstance(value, float):
-            out.append(f"{key}={value:g}")
-        elif isinstance(value, (list, tuple)):
-            out.append(f"{key}=" + ",".join(f"{v:g}" if isinstance(v, float) else str(v)
-                                            for v in value))
-        else:
-            out.append(f"{key}={value}")
-    return f"# run {stamp} " + " ".join(out) + "\n"
+        if value is not None:
+            out[key] = list(value) if isinstance(value, tuple) else value
+    return out
+
+
+def write(path: "str | Path", run: Mapping[str, Any], **sections: Any) -> Path:
+    """JSON 한 파일로 씀. 폴더가 없으면 만듦.
+
+        {"run": {...}, "limits": {...}, "columns": [...], "rows": [[...], ...]}
+
+    `run` 은 `header(...)` 가 만든 사전. 나머지는 기록 종류마다 다름 --
+    `policy`/`track` 은 `limits`·`columns`·`rows`, `latency` 는 `meta`·`columns`·
+    `rows`.
+
+    **열 이름을 한 번만 적고 값은 배열로** 둠. 줄마다 `{"t": ..., "obs/...": ...}`
+    로 쓰면 같은 기록이 1.9배로 커짐 (50Hz 60초, 열 81개 기준 2.2MB -> 4.0MB).
+
+    `separators` 로 공백을 뺌. 사람이 읽는 파일이 아니라 뷰어가 읽는 파일임.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body: Dict[str, Any] = {"run": dict(run)}
+    body.update({k: v for k, v in sections.items() if v is not None})
+    with path.open("w") as f:
+        json.dump(body, f, separators=(",", ":"), allow_nan=False)
+    return path

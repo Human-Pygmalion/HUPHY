@@ -522,15 +522,15 @@ huphy-test --robot --hz 50 zero --live                  # 같은 것을 브라�
 ```
 
 `--live [PORT]` 는 도는 동안 관절 목표·실측을 브라우저로 보여줌. `huphy-run` 에도 있음.
-화면의 **녹화** 버튼으로 누른 구간만 `logs/track_live_*.csv` 로 남길 수 있음.
+화면의 **녹화** 버튼으로 누른 구간만 `logs/track/<월일>_track_live_*.json` 으로 남길 수 있음.
 화면 설명은 [tools/README.md](../../../tools/README.md).
 
 `--log [DIR]` 을 주면 파일 둘을 남김. 정책 입출력은 없음.
 
 | 파일 | 무엇 | 볼 곳 |
 |---|---|---|
-| `track_test_<명령>_<시각>.csv` | 매 주기 관절 목표각(`tgt/`)과 실측각(`pos/`). 접근 구간부터 | `tools/policy_viewer.html` |
-| `latency_test_<명령>_<시각>.csv` | 관절별 응답 지연. 첫 상태 읽기부터. 끝날 때 p50/p95/p99 표도 찍음 | `tools/latency_viewer.html` |
+| `track/<월일>_track_<명령>[_<인자>].json` | 매 주기 관절 목표각(`tgt/`)과 실측각(`pos/`). 접근 구간부터 | `tools/policy_viewer.html` |
+| `latency/<월일>_latency_<명령>[_<인자>].json` | 관절별 응답 지연. 첫 상태 읽기부터. 끝날 때 p50/p95/p99 표도 찍음 | `tools/latency_viewer.html` |
 
 `zero`·`pose` 는 목표가 고정이라 실측이 거기로 어떻게 다가가고 얼마나 처지는지가
 보임. 뷰어의 "관절별 추종" 칸이 목표(점선)·실측(실선)·오차를 같이 그림.
@@ -551,7 +551,7 @@ huphy-test --robot --hz 50 zero --live                  # 같은 것을 브라�
 huphy-test --robot studio                       # http://127.0.0.1:8770 (이 기계에서만)
 huphy-test --robot studio --gain-scale 0.4      # 처음 게인 = robot.yaml 값 x 0.4
 huphy-test --robot studio --open                # 같은 망의 노트북에서도 (제어가 붙음 -- 주의)
-huphy-test --robot studio --log                 # 실행 전체를 track_test_studio_*.csv 로도
+huphy-test --robot studio --log                 # 실행 전체를 logs/track/*.json 으로도
 ```
 
 **힘이 풀린 채로 시작함.** 실시간 뷰어 위에 제어 패널이 붙음.
@@ -602,7 +602,7 @@ kp/kd 한 쌍, **양다리 공통**. 표에 지금 값·robot.yaml 값·상한�
 
 ```bash
 huphy-test --robot watch                 # 실시간 뷰어가 기본으로 켜짐 (8770)
-huphy-test --robot watch --log           # 실행 전체도 logs/track_test_watch_*.csv 로
+huphy-test --robot watch --log           # 실행 전체도 logs/track/*.json 으로
 ```
 
 제어 루프를 관찰 모드로 돌림 -- 들어갈 때 토크를 끊고, 힘이 0인 명령(kp = kd = 토크
@@ -793,8 +793,8 @@ huphy-run --policy huphy_squat --checkpoint 4500
 
 | 파일 | 무엇 | 만드는 곳 |
 |---|---|---|
-| `policy_<정책>_<시각>.csv` | 정책 호출마다 관찰·출력·목표각·실측각 | `telemetry/policy_log.py` |
-| `latency_<정책>_<시각>.csv` | 모터마다 송신 → 응답 도착 지연 (제때/늦음/유실) | `telemetry/latency_log.py` |
+| `policy/<월일>_policy_<정책>[_<인자>].json` | 정책 호출마다 관찰·출력·목표각·실측각 | `telemetry/policy_log.py` |
+| `latency/<월일>_latency_<정책>[_<인자>].json` | 모터마다 송신 → 응답 도착 지연 (제때/늦음/유실) | `telemetry/latency_log.py` |
 
 정책 기록은 모델(`wrap_model`)과 정책 motion(`wrap_motion`)을 감싸서 잡음. 지연은 접근
 구간부터 재고, 끝날 때 관절별 p50/p95/p99 표를 찍음. 둘 다 메모리에 쌓았다가 토크를

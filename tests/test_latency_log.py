@@ -6,6 +6,7 @@
 맞추는지**(제때 / 늦음 / 유실)와 관절 이름, 파일 형식임.
 """
 
+import json
 import types
 
 import pytest
@@ -114,11 +115,12 @@ class TestOutput:
         stub.queue = [frame(2, 10.005)]             # 늦게 온 hip_pitch
         bus.collect()
 
-        text = log.save(tmp_path / "lat.csv").read_text().splitlines()
-        assert text[0] == "# drain_ms=4 hz=100"
-        assert text[1] == "t,joint,latency_ms,status"
-        statuses = [line.split(",")[3] for line in text[2:]]
-        assert set(statuses) == {"ontime", "late", "lost"}
+        doc = json.loads(log.save(tmp_path / "lat.json").read_text())
+        assert doc["meta"] == {"drain_ms": 4, "hz": 100}
+        assert doc["columns"] == ["t", "joint", "latency_ms", "status"]
+        assert {row[3] for row in doc["rows"]} == {"ontime", "late", "lost"}
+        lost = [row for row in doc["rows"] if row[3] == "lost"]
+        assert lost and lost[0][0] is None, "못 받은 것은 시각이 없음"
 
     def test_the_summary_has_a_row_per_joint_and_a_total(self, rig):
         clock, stub, bus, log = rig

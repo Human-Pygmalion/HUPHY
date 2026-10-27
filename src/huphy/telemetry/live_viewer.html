@@ -8,7 +8,7 @@
   huphy-test / huphy-run 을 --live 로 띄우면 같은 프로세스가 이 페이지를 내줌.
   0.1초마다 /data?since=<번호> 로 새 줄만 받아 그림. 외부 라이브러리 없음.
 
-  녹화     누른 때부터 정지까지를 서버가 CSV 로 씀 (logs/track_live_*.csv).
+  녹화     누른 때부터 정지까지를 서버가 JSON 으로 씀 (logs/track/*_track_live_*.json).
            policy_viewer.html 로 열림.
 
   단축키   Space 멈춤/이어서   R 녹화/정지
@@ -101,7 +101,7 @@ th { color: var(--muted); font-weight: 500; }
   <span class="meta" id="rate"></span>
   <span class="spacer"></span>
   <span class="meta" id="recinfo"></span>
-  <button class="rec" id="rec" title="누른 구간을 CSV 로 저장 (R)" disabled><i></i>녹화</button>
+  <button class="rec" id="rec" title="누른 구간을 JSON 으로 저장 (R)" disabled><i></i>녹화</button>
   <button class="primary" id="pause">멈춤</button>
   <select id="win" title="보이는 시간 폭">
     <option value="5">창 5 s</option><option value="10" selected>창 10 s</option>

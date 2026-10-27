@@ -233,7 +233,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--log", nargs="?", const=Path("logs"), type=Path, metavar="DIR",
         help=(
-            "정책 입출력과 관절별 응답 지연을 CSV 로 남김. 폴더를 안 주면 logs/. "
+            "정책 입출력과 관절별 응답 지연을 JSON 으로 남김. 폴더를 안 주면 logs/. 종류별 폴더로 나뉨. "
             "tools/policy_viewer.html, tools/latency_viewer.html 로 열어 볼 수 있음"
         ),
     )
@@ -284,7 +284,7 @@ def _gain_line(robot, scale: float = 1.0, ankle_scale: float = 1.0) -> str:
 
 
 def _log_naming(args, policy, model, commands) -> tuple:
-    """`(이름 조각들, 첫 줄)`. 두 기록이 같은 것을 씀.
+    """`(이름 조각들, run 칸)`. 두 기록이 같은 것을 씀.
 
     이름에는 **기본값이 아닌 것만** 들어감 (`telemetry/run_name.py`). 첫 줄에는
     기본값인 것까지 전부 들어감 -- 이름은 찾기용, 첫 줄은 정확한 기록임.
@@ -305,7 +305,7 @@ def _log_naming(args, policy, model, commands) -> tuple:
             args.send_mode: True if args.send_mode != "seq" else None,
         },
     )
-    header = run_name.header(
+    run_meta = run_name.header(
         policy=policy.name,
         checkpoint=model.checkpoint,
         gain=args.gain_scale,
@@ -316,16 +316,16 @@ def _log_naming(args, policy, model, commands) -> tuple:
         teleop=bool(args.teleop),
         **{k: float(v) for k, v in targets.items()},
     )
-    return parts, header
+    return parts, run_meta
 
 
-def _save_log(log: "policy_log.PolicyLog", args, name: str, parts, header) -> None:
+def _save_log(log: "policy_log.PolicyLog", args, name: str, parts, run_meta) -> None:
     """정책 기록을 씀. **실패해도 올리지 않음** -- 토크는 이미 끊긴 뒤임."""
     if not len(log):
         print("  정책 기록: 정책이 한 번도 안 불려서 남길 것이 없음")
         return
     try:
-        path = log.save(policy_log.default_path(args.log, name, parts), header)
+        path = log.save(policy_log.default_path(args.log, name, parts), run_meta)
     except OSError as e:
         print(f"  정책 기록 저장 실패: {e}")
         return
@@ -347,13 +347,13 @@ def _resume_on_first_call(motion, latency: "latency_log.LatencyLog"):
 
 
 def _save_latency(latency: "latency_log.LatencyLog", args, name: str,
-                  parts, header) -> None:
-    """지연 요약을 찍고 CSV 로 씀. 실패해도 올리지 않음."""
+                  parts, run_meta) -> None:
+    """지연 요약을 찍고 JSON 으로 씀. 실패해도 올리지 않음."""
     if not len(latency):
         return
     print("\n" + latency.summary())
     try:
-        path = latency.save(latency_log.default_path(args.log, name, parts), header)
+        path = latency.save(latency_log.default_path(args.log, name, parts), run_meta)
     except OSError as e:
         print(f"  지연 기록 저장 실패: {e}")
         return

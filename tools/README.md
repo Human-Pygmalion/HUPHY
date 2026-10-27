@@ -18,13 +18,13 @@ tools/
 huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt \
           --hz 50 --drain-ms 4 --log
 # 끝나면
-#   logs/policy_stand_<날짜_시각>.csv    -> policy_viewer.html
-#   logs/latency_stand_<날짜_시각>.csv   -> latency_viewer.html
+#   logs/policy/<월일>_policy_<정책>[_<인자>].json    -> policy_viewer.html
+#   logs/latency/<월일>_latency_<정책>[_<인자>].json  -> latency_viewer.html
 
 huphy-test --robot --hz 50 --drain-ms 4 zero --log
 # 끝나면
-#   logs/track_test_zero_<날짜_시각>.csv    -> policy_viewer.html (목표·실측만)
-#   logs/latency_test_zero_<날짜_시각>.csv  -> latency_viewer.html
+#   logs/track/<월일>_track_zero[_<인자>].json      -> policy_viewer.html (목표·실측만)
+#   logs/latency/<월일>_latency_zero[_<인자>].json  -> latency_viewer.html
 ```
 
 ---
@@ -59,7 +59,7 @@ huphy-test --robot --hz 50 --drain-ms 4 zero --log
 
 오차는 파일에 없고 열 때 `tgt − pos` 로 계산함. 예전 기록도 그대로 열림.
 
-**`huphy-test` 기록(`track_*.csv`)도 열림.** `t`, `tgt/`, `pos/`, `imu/` 만 있는 파일임 --
+**`huphy-test` 기록(`track_*.json`)도 열림.** `t`, `tgt/`, `pos/`, `imu/` 만 있는 파일임 --
 관절 목록을 `tgt/` 에서 읽고, 관찰·행동 그래프 대신 IMU 그래프(자세·각속도 기본)가 나옴. 목표가 고정인 `zero`·`pose` 에서
 실측이 어떻게 따라가고 얼마나 처지는지 보는 용도.
 
@@ -95,12 +95,12 @@ huphy-run --robot --policy stand --ankle-space ab --hz 50 --live 8771
 | 오차 | 고른 관절의 목표 − 실측을 한 그래프에 (끌 수 있음) |
 | IMU | 자세(roll/pitch/yaw)·각속도가 기본. 옆 패널에서 중력방향·가속도·수신 나이를 켬. 머리 줄에 축별 지금 값 |
 | 지금 값 | 관절별 목표·실측·오차 표 |
-| 녹화 / `R` | 누른 때부터 정지까지를 CSV 로 저장. 다시 누르면 정지하고 저장 |
+| 녹화 / `R` | 누른 때부터 정지까지를 JSON 으로 저장. 다시 누르면 정지하고 저장 |
 | 멈춤 / `Space` | 화면만 멈춤. 받기는 계속함 |
 | 창 | 5/10/30/60 s. 가로축은 "지금으로부터 몇 초 전" |
 
-**녹화 파일**은 `logs/track_live_<이름>_<날짜_시각>.csv` (`--log DIR` 을 줬으면 그
-폴더). 형식이 `track_*.csv` 와 같아서 위 `policy_viewer.html` 로 열림. 저장한 경로는
+**녹화 파일**은 `logs/track/<월일>_track_live_<이름>.json` (`--log DIR` 을 줬으면 그
+폴더). 형식이 `track_*.json` 과 같아서 위 `policy_viewer.html` 로 열림. 저장한 경로는
 화면 머리와 터미널에 찍힘. 녹화 중에 실행이 끝나면 거기까지 저장함. 녹화는 60초
 화면 고리와 따로 모으므로 길게 해도 잘리지 않음.
 

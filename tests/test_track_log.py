@@ -1,5 +1,6 @@
 """추종 기록 테스트 -- 하드웨어 없이 실행됨."""
 
+import json
 import csv
 
 from huphy.telemetry import track_log
@@ -40,28 +41,27 @@ class TestTrackLog:
         """policy_viewer 가 읽는 모양: 첫 칸 t, 관절마다 tgt/ 와 pos/."""
         log = track_log.TrackLog()
         log.wrap_motion(hold({"right_leg/knee": 30.0}))(0.0, {"right_leg/knee.pos": 29.5})
-        path = log.save(tmp_path / "track.csv")
-        rows = list(csv.reader(path.open()))
-        assert rows[0] == ["t", "tgt/right_leg/knee", "pos/right_leg/knee"]
-        assert rows[1][1:] == ["30", "29.5"]
+        doc = json.loads(log.save(tmp_path / "track.json").read_text())
+        assert doc["columns"] == ["t", "tgt/right_leg/knee", "pos/right_leg/knee"]
+        assert doc["rows"][0][1:] == [30.0, 29.5]
 
     def test_default_path(self, tmp_path):
         """`<월일>_track_<이름>[_<인자들>].csv` (`telemetry/run_name.py`)."""
         path = track_log.default_path(tmp_path, "zero")
         assert path.parent == tmp_path / "track", "종류별 폴더로 나뉨"
-        assert path.name.endswith("_track_zero.csv")
+        assert path.name.endswith("_track_zero.json")
         assert path.name[:4].isdigit(), "월일로 시작해야 함"
 
     def test_default_path_carries_the_arguments(self, tmp_path):
         path = track_log.default_path(tmp_path, "zero", ["g0.3", "drain4"])
-        assert path.name.endswith("_track_zero_g0.3_drain4.csv")
+        assert path.name.endswith("_track_zero_g0.3_drain4.json")
 
     def test_default_path_does_not_overwrite(self, tmp_path):
         """같은 날 같은 인자로 또 돌려도 앞 기록이 남아야 함."""
         first = track_log.default_path(tmp_path, "zero")
         first.parent.mkdir(parents=True, exist_ok=True)   # 폴더는 save() 가 만듦
         first.touch()
-        assert track_log.default_path(tmp_path, "zero").name.endswith("_2.csv")
+        assert track_log.default_path(tmp_path, "zero").name.endswith("_2.json")
 
 
 class TestSentTargets:

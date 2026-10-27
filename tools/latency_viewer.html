@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Latency Histogram</title>
 <!--
-  huphy-run --log 이 남긴 latency_*.csv 를 관절별·전체 히스토그램으로 봄.
+  huphy-run --log 이 남긴 latency_*.json 을 관절별·전체 히스토그램으로 봄.
   외부 라이브러리 없음 -- 로봇에서 인터넷 없이 열려야 해서임.
 
   x  지연 (ms, 명령을 보낸 때부터 응답이 도착한 때까지)
@@ -70,8 +70,8 @@ th { color: var(--muted); font-weight: 500; }
 <header>
   <h1>응답 지연 히스토그램</h1>
   <button id="open">파일 열기</button>
-  <input id="file" type="file" accept=".csv" class="hidden">
-  <span class="meta" id="meta">huphy-run --log 이 남긴 latency_*.csv</span>
+  <input id="file" type="file" accept=".json" class="hidden">
+  <span class="meta" id="meta">huphy-run --log 이 남긴 latency_*.json</span>
 </header>
 
 <div class="controls hidden" id="controls">
@@ -92,7 +92,7 @@ th { color: var(--muted); font-weight: 500; }
     <span><i style="background:var(--limit)"></i>수거 한계</span></span>
 </div>
 
-<div id="drop">CSV 파일을 여기로 끌어다 놓거나 <b>파일 열기</b>를 누르세요.</div>
+<div id="drop">JSON 파일을 여기로 끌어다 놓거나 <b>파일 열기</b>를 누르세요.</div>
 
 <main class="hidden" id="main">
   <div class="chart big" id="all"></div>
@@ -103,27 +103,28 @@ th { color: var(--muted); font-weight: 500; }
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const S = { joints: [], data: new Map(), meta: {}, name: "" };   // joint -> {ontime:[], late:[], lost:n}
+const S = { joints: [], data: new Map(), meta: {}, run: {}, name: "" };   // joint -> {ontime:[], late:[], lost:n}
 
 // ---- 읽기 ---------------------------------------------------------------
 function load(name, text) {
-  const meta = {}, data = new Map(), order = [];
-  let header = null;
-  for (const raw of text.split(/\r?\n/)) {
-    if (!raw) continue;
-    if (raw.startsWith("#")) {
-      raw.slice(1).trim().split(/\s+/).forEach((kv) => { const [k, v] = kv.split("="); if (v !== undefined) meta[k] = parseFloat(v); });
-      continue;
-    }
-    const c = raw.split(",");
-    if (!header) { header = c; continue; }
-    const joint = c[1], status = c[3];
+  // 파일 한 개 = {run, meta, columns, rows}. 한 줄 = [t, joint, latency_ms, status].
+  // 못 받은 것(status "lost")은 t 와 latency_ms 가 null 임.
+  let doc;
+  try { doc = JSON.parse(text); }
+  catch (e) { alert("JSON 이 아님 — huphy-run --log 가 만든 파일을 열 것\n" + e.message); return; }
+  const cols = doc.columns || [];
+  if (cols[1] !== "joint") { alert("latency_*.json 형식이 아님"); return; }
+
+  const meta = Object.assign({}, doc.meta || {});
+  const data = new Map(), order = [];
+  for (const row of doc.rows || []) {
+    const joint = row[1], status = row[3];
     if (!data.has(joint)) { data.set(joint, { ontime: [], late: [], lost: 0 }); order.push(joint); }
     const d = data.get(joint);
     if (status === "lost") d.lost++;
-    else d[status === "late" ? "late" : "ontime"].push(parseFloat(c[2]));
+    else d[status === "late" ? "late" : "ontime"].push(row[2]);
   }
-  if (!header || header[1] !== "joint") { alert("latency_*.csv 형식이 아님"); return; }
+  S.run = doc.run || {};
   const all = { ontime: [], late: [], lost: 0 };
   data.forEach((d) => { all.ontime.push(...d.ontime); all.late.push(...d.late); all.lost += d.lost; });
   data.forEach((d) => { d.ontime.sort((a, b) => a - b); d.late.sort((a, b) => a - b); });

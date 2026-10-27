@@ -24,7 +24,7 @@
 화면의 **녹화** 를 누른 때부터 **정지** 까지의 줄을 따로 모아 CSV 로 씀. 형식은
 `track_log` 와 같아서 `tools/policy_viewer.html` 로 열림.
 
-    <폴더>/track_live_<이름>_<날짜_시각>.csv     폴더는 --log 를 줬으면 거기, 아니면 logs/
+    <폴더>/track/<월일>_track_live_<이름>.json   폴더는 --log 를 줬으면 거기, 아니면 logs/
 
 고리(60초)와 따로 모으므로 길게 녹화해도 잘리지 않음. 파일은 HTTP 스레드가 씀 --
 제어 루프는 줄을 하나 더 붙일 뿐임. 녹화 중에 실행이 끝나면 거기까지 저장함.
@@ -157,11 +157,9 @@ class LiveFeed:
         t0 = rows[0][0]
         nan = float("nan")
         log.rows = [[r[0] - t0] + [nan if v is None else v for v in r[1:]] for r in rows]
+        # 겹치면 `_2` 를 붙이는 것은 `track_log.default_path` 가 함
+        # (`telemetry/run_name.py` 의 `path`).
         path = track_log.default_path(self.save_dir, f"live_{self.name}")
-        # 같은 초에 두 번 저장하면 이름이 같아 앞의 것을 덮어씀 -- 번호를 붙임.
-        stem, n = path.stem, 2
-        while path.exists():
-            path, n = path.with_name(f"{stem}_{n}.csv"), n + 1
         try:
             path = log.save(path)
         except OSError as e:

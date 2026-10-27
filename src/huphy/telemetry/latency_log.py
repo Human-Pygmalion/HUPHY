@@ -31,7 +31,7 @@ from __future__ import annotations
 import csv
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from . import run_name
 
@@ -137,28 +137,30 @@ class LatencyLog:
         return "\n".join(lines)
 
     # ---- 저장 -------------------------------------------------------------
-    def save(self, path: "str | Path", header: str = "") -> Path:
-        """CSV 로 씀. `header` 는 `run_name.header(...)` 의 `# run ...` 한 줄."""
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        meta = []
+    def save(self, path: "str | Path", run: Mapping[str, Any] = {}) -> Path:
+        """JSON 으로 씀. `run` 은 `run_name.header(...)` 가 만든 사전."""
+        meta = {}
         if self.drain_ms is not None:
-            meta.append(f"drain_ms={self.drain_ms:g}")
+            meta["drain_ms"] = self.drain_ms
         if self.hz is not None:
-            meta.append(f"hz={self.hz:g}")
-        with path.open("w", newline="") as f:
-            if header:
-                f.write(header)
-            if meta:
-                f.write("# " + " ".join(meta) + "\n")
-            writer = csv.writer(f)
-            writer.writerow(("t", "joint", "latency_ms", "status"))
-            for joint in self.joints:
-                for t, ms, late in self.samples[joint]:
-                    writer.writerow((f"{t:.4f}", joint, f"{ms:.4f}", "late" if late else "ontime"))
-                for _ in range(self.counts(joint)[2]):
-                    writer.writerow(("", joint, "", "lost"))
-        return path
+            meta["hz"] = self.hz
+
+        # 못 받은 것(`lost`)은 시각도 지연도 없음 -> null. 받은 것과 같은 줄
+        # 모양을 유지해야 뷰어가 한 가지 방법으로 읽음.
+        rows = []
+        for joint in self.joints:
+            for t, ms, late in self.samples[joint]:
+                rows.append([round(t, 4), joint, round(ms, 4),
+                             "late" if late else "ontime"])
+            for _ in range(self.counts(joint)[2]):
+                rows.append([None, joint, None, "lost"])
+
+        return run_name.write(
+            path, run,
+            meta=meta or None,
+            columns=["t", "joint", "latency_ms", "status"],
+            rows=rows,
+        )
 
     def __len__(self) -> int:
         return sum(self.sent.values())

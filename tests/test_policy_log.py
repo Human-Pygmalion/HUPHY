@@ -6,6 +6,7 @@
 않는지**임.
 """
 
+import json
 import csv
 from pathlib import Path
 
@@ -45,15 +46,21 @@ class TestLog:
         log = PolicyLog(WALK.obs_names, WALK.order)
         self.run_motion(log)
         assert len(log) == 3
-        path = log.save(tmp_path / "x" / "log.csv")
-        rows = list(csv.reader(path.open()))
-        assert rows[0][0] == "t"
-        assert len(rows[0]) == 1 + WALK.obs_dim + 12 * 3
-        assert all(len(r) == len(rows[0]) for r in rows)
-        header = rows[0]
-        knee = header.index("tgt/right_leg/knee")
+        doc = json.loads(log.save(tmp_path / "x" / "log.json").read_text())
+        cols = doc["columns"]
+        assert cols[0] == "t"
+        assert len(cols) == 1 + WALK.obs_dim + 12 * 3
+        assert all(len(r) == len(cols) for r in doc["rows"])
+        knee = cols.index("tgt/right_leg/knee")
         expected = WALK.joint_targets([0.1] * 12)["right_leg/knee"]
-        assert abs(float(rows[1][knee]) - expected) < 1e-3
+        assert abs(doc["rows"][0][knee] - expected) < 1e-3
+
+    def test_the_run_section_is_written(self, tmp_path):
+        """이름에서 뺀 값이 `run` 에 들어감 (`telemetry/run_name.py`)."""
+        log = PolicyLog(WALK.obs_names, WALK.order)
+        self.run_motion(log)
+        doc = json.loads(log.save(tmp_path / "x.json", {"policy": "w", "gain": 0.3}).read_text())
+        assert doc["run"] == {"policy": "w", "gain": 0.3}
 
     def test_wrong_size_is_counted_not_raised(self):
         log = PolicyLog(("a",), WALK.order)
@@ -65,9 +72,9 @@ class TestLog:
         """`<월일>_policy_<이름>[_<인자들>].csv` (`telemetry/run_name.py`)."""
         path = default_path(tmp_path, "generalized_walk")
         assert path.parent == tmp_path / "policy", "종류별 폴더로 나뉨"
-        assert path.name.endswith("_policy_generalized_walk.csv")
+        assert path.name.endswith("_policy_generalized_walk.json")
         assert path.name[:4].isdigit(), "월일로 시작해야 함"
 
     def test_default_path_carries_the_arguments(self, tmp_path):
         path = default_path(tmp_path, "generalized_walk", ["g0.3", "vx0.3"])
-        assert path.name.endswith("_policy_generalized_walk_g0.3_vx0.3.csv")
+        assert path.name.endswith("_policy_generalized_walk_g0.3_vx0.3.json")

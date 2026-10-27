@@ -35,7 +35,7 @@ import csv
 import logging
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 import numpy as np
 
@@ -123,23 +123,21 @@ class PolicyLog:
             logger.warning("정책 기록 실패 (제어는 계속함): %s", e)
 
     # ---- 저장 -------------------------------------------------------------
-    def save(self, path: "str | Path", header: str = "") -> Path:
-        """CSV 로 씀. 폴더가 없으면 만듦.
+    def save(self, path: "str | Path", run: Mapping[str, Any] = {}) -> Path:
+        """JSON 으로 씀. 폴더가 없으면 만듦.
 
-        `header` 는 `run_name.header(...)` 가 만든 `# run ...` 한 줄임. 이름에서
-        뺀 값(초 단위 시각·체크포인트·기본값인 인자)이 거기 들어감.
+        `run` 은 `run_name.header(...)` 가 만든 사전. 이름에서 뺀 값(초 단위 시각·
+        체크포인트·기본값인 인자)이 거기 들어감.
         """
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", newline="") as f:
-            if header:
-                f.write(header)
-            write_limits(f, self.limits)
-            writer = csv.writer(f)
-            writer.writerow(self.columns)
-            for row in self.rows:
-                writer.writerow(f"{v:.6g}" for v in row)
-        return path
+        # JSON 에 NaN 을 못 넣으므로 없는 값은 null 로. 자리수는 6 -- 모터
+        # 해상도(0.022도)보다 촘촘해서 정보를 안 잃음.
+        rows = [[None if v != v else round(float(v), 6) for v in row] for row in self.rows]
+        return run_name.write(
+            path, run,
+            limits={k: [lo, hi] for k, (lo, hi) in self.limits.items()} or None,
+            columns=list(self.columns),
+            rows=rows,
+        )
 
 
 def default_path(directory: "str | Path", policy_name: str, parts=()) -> Path:
