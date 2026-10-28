@@ -157,11 +157,17 @@ class ControlNode(Node):
             # 모터를 갈고 호스트 id 를 안 맞춘 경우. traceback 대신 무엇을 할지 남김.
             self.get_logger().error(str(e))
             raise SystemExit(1) from e
-        self.names = tuple(self.robot.joint_names)
-        """관절 이름은 한 번만 읽음. 매 발행마다 로봇에 안 물어봄."""
+        self.names = tuple(self.robot.motor_names)
+        """`joint_states` 에 싣는 이름. **모터 12개** (발목은 `ankle_a`/`ankle_b`).
+
+        기존 레포(`huphy-run`)와 같음 -- 정책 계약이 크랭크 모터 각도(`R_crank_A_joint` ->
+        `ankle_a`)를 받고 내므로 `ankle_pitch`/`ankle_roll` 은 안 씀. 예전에 관절 이름
+        (`joint_names`)을 실어서 정책이 발목 모터 값을 못 찾고 0 으로 받았음.
+
+        한 번만 읽음. 매 발행마다 로봇에 안 물어봄."""
         self.imus = tuple(self.robot.imus)
         self.get_logger().info(
-            f"{self.robot.id}  {self.hz:.0f}Hz  관절 {len(self.names)}개  "
+            f"{self.robot.id}  {self.hz:.0f}Hz  모터 {len(self.names)}개  "
             f"IMU {len(self.imus)}개  — OBSERVE 로 시작 (토크 없음)")
         self._run_loop(Mode.OBSERVE)
 
