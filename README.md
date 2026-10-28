@@ -1005,7 +1005,7 @@ huphy-run --policy huphy_squat --teleop                     # squat
 
 | 설정 | 기본 | 뜻 |
 |---|---|---|
-| `--max 이름=값` | 0.5 | 속도 상한 (vx m/s, wz rad/s) |
+| `--max 이름=값` | 1.0 | 속도 상한 (vx m/s, wz rad/s). 학습 범위는 vx −1 ~ 2, wz −1 ~ 1 |
 | `--accel 이름=값` | 0.5 (h_star 0.05) | 누르는 동안의 가속도. h_star 는 움직이는 속도 m/s |
 | `--decel 이름=값` | 1.0 | 뗐을 때의 감속도. 반대 키로 멈출 때도 이 값 |
 

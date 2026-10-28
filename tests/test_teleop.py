@@ -37,7 +37,7 @@ class TestAxes:
         axes = {a.name: a for a in teleop.make_axes(WALK.commands.values())}
         assert set(axes) == {"vx", "wz"}
         assert axes["vx"].keys == ("w", "s") and axes["wz"].keys == ("a", "d")
-        assert (axes["vx"].max, axes["vx"].accel, axes["vx"].decel) == (0.5, 0.5, 1.0)
+        assert (axes["vx"].max, axes["vx"].accel, axes["vx"].decel) == (1.0, 0.5, 1.0)
 
     def test_overrides(self):
         axes = {a.name: a for a in teleop.make_axes(
@@ -74,25 +74,25 @@ class TestVelocity:
 
     def test_it_stops_at_max(self):
         values = run_for(walk_state(), {"w"}, 10.0)
-        assert values["vx"] == pytest.approx(0.5)
+        assert values["vx"] == pytest.approx(1.0)
 
     def test_backward(self):
         values = run_for(walk_state(), {"s"}, 0.4)
         assert values["vx"] == pytest.approx(-0.2)
 
     def test_release_decays_to_exactly_zero(self):
-        """0.5 m/s 에서 감속 1.0 m/s² 이면 0.5초 뒤 정확히 0, 그 뒤로도 0."""
+        """1.0 m/s 에서 감속 1.0 m/s² 이면 1초 뒤 정확히 0, 그 뒤로도 0."""
         state = walk_state()
         run_for(state, {"w"}, 10.0)
-        assert run_for(state, set(), 0.25)["vx"] == pytest.approx(0.25)
-        assert run_for(state, set(), 0.25)["vx"] == pytest.approx(0.0, abs=1e-9)
+        assert run_for(state, set(), 0.5)["vx"] == pytest.approx(0.5)
+        assert run_for(state, set(), 0.5)["vx"] == pytest.approx(0.0, abs=1e-9)
         assert run_for(state, set(), 1.0)["vx"] == 0.0
 
     def test_reversing_brakes_with_decel(self):
         """반대 키는 decel(1.0) 로 멈춘 뒤 accel(0.5) 로 가속."""
         state = walk_state()
-        run_for(state, {"w"}, 10.0)                         # +0.5
-        assert run_for(state, {"s"}, 0.5)["vx"] == pytest.approx(0.0, abs=1e-6)
+        run_for(state, {"w"}, 10.0)                         # +1.0
+        assert run_for(state, {"s"}, 1.0)["vx"] == pytest.approx(0.0, abs=1e-6)
         assert run_for(state, {"s"}, 0.2)["vx"] == pytest.approx(-0.1, abs=1e-6)
 
     def test_both_axes_at_once(self):

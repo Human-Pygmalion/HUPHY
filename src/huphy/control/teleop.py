@@ -81,7 +81,7 @@ VELOCITY_KEYS: Dict[str, Tuple[str, str]] = {
 
 HEIGHT_KEYS: Tuple[str, str] = ("up", "down")
 
-VELOCITY_DEFAULTS = {"max": 0.5, "accel": 0.5, "decel": 1.0}
+VELOCITY_DEFAULTS = {"max": 1.0, "accel": 0.5, "decel": 1.0}
 """속도 명령 기본값. vx 는 m/s·m/s², wz 는 rad/s·rad/s². `--max/--accel/--decel` 로 바꿈."""
 
 HEIGHT_DEFAULTS = {"accel": 0.05}
