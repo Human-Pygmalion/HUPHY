@@ -399,10 +399,12 @@ function drawChart(ch, a, b, i0, i1, C) {
     });
     g.setLineDash([]); g.strokeStyle = C("--grid");
   } else {
-    const ystep = niceStep((hi - lo) / (H < 170 ? 3 : 4));
+    // 추가 값(전류·전압·온도)은 눈금을 촘촘히, 간격은 0.1 이상, 라벨은 소수 1자리
+    const extra = ch.kind === "extra";
+    const ystep = extra ? Math.max(0.1, niceStep((hi - lo) / 6)) : niceStep((hi - lo) / (H < 170 ? 3 : 4));
     for (let v = Math.ceil(lo / ystep) * ystep; v <= hi; v += ystep) {
       const y = Math.round(Y(v)) + 0.5; g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(W - PAD.r, y); g.stroke();
-      g.textAlign = "right"; g.fillText(fmt(v), PAD.l - 6, y + 4);
+      g.textAlign = "right"; g.fillText(extra ? v.toFixed(1) : fmt(v), PAD.l - 6, y + 4);
     }
   }
   // 시간 눈금은 "지금으로부터 몇 초 전"
