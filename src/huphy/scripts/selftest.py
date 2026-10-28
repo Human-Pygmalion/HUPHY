@@ -778,15 +778,21 @@ def _add_common(parser, *, suppress: bool) -> None:
     )
     parser.add_argument(
         "--probe",
-        nargs="?",
-        const=PROBE_DEFAULT,
+        action="store_true",
+        default=default(False),
+        help=(
+            "모터 전류(iq)·전압(VBUS)을 읽어 기록함. 명령에 실어 보내는 파라미터 읽기로 받음. "
+            "burst 에서만. 끝에 요약을 찍고 <--log 폴더 또는 logs>/motor/ 에 JSON 으로 남김"
+        ),
+    )
+    parser.add_argument(
+        "--probe-per-cycle",
         type=int,
-        default=default(None),
+        default=default(PROBE_DEFAULT),
         metavar="N",
         help=(
-            f"모터 전류(iq)·전압(VBUS)을 읽어 기록함. 한 주기에 다리마다 N 개씩 명령에 실어 "
-            f"보냄 (안 주면 {PROBE_DEFAULT}). burst 에서만. 끝에 요약을 찍고 "
-            f"<--log 폴더 또는 logs>/motor/ 에 JSON 으로 남김"
+            f"--probe 일 때 한 주기에 다리마다 실어 보낼 읽기 수. 기본 {PROBE_DEFAULT} -- "
+            f"모터 6 x (전류, 전압) 12칸을 돌아 100Hz 에서 값 하나가 약 17Hz"
         ),
     )
     parser.add_argument(
@@ -953,8 +959,11 @@ def main(argv=None) -> int:
     )
     if args.drain_ms < 0:
         raise SystemExit(f"--drain-ms 는 0 이상이어야 함 (받은 값 {args.drain_ms})")
+    # --probe 는 켜기만 함. 개수는 --probe-per-cycle. 아래는 "켜졌으면 개수, 아니면 None" 하나로 씀.
+    # (--probe [N] 으로 두면 뒤에 오는 서브명령 이름을 N 으로 읽어 깨짐)
+    args.probe = args.probe_per_cycle if args.probe else None
     if args.probe is not None and args.probe < 1:
-        raise SystemExit(f"--probe 는 1 이상이어야 함 (받은 값 {args.probe})")
+        raise SystemExit(f"--probe-per-cycle 은 1 이상이어야 함 (받은 값 {args.probe})")
     if args.probe and args.send_mode != SEND_BURST:
         raise SystemExit("--probe 는 --send-mode burst 에서만 됨 (읽기 응답을 CAN id 로 가름)")
     options = dict(

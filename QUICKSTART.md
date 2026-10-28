@@ -174,7 +174,7 @@ huphy-run --policy generalized_walk --drain-ms 4
 |---|---|
 | `--drain-ms 4` | 응답을 기다리는 시간을 늘림. 기본 2ms |
 | `--send-mode seq` | 한 모터씩 보냄. 기본은 `burst`(6개를 연달아). burst 는 모터마다 호스트 id 가 0xF0+id 여야 하고, 아니면 연결할 때 멈춤 -- 그때 쓰는 길 |
-| `--probe [N]` | 모터 전류·전압을 읽어 `logs/motor/` 에 남김. 다리당 한 주기 N 개 (기본 2). burst 에서만 |
+| `--probe` | 모터 전류·전압을 읽어 `logs/motor/` 에 남김. burst 에서만. 한 주기 읽기 수는 `--probe-per-cycle N` (다리당, 기본 2) |
 | `--hz 100` | 모터 전송 주기. 정책은 항상 자기 주기(50Hz)로만 불리고, 그 사이는 직전 목표를 반복 전송 |
 
 끝나면 실패 집계가 찍힘. 자세한 것은
