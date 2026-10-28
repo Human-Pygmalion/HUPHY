@@ -5,7 +5,7 @@
 | 노드 | 하는 일 | 어디서 |
 |---|---|---|
 | `control_node` | 모터를 몲. 100Hz, CAN, 가드 | 모션보드 (CAN·IMU 가 붙은 쪽) |
-| `policy_node` | 갈 자세를 냄. 50Hz 추론 | 작업 기계 (사람이 쓰는 쪽) |
+| `policy_node` | 갈 자세를 냄. 정책 주기로 추론 (지금 정책 둘 다 50Hz) | 작업 기계 (사람이 쓰는 쪽) |
 
 그림은 [`ros.drawio`](ros.drawio). 설계 근거는 **아래쪽 "아래는 설계"** 부터.
 
@@ -195,6 +195,9 @@ ros2 service call /huphy/enable std_srvs/srv/Trigger
 
 `success: true` 가 나와야 함. `false` 면 메시지에 이유가 있음.
 
+`start_policy` 전까지는 **감쇠 명령**을 보냄 — 위치를 붙잡지 않고 빠르게 움직이는 것만 막음.
+명령을 계속 보내야 모터가 답해서 통신 두절로 멈추지 않음. → 6 으로.
+
 ### 6 — 정책 시작  `공통`
 
 **어디서:** 아무 기계. **하는 일:** 정책이 낸 목표각대로 로봇이 실제로 움직임.
@@ -249,8 +252,9 @@ ros2 service call /huphy/disable std_srvs/srv/Trigger       # 감쇠 5초 후 �
 
 | 이름 | 기본 | 무엇 |
 |---|---|---|
-| `weights` | 없음. **필수** | `.pt` 경로 |
-| `hz` | 50.0 | 추론 주기 |
+| `policy` | 없음. **필수** | 정책 꾸러미 폴더 (`config/policies/<이름>`) |
+| `checkpoint` | 빈 값 = 계약의 기본값 | 꾸러미 안의 다른 체크포인트 번호 (예: `4500`) |
+| `hz` | 0 = 계약의 `control_rate_hz` | 추론 주기. 보통 비워 둠 |
 | `state_stale_ms` | 60.0 | 상태가 이보다 낡으면 목표각을 안 냄 |
 | `approach_s` | 3.0 | 기준 자세로 옮기는 시간 |
 
@@ -300,6 +304,35 @@ ROS 1(Noetic)이 같이 깔려 있으면 **같은 셸에서 둘 다 `source` 하
 
 ---
 
+## 로그
+
+노드 메시지와 `huphy` 라이브러리(CAN·모터·루프) 메시지가 **같은 ROS 로그**로 나감.
+이름 앞에 노드가 붙어서 어디서 온 줄인지 보임.
+
+```
+[INFO] [...] [huphy_control]: OBSERVE 로 시작
+[WARN] [...] [huphy_control.huphy.robots.leg]: right_leg/knee 응답 없음
+```
+
+| 어디서 보나 | 명령 |
+|---|---|
+| launch 를 띄운 터미널 | 그대로 찍힘 |
+| 지난 실행 | `~/.ros/log/` 아래 실행마다 폴더 하나 |
+| 두 기계 로그를 한곳에서, 레벨·노드로 걸러서 | `ros2 run rqt_console rqt_console` (`/rosout` 을 봄. 처음 한 번 `sudo apt install ros-humble-rqt-console`) |
+| 화면 없이 | `ros2 topic echo /rosout` |
+
+**자세히 보기 (DEBUG)** — 노드 이름을 붙여서 줄 것. 그냥 `debug` 를 주면 ROS 내부
+(`rcl`, `rmw`) 로그까지 쏟아짐.
+
+```bash
+ros2 run huphy_ros control_node --ros-args -p config:=... --log-level huphy_control:=debug
+```
+
+특정 모듈만 조용히: `--log-level huphy_control.huphy.motors.canbus:=warn`. 노드보다 낮게
+(더 자세히) 내리는 것은 안 됨 — 파이썬 쪽 문턱이 노드 레벨에 맞춰져 있음.
+
+---
+
 
 ---
 
@@ -315,8 +348,8 @@ ROS 1(Noetic)이 같이 깔려 있으면 **같은 셸에서 둘 다 `source` 하
 | 2 | 목표각이 끊기면 **감쇠 후 토크 차단** |
 | 3 | 기준 자세로 옮기는 접근 단계는 **`policy_node`** 가 함 |
 | 4 | 사람이 보내는 것: 속도 명령(`vx`, `wz`) / 시작·정지·토크 / 관절 목표각 직접 |
-| 5 | **정책 교체 없음.** `.pt` 를 바꾸려면 노드 재시작 |
-| 6 | 추론은 **타이머 50Hz**. 상태가 낡으면 목표각을 안 내보냄 |
+| 5 | **정책 교체 없음.** 다른 정책은 `policy:=` 를 바꿔 노드 재시작 |
+| 6 | 추론은 **타이머**, 주기는 정책 계약을 따름 (지금 둘 다 50Hz). 상태가 낡으면 목표각을 안 내보냄 |
 | 7 | IMU 는 **모션보드**에 붙음. 관절 상태와 같이 네트워크를 건너감 |
 | 8 | `/huphy/joint_targets` **하나**를 정책과 pose 가 같이 씀. 중재 없음 |
 | 9 | 기계 간 **시계 동기 없음.** 각 노드가 자기 시계로 도착 간격만 봄 |
@@ -618,8 +651,14 @@ ROS     right_leg__knee
       | 40ms 더 지남
       v
 control_node 가 목표각을 100ms 넘게 못 받음
-  ControlLoop 을 멈춤 -> damp(kp=0) -> 토크 차단
+  ControlLoop 을 멈춤 -> damp(kp=0) 5초 -> 토크 차단 -> 스스로 OBSERVE 로 돌아감
 ```
+
+`stop_policy` 를 불러도, `policy_node` 가 꺼져도 이 길을 탐. **OBSERVE 로 돌아가므로 상태는
+계속 읽힘.** 다시 돌리려면 `enable` → `start_policy`.
+
+`enable` 직후 목표각이 **아직 한 번도 안 왔으면** 이 판정을 안 함 — 그 동안은 감쇠 명령을 보냄
+(실행 5).
 
 `100 > 60` 이므로 순서가 뒤바뀌지 않음. 정책이 먼저 멈추고, 그 뒤에 제어가 멈춤.
 
@@ -674,6 +713,7 @@ control_node 가 목표각을 100ms 넘게 못 받음
 | `huphy_ros/freshness.py` | 받은 값과 그 나이. 낡음 판정 | **안 씀** |
 | `huphy_ros/control_node.py` | `ControlLoop` 를 자기 스레드에서. CAN | 씀 |
 | `huphy_ros/policy_node.py` | 20ms 타이머 추론. 접근 단계 | 씀 |
+| `huphy_ros/logbridge.py` | 파이썬 `logging` → ROS 로그. 노드 시작 때 붙임 | 씀 |
 
 앞의 둘이 `rclpy` 를 안 쓰는 것이 의도임. 거기 있는 판단(단위, 이름, 낡음)이 틀리면
 로봇이 잘못 움직이는데 **틀려도 길이와 자릿수가 그대로라 코드로는 안 잡힘.** ROS 가
@@ -873,8 +913,11 @@ GIL 문제는 안 생김. CPU 와 대역은 남음.
 
 ### 아직 못 한 것
 
-`rclpy` 가 없는 기계에서 만들어서 **노드 둘을 import 조차 못 해 봤음.** 문법과
-`huphy` 쪽 호출은 확인했고, ROS 가 깔린 기계에서 처음 띄울 때 오타가 나올 수 있음.
+| 확인함 | 안 함 |
+|---|---|
+| 한 기계에서 실물로 실행 2·4 (상태 100Hz, IMU, 토크 없이 목표각) | 실행 5·6 — **ROS 로 토크를 넣어 본 적 없음** |
+| 로봇 없이 가짜 CAN 으로 노드 둘 ([`without_robot.md`](without_robot.md)) | **두 기계** 구성 |
+| | `huphy-run` 에만 있는 것: 로그(`--log`), 실시간 그래프(`--live`), `--profile`, `--gain-scale`, `--teleop` |
 
 두 기계 사이 왕복 지연도 안 쟀음. 6-2 의 60ms / 100ms 는 제안값이고, 재고 나서 다시
 정해야 함.

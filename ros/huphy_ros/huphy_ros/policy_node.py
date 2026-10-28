@@ -65,7 +65,7 @@ from huphy.control import deploy
 from huphy.scripts.selftest import approach
 from huphy.sensors.base import ImuState
 
-from . import convert
+from . import convert, logbridge
 from .freshness import POLICY_STATE_STALE_S, Freshness, Latest
 
 STATUS_HZ = 5.0
@@ -77,6 +77,9 @@ OFF, APPROACH, RUNNING = "off", "approach", "running"
 class PolicyNode(Node):
     def __init__(self) -> None:
         super().__init__("huphy_policy")
+        # 라이브러리(huphy) 로그도 이 노드 이름으로 ROS 로그에 나가게 함.
+        # 라이브러리를 만들기 전에 붙여야 시작 메시지가 안 빠짐.
+        self.log_handler = logbridge.forward(self.get_logger())
 
         self.declare_parameter("policy", "")
         self.declare_parameter("checkpoint", "")
@@ -283,7 +286,10 @@ def main(argv=None) -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        logbridge.stop(node.log_handler)
+        # Ctrl-C 면 rclpy 가 이미 shutdown 했음. 두 번 부르면 RCLError.
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

@@ -53,7 +53,7 @@ from huphy.control import ControlLoop, Mode
 from huphy.scripts.bringup import build_biped, build_leg
 from huphy.scripts.commission import all_legs
 
-from . import convert
+from . import convert, logbridge
 from .freshness import CONTROL_TARGET_STALE_S, Freshness, Latest
 
 STATUS_HZ = 5.0
@@ -76,6 +76,9 @@ JOIN_S = 12.0
 class ControlNode(Node):
     def __init__(self) -> None:
         super().__init__("huphy_control")
+        # 라이브러리(huphy) 로그도 이 노드 이름으로 ROS 로그에 나가게 함.
+        # 라이브러리를 만들기 전에 붙여야 시작 메시지가 안 빠짐.
+        self.log_handler = logbridge.forward(self.get_logger())
 
         self.declare_parameter("config", "")
         self.declare_parameter("limb", "")
@@ -117,6 +120,10 @@ class ControlNode(Node):
         self.mode = Mode.OBSERVE
         self.stopped_by_stale = False
         """목표각이 끊겨서 멈춘 것인지. 상태 토픽에 적음."""
+        self._swap = threading.Lock()
+        self._stopping = False
+        """`_stop_loop` 이 멈추는 중인지. 제어 스레드가 스스로 OBSERVE 로 돌아갈지
+        말지를 이것으로 가림 -- 사람이 멈춘 것이면 돌아가지 않음."""
 
         self.joints = self.create_publisher(
             JointState, "/huphy/joint_states", qos_profile_sensor_data)
@@ -153,23 +160,42 @@ class ControlNode(Node):
     def _run_loop(self, mode: Mode) -> None:
         """그 모드로 루프를 새로 띄움. 돌고 있으면 먼저 멈춤."""
         self._stop_loop()
-        self.mode = mode
-        self.loop = ControlLoop(self.robot, hz=self.hz, mode=mode)
-        self.loop.before_step = self._observe
-        self.loop_started = time.monotonic()
+        self._stopping = False
+        self._new_loop(mode)
         self.thread = threading.Thread(
-            target=self._loop_body, name=f"huphy-{mode.value}", daemon=True)
+            target=self._loop_body, name="huphy-loop", daemon=True)
         self.thread.start()
 
+    def _new_loop(self, mode: Mode) -> None:
+        self.mode = mode
+        self.loop = ControlLoop(self.robot, hz=self.hz, mode=mode)
+        self.loop.before_step = self._before_step
+        self.loop_started = time.monotonic()
+
     def _loop_body(self) -> None:
-        try:
-            self.loop.run(self._motion)
-        except Exception as e:  # noqa: BLE001 - 스레드가 조용히 죽으면 안 됨
-            self.get_logger().error(f"제어 루프가 예외로 끝남: {e}")
+        """루프를 돌림. **CONTROL 이 스스로 끝나면 OBSERVE 로 돌아감.**
+
+        스스로 끝나는 것 = 목표각 끊김, 통신 두절, 예외. 셋 다 `_exit` 가 감쇠 뒤
+        토크를 끊은 다음임. 돌아가지 않으면 루프가 없는 채로 남아 `joint_states` 가
+        마지막 값을 되풀이하고, `policy_node` 는 그것을 새 값으로 봄.
+        """
+        while True:
+            try:
+                self.loop.run(self._motion)
+            except Exception as e:  # noqa: BLE001 - 스레드가 조용히 죽으면 안 됨
+                self.get_logger().error(f"제어 루프가 예외로 끝남: {e}")
+            with self._swap:
+                if self._stopping or self.mode is not Mode.CONTROL:
+                    return
+                self.get_logger().warning("CONTROL 이 끝남 -> OBSERVE 로 돌아감 (토크 없음)")
+                self.targets.clear()
+                self._new_loop(Mode.OBSERVE)
 
     def _stop_loop(self) -> None:
-        if self.loop is not None:
-            self.loop.stop()
+        with self._swap:
+            self._stopping = True
+            if self.loop is not None:
+                self.loop.stop()
         if self.thread is not None and self.thread.is_alive():
             # CONTROL 이면 finally 가 감쇠 5초를 보냄. 그게 끝나기를 기다림.
             self.thread.join(timeout=JOIN_S)
@@ -178,14 +204,22 @@ class ControlNode(Node):
         self.loop, self.thread = None, None
 
     # ---- 제어 스레드 -------------------------------------------------------
-    def _observe(self, loop, t: float) -> None:
-        """매 주기 `step` 앞에 관찰을 써 둠. **제어 스레드에서 돎.**
+    def _before_step(self, loop, t: float) -> None:
+        """매 주기 `step` 앞. **제어 스레드에서 돎.**
 
-        `_motion` 에서 하면 안 됨 -- OBSERVE 에서는 루프가 `motion` 을 안 불러서
-        `joint_states` 가 하나도 안 나감.
+        관찰을 써 둠 -- `_motion` 에서 하면 안 됨. OBSERVE 에서는 루프가 `motion` 을
+        안 불러서 `joint_states` 가 하나도 안 나감.
+
+        CONTROL 인데 `enable` 뒤로 목표각이 **한 번도 안 왔으면** 감쇠 명령을 보냄.
+        아무것도 안 보내면 모터도 답하지 않아 5주기 만에 통신 두절로 멈춤
+        (`safety.link_loss_cycles`). 감쇠는 위치를 붙잡지 않아서, 뒤에 오는 접근
+        단계가 지금 자세에서 시작해도 튀지 않음. 이 주기의 응답은 `step` 의
+        `collect` 가 받음.
         """
         del loop, t
         self.observation.put(self.robot.get_observation())
+        if self.mode is Mode.CONTROL and self.targets.age() < 0:
+            self.robot.send(self.robot.damp())
 
     def _motion(self, t: float, observation):
         """`ControlLoop` 가 매 주기 부름. **제어 스레드에서 돎.**
@@ -242,7 +276,7 @@ class ControlNode(Node):
         alive = self.thread is not None and self.thread.is_alive()
         response.success = alive
         response.message = (
-            "CONTROL. 토크 들어감" if alive
+            "CONTROL. 토크 들어감 -- start_policy 전까지 감쇠" if alive
             else "제어 루프가 바로 끝남. 노드 로그를 볼 것")
         return response
 
@@ -335,7 +369,10 @@ def main(argv=None) -> None:
     finally:
         node.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        logbridge.stop(node.log_handler)
+        # Ctrl-C 면 rclpy 가 이미 shutdown 했음. 두 번 부르면 RCLError.
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
