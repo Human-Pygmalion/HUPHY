@@ -140,11 +140,14 @@ class TestDrainLine:
     def test_share_of_the_period(self):
         assert "주기 10.0ms 의 20%" in failures.drain_line(0.002, 100.0)
 
-    def test_warns_when_it_eats_half_the_period(self):
-        assert "크게 잡음" in failures.drain_line(0.006, 100.0)
+    def test_warns_when_it_eats_most_of_the_period(self):
+        assert "크게 잡음" in failures.drain_line(0.009, 100.0)
 
     def test_two_legs_double_it(self):
-        assert "크게 잡음" in failures.drain_line(0.003, 100.0, legs=2)
+        assert "크게 잡음" in failures.drain_line(0.005, 100.0, legs=2)
+
+    def test_default_is_quiet_on_two_legs(self):
+        assert "크게 잡음" not in failures.drain_line(0.004, 100.0, legs=2)
 
     def test_quiet_when_small(self):
         assert "크게 잡음" not in failures.drain_line(0.002, 100.0)

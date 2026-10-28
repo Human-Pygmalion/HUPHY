@@ -319,7 +319,7 @@ def _log_naming(args, policy, model, commands) -> tuple:
         teleop=bool(args.teleop),
         extra={
             "hz": args.hz if args.hz and args.hz != policy.hz else None,
-            "drain": args.drain_ms if args.drain_ms != 2.0 else None,
+            "drain": args.drain_ms if args.drain_ms != DEFAULT_DRAIN_S * 1000.0 else None,
             args.send_mode: True if args.send_mode != SEND_BURST else None,
             "extra": args.extra,
         },

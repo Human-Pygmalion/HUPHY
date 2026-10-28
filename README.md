@@ -362,7 +362,7 @@ slcan 은 프레임마다 USB 시리얼로 ASCII 를 주고받아서 네이티�
 | 한 주기 (다 왔을 때) | 약 5.5 ms |
 | 프레임 유실 | 3~6 % (CAN id 가 클수록 많음) |
 
-그래서 기본값(`--drain-ms 2`)이면 늦게 온 응답이 무응답으로 잡히고, 유실된
+그래서 `--drain-ms 2` 면 늦게 온 응답이 무응답으로 잡히고, 유실된
 주기마다 수거 대기를 끝까지 써서 100Hz 를 못 지킴. **slcan 에서는 `--hz 50
 --drain-ms 4` 로 돌릴 것** (두 다리 최악 8 ms, 주기 20 ms 안). 유실 자체를 없애려면
 어댑터에 candleLight(gs_usb) 펌웨어를 올리는 것이 근본 해결임 (위 절,
@@ -710,8 +710,8 @@ huphy-test --limb left_leg,right_leg zero    # 일부만 묶기 (드묾)
 huphy-test --robot --hz 100 --drain-ms 4 zero
 ```
 
-기본 2ms. 기다린 개수가 다 오면 즉시 빠져나가므로 **정상 주기에는 이만큼 쓰지
-않음.**
+기본 4ms (2026-10-28 에 2 에서 올림). 기다린 개수가 다 오면 즉시 빠져나가므로 **정상
+주기에는 이만큼 쓰지 않음.**
 
 | | |
 |---|---|
@@ -728,7 +728,7 @@ huphy-test --robot --hz 100 --drain-ms 4 zero
 | `--approach 3` | 시작 자세까지 옮기는 시간 |
 | `--period 6` | `range` 한 번 왕복하는 시간. 길수록 천천히 |
 | `--margin 5` | 한계에서 남길 여유. 한계는 하드스톱을 잰 값이라 그대로 명령하면 부딪힘 |
-| `--drain-ms 2` | 응답을 기다리는 최대 시간 (ms) |
+| `--drain-ms 4` | 응답을 기다리는 최대 시간 (ms). 기본 4 |
 | `--live [PORT]` | 도는 동안 관절 목표·실측을 브라우저로 봄. 기본 포트 8770. 시작할 때 주소를 찍음 ([tools/README.md](tools/README.md)) |
 | `--log [DIR]` | 매 주기 목표·실측각(`logs/track/<월일>_track_<명령>.json`, `tools/policy_viewer.html`)과 관절별 응답 지연(`logs/latency/...json`, `tools/latency_viewer.html`)을 남김. 폴더를 안 주면 `logs/` |
 | `--send-mode seq` | 한 모터씩 보냄. 기본은 `burst` -- 모터마다 호스트 id 가 0xF0+id 여야 하고 아니면 연결할 때 멈춤 (2절) |

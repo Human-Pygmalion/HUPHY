@@ -85,7 +85,7 @@ class ControlNode(Node):
         self.declare_parameter("limb", "")
         self.declare_parameter("hz", 100.0)
         self.declare_parameter("state_hz", 100.0)
-        self.declare_parameter("drain_ms", 2.0)
+        self.declare_parameter("drain_ms", 4.0)
         self.declare_parameter("send_mode", SEND_BURST)
         self.declare_parameter("target_stale_ms", CONTROL_TARGET_STALE_S * 1000.0)
         self.declare_parameter("allow_uncalibrated", False)

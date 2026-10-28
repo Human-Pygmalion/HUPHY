@@ -1065,7 +1065,7 @@ def _log_naming(args) -> tuple:
             gain_scale=args.gain_scale,
             extra={
                 "hz": args.hz or None,
-                "drain": args.drain_ms if args.drain_ms != 2.0 else None,
+                "drain": args.drain_ms if args.drain_ms != DEFAULT_DRAIN_S * 1000.0 else None,
                 args.send_mode: True if args.send_mode != SEND_BURST else None,
                 "extra": args.extra,
             },

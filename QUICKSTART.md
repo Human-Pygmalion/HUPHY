@@ -167,12 +167,12 @@ huphy-run --policy generalized_walk --live --log
 ## 5. 통신이 이상할 때
 
 ```bash
-huphy-run --policy generalized_walk --drain-ms 4
+huphy-run --policy generalized_walk --drain-ms 6   # 정책은 50Hz(20ms) 라 4 보다 늘릴 여유가 있음
 ```
 
 | 인자 | 무엇 |
 |---|---|
-| `--drain-ms 4` | 응답을 기다리는 시간을 늘림. 기본 2ms |
+| `--drain-ms 6` | 응답을 기다리는 시간을 늘림. 기본 4ms (100Hz 에서는 4 가 사실상 상한, 50Hz 면 더 늘려도 됨) |
 | `--send-mode seq` | 한 모터씩 보냄. 기본은 `burst`(6개를 연달아). burst 는 모터마다 호스트 id 가 0xF0+id 여야 하고, 아니면 연결할 때 멈춤 -- 그때 쓰는 길 |
 | `--extra` | 추가 값(모터 전류 iq·전압 VBUS)을 중간중간 읽어 옴. 실시간 뷰어와 `--log` 기록에 `extra/<모터>/iq·temp·vbus` 열이 생김. burst 에서만. 한 주기 읽기 수는 `--extra-per-cycle N` (다리당, 기본 2) |
 | `--hz 100` | 모터 전송 주기. 정책은 항상 자기 주기(50Hz)로만 불리고, 그 사이는 직전 목표를 반복 전송 |

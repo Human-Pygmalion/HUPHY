@@ -689,7 +689,7 @@ huphy-test --robot --hz 100 --drain-ms 4 zero
 huphy-run --policy generalized_walk --cmd vx=0.5 --drain-ms 4
 ```
 
-기본 2ms. 다 오면 즉시 빠져나가므로 정상 주기에는 이만큼 쓰지 않음.
+기본 4ms. 다 오면 즉시 빠져나가므로 정상 주기에는 이만큼 쓰지 않음.
 
 | | |
 |---|---|
