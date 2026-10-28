@@ -10,6 +10,3 @@ build/
 dist/
 .pytest_cache/
 .DS_Store
-
-# 런타임 산출물
-logs/
