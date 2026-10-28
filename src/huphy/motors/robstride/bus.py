@@ -159,11 +159,9 @@ class RobStrideBus(MotorsBus):
         안전하지 않음 (docs/motor_setup.md 14절)."""
 
         # ---- 파라미터 읽기 (Command 14) ----
-        self.param_sink = None
-        """읽은 값을 받는 곳. 붙이면 `sample(mid, index, value, stamp, late)` 를 부름.
-        `telemetry.motor_log` 가 붙임."""
         self.params: Dict[int, Dict[int, Tuple[float, float]]] = {mid: {} for mid in self.motors}
-        """모터 id -> 인덱스 -> (값, 도착 시각). 마지막으로 읽은 것."""
+        """모터 id -> 인덱스 -> (값, 도착 시각). 마지막으로 읽은 것. `Leg.get_observation`
+        이 여기서 꺼내 `<모터>.iq` 등으로 냄."""
         self.param_counts: Dict[int, Dict[str, int]] = {
             mid: {"sent": 0, "ok": 0, "late": 0} for mid in self.motors
         }
@@ -448,19 +446,14 @@ class RobStrideBus(MotorsBus):
         if key in self._pending_reads:
             self._pending_reads.discard(key)
             self.param_counts[mid]["ok"] += 1
-            late, counted = False, 1
+            counted = 1
         elif key in self._overdue_reads:
             self._overdue_reads.discard(key)
             self.param_counts[mid]["late"] += 1
-            late, counted = True, 0
+            counted = 0
         else:
             return 0                                # 묻지 않은 것. 다른 프로그램 몫
         self.params[mid][index] = (value, stamp)
-        if self.param_sink is not None:
-            try:
-                self.param_sink.sample(mid, index, value, stamp, late)
-            except Exception as e:  # noqa: BLE001 - 기록 때문에 제어가 멈추면 안 됨
-                logger.debug("%s 파라미터 기록 실패: %s", self.bus.channel, e)
         return counted
 
     def _encoding_for_frame(self, frame: CanFrame) -> tables.EncodingRange:

@@ -116,6 +116,8 @@ const IMU_KIND = { roll: "att", pitch: "att", yaw: "att", gx: "gyro", gy: "gyro"
   grav_x: "grav", grav_y: "grav", grav_z: "grav", ax: "acc", ay: "acc", az: "acc", age: "age" };
 const IMU_TITLE = { att: ["자세", "deg"], gyro: ["각속도", "deg/s"], grav: ["중력방향", ""],
   acc: ["가속도", "m/s²"], age: ["수신 나이", "ms"] };
+// 추가 값 열(extra/<모터>/<값>). huphy-run / huphy-test 를 --extra 로 돌렸을 때만 있음.
+const EXTRA_TITLE = { iq: ["추가 값 · 전류 iq", "A"], temp: ["추가 값 · 온도", "°C"], vbus: ["추가 값 · 전압 VBUS", "V"] };
 const UNITS = { gyro: "rad/s", grav: "", q: "rad (기본자세 기준)", q_prev: "rad (기본자세 기준)",
   pos: "rad", vel: "rad/s", last_act: "모델 출력", cmd: "", phase: "" };
 
@@ -209,12 +211,17 @@ function load(name, text) {
       const [title, unit] = IMU_TITLE[IMU_KIND[p[2]]];
       add(`imu/${p[1]}/${IMU_KIND[p[2]]}`, `IMU ${p[1]} · ${title}`, unit, false).cols.push(i);
     }
+    else if (p[0] === "extra" && EXTRA_TITLE[p[p.length - 1]]) {
+      // 종류마다 한 그래프, 모터마다 한 선 (범례가 모터 이름)
+      const kind = p[p.length - 1], [title, unit] = EXTRA_TITLE[kind];
+      const g = add("extra/" + kind, title + " — 모터별", unit, false); g.extra = true; g.cols.push(i);
+    }
     else if (p[0] === "err") groups.get("err").cols.push(i);
   });
   S.panels = [...groups.values()];
   const defaults = ["each", "err", "obs/gyro", "obs/grav"];
   S.shown = new Set(S.panels.map((p) => p.key).filter((k) =>
-    defaults.includes(k) || /^imu\/[^/]+\/(att|gyro)$/.test(k)));
+    defaults.includes(k) || k === "extra/iq" || /^imu\/[^/]+\/(att|gyro)$/.test(k)));
 
   const dur = S.t[n - 1] - S.t[0];
   $("meta").textContent = `가동범위 ${S.limitSrc} · ${name} · ${n}줄 · ${dur.toFixed(1)} s · 평균 ${((n - 1) / dur).toFixed(1)} Hz`;
@@ -313,7 +320,9 @@ function series(p) {             // [{col, color, dash, label}]
       .filter((s) => s.col >= 0));
   return p.cols.map((c, k) => {
     if (p.perJoint) { const j = jointOf(S.cols[c]); return S.on.has(j) ? { col: c, color: colorOf(j) } : null; }
-    return { col: c, color: PALETTE[k % PALETTE.length], label: S.cols[c].split("/").pop() };
+    const name = S.cols[c];
+    const label = p.extra ? short(name.slice(6, name.lastIndexOf("/"))) : name.split("/").pop();
+    return { col: c, color: PALETTE[k % PALETTE.length], label };
   }).filter(Boolean);
 }
 

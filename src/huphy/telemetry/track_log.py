@@ -4,6 +4,7 @@
     tgt/<관절>     실제로 나간 관절 목표각 (도). 가드가 자른 뒤 값
     pos/<관절>     그 명령에 대한 실측 관절각 (도)
     imu/<이름>/<값> 그 주기의 IMU 값. 붙은 IMU 가 없으면 열이 없음 (`IMU_FIELDS`)
+    extra/<모터>/<값> 추가 값 (iq A, vbus V, temp C). `--extra` 를 안 켰으면 열이 없음
 
 `policy_log` 에서 정책 칸(obs/act)을 뺀 것과 같은 모양이라 `tools/policy_viewer.html`
 로 그대로 열림. 목표가 고정(`zero`, `pose`)이면 실측이 거기로 어떻게 다가가고 얼마나
@@ -37,6 +38,14 @@
 `robot` 에 IMU 가 붙어 있으면 줄 끝에 `imu/<이름>/<값>` 을 붙임. 값은 텔레메트리
 (`snapshot.build_imu`)와 같고 그중 `IMU_FIELDS` 만 고름. 벤더 수신 스레드가 받아 둔
 것을 꺼낼 뿐이라 새로 통신하지 않음. 열은 첫 줄에서 정해짐.
+
+## 추가 값 (`--extra`)
+
+관찰에 `<모터>.iq` / `<모터>.vbus` 가 있으면(`Leg.extra`) IMU 열 뒤에
+`extra/<모터>/iq`, `extra/<모터>/temp`, `extra/<모터>/vbus` 를 붙임. 온도는 상태
+프레임에 늘 오는 값인데 그동안 기록에 없었으므로 같이 남김. 전류·전압은 몇 주기에 한
+번씩 갱신되므로 그 사이 줄에는 마지막으로 읽은 값이 그대로 들어감. 아직 못 읽었으면 빈 칸.
+열은 IMU 와 같이 첫 줄에서 정해짐.
 
 ## 목표가 없는 줄 -- 손으로 움직일 때 (`huphy-test watch`)
 
@@ -93,6 +102,28 @@ def imu_values(robot: Any) -> Dict[str, float]:
         for key, value in values.items()
         if key.startswith("imu/") and key.rsplit("/", 1)[-1] in IMU_FIELDS
     }
+
+
+EXTRA_FIELDS = ("iq", "vbus")
+"""관찰에서 `extra/` 열로 옮기는 필드. `Leg.EXTRA_PARAMS` 와 같은 이름."""
+
+
+def extra_values(observation: Mapping[str, Any]) -> Dict[str, float]:
+    """`extra/<모터>/<값>` -> 값. 추가 값이 꺼져 있으면 빈 사전.
+
+    관찰에 `<모터>.iq` 가 있을 때만 냄 -- 그 모터의 온도(`<모터>.temp`)를 iq 바로
+    뒤에 붙임. 양다리면 모터 이름이 `right_leg/knee` 처럼 와서 `extra/right_leg/knee/iq`.
+    """
+    nan = float("nan")
+    out: Dict[str, float] = {}
+    for key in observation:
+        motor, _, field = key.rpartition(".")
+        if field != EXTRA_FIELDS[0] or not motor:
+            continue
+        out[f"extra/{motor}/iq"] = float(observation.get(f"{motor}.iq", nan))
+        out[f"extra/{motor}/temp"] = float(observation.get(f"{motor}.temp", nan))
+        out[f"extra/{motor}/vbus"] = float(observation.get(f"{motor}.vbus", nan))
+    return out
 
 
 class TrackLog:
@@ -225,10 +256,11 @@ def build_row(
     imu_cols: Optional[Sequence[str]],
     sent: Optional[Dict[str, float]] = None,
 ):
-    """`(줄, imu 열)`. 줄의 첫 칸(t)은 0 으로 비워 둠 -- 시각은 부르는 쪽이 채움.
+    """`(줄, 꼬리 열)`. 줄의 첫 칸(t)은 0 으로 비워 둠 -- 시각은 부르는 쪽이 채움.
 
     `targets` 가 None 이면 관찰만 받는 줄 (목표 칸 없음). 목표가 있는데 아직 아무것도
-    안 나갔으면 줄이 None. `imu_cols` 가 None 이면 이번 IMU 값으로 열을 정함.
+    안 나갔으면 줄이 None. 꼬리 열은 `pos/` 뒤에 붙는 `imu/...` 와 `extra/...` 임 --
+    `imu_cols` 가 None 이면 이번 값으로 정함 (이름은 예전 그대로 둠).
     """
     nan = float("nan")
     row: List[float] = [0.0]
@@ -243,6 +275,7 @@ def build_row(
         row += [float(sent.get(j, nan)) for j in order]
     row += [float(observation.get(f"{j}.pos", nan)) for j in order]
     imu = imu_values(robot)
+    imu.update(extra_values(observation))
     if imu_cols is None:
         imu_cols = tuple(imu)
     row += [imu.get(c, nan) for c in imu_cols]

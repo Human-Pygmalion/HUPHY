@@ -5,6 +5,7 @@
     act/<관절>         모델 출력 그대로 (배율·기본자세 입히기 전)
     tgt/<관절>         관절 목표각 (도). 실제로 루프에 넘긴 것
     pos/<관절>         그 순간의 실측 관절각 (도)
+    extra/<모터>/<값>  추가 값 (iq A, temp C, vbus V). `--extra` 를 켰을 때만 (`track_log`)
 
 `tools/policy_viewer.html` 로 열면 재생하듯 볼 수 있음. 첫 줄은 `# limits ...` 가동범위
 줄이고 그 아래가 헤더가 있는 평범한 CSV 임 -- pandas 는 `comment="#"` 로 읽을 것.
@@ -40,7 +41,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 import numpy as np
 
 from . import run_name
-from .track_log import joint_limits, write_limits
+from .track_log import extra_values, joint_limits, write_limits
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +54,15 @@ class PolicyLog:
         self.limits = joint_limits(robot)
         """관절 가동범위. 파일 첫 줄(`# limits ...`)로 남아 뷰어가 정규화에 씀."""
         self.order = tuple(order)
-        self.columns = (
+        self.base_columns = (
             ("t",)
             + self.obs_names
             + tuple(f"act/{j}" for j in self.order)
             + tuple(f"tgt/{j}" for j in self.order)
             + tuple(f"pos/{j}" for j in self.order)
         )
+        self.extra_cols: Optional[tuple] = None
+        """`extra/...` 열. 첫 줄의 관찰로 정해짐 -- `--extra` 를 안 켰으면 빈 것."""
         self.rows: List[List[float]] = []
         self.errors = 0
         self._t0: Optional[float] = None
@@ -67,6 +70,10 @@ class PolicyLog:
 
     def __len__(self) -> int:
         return len(self.rows)
+
+    @property
+    def columns(self) -> tuple:
+        return self.base_columns + tuple(self.extra_cols or ())
 
     # ---- 감싸기 -----------------------------------------------------------
     def wrap_model(self, model: Callable[[np.ndarray], Sequence[float]]):
@@ -115,6 +122,10 @@ class PolicyLog:
         row = [now - self._t0] + pending
         row += [float(targets.get(j, float("nan"))) for j in self.order]
         row += [float(observation.get(f"{j}.pos", float("nan"))) for j in self.order]
+        extra = extra_values(observation)
+        if self.extra_cols is None:
+            self.extra_cols = tuple(extra)
+        row += [extra.get(c, float("nan")) for c in self.extra_cols]
         self.rows.append(row)
 
     def _fail(self, e: Exception) -> None:

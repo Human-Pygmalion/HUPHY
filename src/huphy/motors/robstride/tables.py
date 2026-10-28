@@ -287,7 +287,7 @@ FAULT_BITS: Dict[str, int] = {
 # 읽고 쓰는 경로가 둘 있음. 표는 같음.
 #   private   Type 17 읽기 / Type 18 쓰기 (RAM) / Type 22 저장 (플래시)
 #   MIT       SEL_PARAM_READ / SEL_PARAM_WRITE / CMD_SAVE
-# MIT 읽기만 `RobStrideBus.send_mit(reads=...)` 로 구현됨 (`--probe`). 쓰기·저장은 미구현이라
+# MIT 읽기만 `RobStrideBus.send_mit(reads=...)` 로 구현됨 (`--extra`). 쓰기·저장은 미구현이라
 # 사람이 docs/motor_setup.md 절차대로 cansend 로 함.
 # ---------------------------------------------------------------------------
 PARAM_PROTOCOL_FLAG = 0x201F   # 현재 통신 프로토콜

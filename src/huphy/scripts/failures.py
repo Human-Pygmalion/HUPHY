@@ -203,3 +203,20 @@ def _pairs(counts: Dict[str, int]) -> str:
     if not nonzero:
         return "없음"
     return "  ".join(f"{k} {v}" for k, v in sorted(nonzero.items()))
+
+
+def extra_report(robot: Any) -> str:
+    """`--extra` 읽기 집계. 다리마다 한 줄: 보낸 수, 제때, 늦음, 유실.
+
+    값 자체는 기록·뷰어의 `extra/` 열로 봄. 여기는 응답이 잘 오는지만 봄 -- 유실이
+    많으면 `--drain-ms` 를 늘리거나 `--extra-per-cycle` 을 줄일 자리임.
+    """
+    lines = ["  추가 값 읽기 (--extra)   보냄  제때  늦음  유실"]
+    for part in parts(robot):
+        counts = getattr(getattr(part, "bus", None), "param_counts", None) or {}
+        sent = sum(c.get("sent", 0) for c in counts.values())
+        ok = sum(c.get("ok", 0) for c in counts.values())
+        late = sum(c.get("late", 0) for c in counts.values())
+        lost = max(0, sent - ok - late)
+        lines.append(f"  {part.id:<24} {sent:5d} {ok:5d} {late:5d} {lost:5d}")
+    return "\n".join(lines)

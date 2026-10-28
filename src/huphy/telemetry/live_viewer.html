@@ -121,6 +121,7 @@ th { color: var(--muted); font-weight: 500; }
         <button data-pick="left_leg">왼</button><button data-pick="none">없음</button>
       </div></div>
     <div class="box hidden" id="imubox"><h2>IMU 그래프</h2><div id="imugroups"></div></div>
+    <div class="box hidden" id="extrabox"><h2>추가 값 (--extra)</h2><div id="extragroups"></div></div>
     <div class="box"><h2>지금 값 (deg)</h2><div id="values"></div></div>
   </aside>
   <section class="charts">
@@ -140,9 +141,13 @@ const IMU_KIND = { roll: "att", pitch: "att", yaw: "att", gx: "gyro", gy: "gyro"
 const IMU_TITLE = { att: ["자세", "deg"], gyro: ["각속도", "deg/s"], grav: ["중력방향", ""],
   acc: ["가속도", "m/s²"], age: ["수신 나이", "ms"] };
 const IMU_DEFAULT = new Set(["att", "gyro"]);
+// 추가 값 열(extra/<모터>/<값>). --extra 를 켰을 때만 있음. 값 이름 -> [제목, 단위].
+const EXTRA_TITLE = { iq: ["전류 iq", "A"], vbus: ["전압 VBUS", "V"], temp: ["온도", "°C"] };
+const EXTRA_DEFAULT = new Set(["iq"]);
 const AXIS_COLOR = ["#e03131", "#2f9e44", "#1c7ed6"];   // x/roll, y/pitch, z/yaw
 const S = { seq: 0, cols: null, joints: [], t: [], tgt: {}, pos: {}, on: new Set(),
   imuCols: [], imu: {}, imuGroups: [], imuOn: new Set(IMU_DEFAULT),
+  extraCols: [], extra: {}, extraMotors: [], extraKinds: [], extraOn: new Set(EXTRA_DEFAULT),
   paused: false, frozen: null, last: 0, dirty: false, charts: [], arrivals: [] };
 const $ = (id) => document.getElementById(id);
 
@@ -170,6 +175,13 @@ function reset(d) {
   const rank = Object.keys(IMU_TITLE);
   S.imuGroups = [...groups.values()].sort((a, b) => a.name.localeCompare(b.name) || rank.indexOf(a.kind) - rank.indexOf(b.kind));
   $("imubox").classList.toggle("hidden", !S.imuGroups.length);
+  // 추가 값: 종류(iq/vbus/temp)마다 한 그래프, 모터마다 한 선
+  S.extraCols = d.cols.filter((c) => c.startsWith("extra/"));
+  S.extra = {}; S.extraCols.forEach((c) => { S.extra[c] = []; });
+  const em = (c) => c.slice(6, c.lastIndexOf("/")), ek = (c) => c.slice(c.lastIndexOf("/") + 1);
+  S.extraMotors = [...new Set(S.extraCols.map(em))];
+  S.extraKinds = Object.keys(EXTRA_TITLE).filter((k) => S.extraCols.some((c) => ek(c) === k));
+  $("extrabox").classList.toggle("hidden", !S.extraKinds.length);
   $("title").textContent = d.title ? `${d.title} · 목표 ${d.hz} Hz` : `목표 ${d.hz} Hz`;
   $("wait").classList.add("hidden"); $("main").classList.remove("hidden");
   buildSide(); buildCharts();
@@ -184,6 +196,8 @@ function take(d) {
     S.t.push(r[0]);
     S.joints.forEach((j, k) => { S.tgt[j].push(S.hasTgt ? r[1 + k] ?? NaN : NaN); S.pos[j].push(r[1 + m + k] ?? NaN); });
     S.imuCols.forEach((c, k) => { S.imu[c].push(r[1 + m + n + k] ?? NaN); });
+    const e0 = 1 + m + n + S.imuCols.length;        // extra 열은 imu 열 바로 뒤
+    S.extraCols.forEach((c, k) => { S.extra[c].push(r[e0 + k] ?? NaN); });
   });
   S.seq = d.seq;
   if (d.rec) showRec(d.rec);
@@ -194,6 +208,7 @@ function take(d) {
     S.t.splice(0, drop);
     S.joints.forEach((j) => { S.tgt[j].splice(0, drop); S.pos[j].splice(0, drop); });
     S.imuCols.forEach((c) => S.imu[c].splice(0, drop));
+    S.extraCols.forEach((c) => S.extra[c].splice(0, drop));
   }
   if (d.rows.length) {
     const now = performance.now();
@@ -234,6 +249,13 @@ function buildSide() {
     el.innerHTML = `<input type="checkbox" ${S.imuOn.has(g.kind) ? "checked" : ""}> ${title}${S.imuGroups.some((o) => o.name !== g.name) ? " · " + g.name : ""}`;
     el.querySelector("input").onchange = (e) => { e.target.checked ? S.imuOn.add(g.kind) : S.imuOn.delete(g.kind); buildSide(); buildCharts(); };
     ib.appendChild(el);
+  });
+  const xb = $("extragroups"); xb.innerHTML = "";
+  S.extraKinds.forEach((k) => {
+    const el = document.createElement("label"); el.className = "row";
+    el.innerHTML = `<input type="checkbox" ${S.extraOn.has(k) ? "checked" : ""}> ${EXTRA_TITLE[k][0]}`;
+    el.querySelector("input").onchange = (e) => { e.target.checked ? S.extraOn.add(k) : S.extraOn.delete(k); buildSide(); buildCharts(); };
+    xb.appendChild(el);
   });
   const box = $("joints"); box.innerHTML = "";
   S.joints.forEach((j) => {
@@ -284,6 +306,13 @@ function buildCharts() {
     const [title, unit] = IMU_TITLE[g.kind];
     const box = chartBox(root, `IMU ${g.name} · ${title}${unit ? " (" + unit + ")" : ""}`, 150);
     S.charts.push({ ...box, kind: "imu", group: g, unit });
+  });
+  // 추가 값 종류마다 한 그래프. 관절 칩으로 고른 것과 이름이 같은 모터는 그것을 따름.
+  S.extraKinds.filter((k) => S.extraOn.has(k)).forEach((k) => {
+    const [title, unit] = EXTRA_TITLE[k];
+    const motors = S.extraMotors.filter((mo) => !S.joints.includes(mo) || S.on.has(mo));
+    const box = chartBox(root, `${title} (${unit}) · 모터별`, 160);
+    S.charts.push({ ...box, kind: "extra", field: k, motors, unit });
   });
   const grid = document.createElement("div"); grid.className = "each";
   if (!js.length) grid.innerHTML = `<div class="chart meta">관절을 하나 이상 고르세요</div>`;
@@ -340,6 +369,9 @@ function drawChart(ch, a, b, i0, i1, C) {
       : [{ y: S.pos[j], color: colorOf(j) }];
   } else if (ch.kind === "imu") {
     lines = ch.group.cols.map((c, k) => ({ y: S.imu[c], color: AXIS_COLOR[k % 3], label: c.split("/").pop() }));
+  } else if (ch.kind === "extra") {
+    lines = ch.motors.map((mo) => ({ y: S.extra[`extra/${mo}/${ch.field}`] || [],
+      color: PALETTE[S.extraMotors.indexOf(mo) % PALETTE.length], label: short(mo) }));
   } else {
     lines = ch.joints.map((j) => ({ y: S.tgt[j].map((v, i) => v - S.pos[j][i]), color: colorOf(j) }));
   }
@@ -413,6 +445,11 @@ function drawChart(ch, a, b, i0, i1, C) {
     // 머리 줄이 범례를 겸함: 축 이름을 선 색으로, 지금 값과 같이
     const i = i1 - 1;
     ch.info.innerHTML = lines.map((s) => `<span style="color:${s.color}">${s.label} ${num(s.y[i], ch.group.kind === "grav" ? 3 : 2)}</span>`).join(" · ");
+  }
+  if (ch.kind === "extra") {
+    // 범례 겸 지금 값. 모터 이름을 선 색으로
+    const i = i1 - 1;
+    ch.info.innerHTML = lines.map((s) => `<span style="color:${s.color}">${s.label} ${num(s.y[i], 1)}</span>`).join(" · ");
   }
   if (ch.kind === "joint") {
     const j = ch.joint, i = i1 - 1, tg = S.tgt[j][i], ps = S.pos[j][i];

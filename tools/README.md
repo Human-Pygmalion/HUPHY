@@ -45,6 +45,7 @@ huphy-test --robot --hz 50 --drain-ms 4 zero --log
 | `tgt/<관절>` | 관절 목표각. 루프에 실제로 넘긴 것 | 도 |
 | `pos/<관절>` | 그 순간의 실측 관절각 | 도 |
 | `imu/<이름>/<값>` | IMU. `huphy-test --log`·실시간 녹화에만 있음. roll/pitch/yaw, gx/gy/gz, grav_x/y/z, ax/ay/az, age | 도, 도/초, —, m/s², ms |
+| `extra/<모터>/<값>` | 추가 값. `--extra` 로 돌렸을 때만 있음. iq(전류), temp(온도), vbus(전압). 전류·전압은 몇 주기마다 갱신되고 그 사이는 마지막 값 | A, °C, V |
 
 `stand` 의 관찰은 `obs/gyro/{x,y,z}`, `obs/grav/{x,y,z}`, `obs/q_prev/<관절>`,
 `obs/q/<관절>`, `obs/last_act/<관절>`, `obs/cmd/{vx,vy,wz}` 순서임 (45칸).

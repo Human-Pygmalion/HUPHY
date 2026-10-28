@@ -83,7 +83,7 @@ def build_leg(
     imus: Optional[List[object]] = None,
     drain_s: Optional[float] = None,
     send_mode: str = SEND_BURST,
-    probe: int = 0,
+    extra: int = 0,
 ) -> Leg:
     """설정에서 다리 하나를 만듦.
 
@@ -116,8 +116,8 @@ def build_leg(
     `HostIdError` 로 멈춤. 호스트 id 를 못 맞춘 모터가 있으면 `seq` 로 돌림.
     `docs/can_communication.md` 4절, `docs/motor_setup.md` 14절.
 
-    `probe` 를 주면 한 주기에 그만큼 파라미터 읽기(전류·전압)를 명령에 실어 보냄.
-    burst 에서만 됨. 값은 `telemetry.motor_log` 가 받아 적음.
+    `extra` 를 주면 추가 값(전류·전압)을 한 주기에 그만큼씩 명령에 실어 읽음.
+    burst 에서만 됨. 값은 관찰(`<모터>.iq`, `.vbus`)로 나와 기록·뷰어의 `extra/` 열이 됨.
     """
     if gains is not None:
         limb = replace(
@@ -160,7 +160,7 @@ def build_leg(
         ankle_kd=ankle_kd,
         send_mode=send_mode,
         verify_host_ids=(send_mode == SEND_BURST),
-        probe=probe,
+        extra=extra,
     )
 
 

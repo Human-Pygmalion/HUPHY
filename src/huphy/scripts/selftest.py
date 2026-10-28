@@ -89,7 +89,7 @@ from ..config import ConfigError, LimbConfig, load_robot
 from ..control import ControlLoop, Mode, motions, policy
 from ..control.studio import Studio
 from ..robots.biped import join_name
-from ..telemetry import latency_log, live, motor_log, run_name, track_log
+from ..telemetry import latency_log, live, run_name, track_log
 from ..robots.leg import (
     ANKLE_JOINTS,
     ANKLE_MOTORS,
@@ -111,8 +111,8 @@ QUIT_KEY = "\x11"
 """Ctrl-Q. 터미널이 흘려보내는 문자라 raw 모드에서만 읽힘."""
 
 LOG_SKIP_S = 2.0
-PROBE_DEFAULT = 2
-"""`--probe` 만 줬을 때 다리당 한 주기 읽기 수 (`huphy-run` 과 같음)."""
+EXTRA_DEFAULT = 2
+"""`--extra` 를 줬을 때 다리당 한 주기 읽기 수 (`huphy-run` 과 같음)."""
 """`--log-skip` 기본값. 연결 직후 첫 주기들은 수신 스레드·USB 가 막 돌기 시작해 느림."""
 
 DEFAULT_APPROACH_S = 3.0
@@ -777,21 +777,21 @@ def _add_common(parser, *, suppress: bool) -> None:
         ),
     )
     parser.add_argument(
-        "--probe",
+        "--extra",
         action="store_true",
         default=default(False),
         help=(
-            "모터 전류(iq)·전압(VBUS)을 읽어 기록함. 명령에 실어 보내는 파라미터 읽기로 받음. "
-            "burst 에서만. 끝에 요약을 찍고 <--log 폴더 또는 logs>/motor/ 에 JSON 으로 남김"
+            "추가 값(모터 전류 iq, 전압 VBUS)을 중간중간 읽어 옴. 켜면 실시간 뷰어와 --log 기록에 "
+            "extra/<관절>/iq·vbus·temp 열이 생김. burst 에서만"
         ),
     )
     parser.add_argument(
-        "--probe-per-cycle",
+        "--extra-per-cycle",
         type=int,
-        default=default(PROBE_DEFAULT),
+        default=default(EXTRA_DEFAULT),
         metavar="N",
         help=(
-            f"--probe 일 때 한 주기에 다리마다 실어 보낼 읽기 수. 기본 {PROBE_DEFAULT} -- "
+            f"--extra 일 때 한 주기에 다리마다 실어 보낼 읽기 수. 기본 {EXTRA_DEFAULT} -- "
             f"모터 6 x (전류, 전압) 12칸을 돌아 100Hz 에서 값 하나가 약 17Hz"
         ),
     )
@@ -959,20 +959,20 @@ def main(argv=None) -> int:
     )
     if args.drain_ms < 0:
         raise SystemExit(f"--drain-ms 는 0 이상이어야 함 (받은 값 {args.drain_ms})")
-    # --probe 는 켜기만 함. 개수는 --probe-per-cycle. 아래는 "켜졌으면 개수, 아니면 None" 하나로 씀.
-    # (--probe [N] 으로 두면 뒤에 오는 서브명령 이름을 N 으로 읽어 깨짐)
-    args.probe = args.probe_per_cycle if args.probe else None
-    if args.probe is not None and args.probe < 1:
-        raise SystemExit(f"--probe-per-cycle 은 1 이상이어야 함 (받은 값 {args.probe})")
-    if args.probe and args.send_mode != SEND_BURST:
-        raise SystemExit("--probe 는 --send-mode burst 에서만 됨 (읽기 응답을 CAN id 로 가름)")
+    # --extra 는 켜기만 함. 개수는 --extra-per-cycle. 아래는 "켜졌으면 개수, 아니면 None" 하나로 씀.
+    # (--extra [N] 으로 두면 뒤에 오는 서브명령 이름을 N 으로 읽어 깨짐)
+    args.extra = args.extra_per_cycle if args.extra else None
+    if args.extra is not None and args.extra < 1:
+        raise SystemExit(f"--extra-per-cycle 은 1 이상이어야 함 (받은 값 {args.extra})")
+    if args.extra and args.send_mode != SEND_BURST:
+        raise SystemExit("--extra 는 --send-mode burst 에서만 됨 (읽기 응답을 CAN id 로 가름)")
     options = dict(
         # studio 는 실행 중에 배율을 바꿈 -- 설정의 게인 그대로 만들고 배율은 세션이 걺.
         gain_scale=1.0 if args.command == "studio" else args.gain_scale,
         allow_uncalibrated=args.allow_uncalibrated,
         drain_s=args.drain_ms / 1000.0,
         send_mode=args.send_mode,
-        probe=args.probe or 0,
+        extra=args.extra or 0,
     )
 
     # 팔다리가 하나면 다리 그대로 씀 -- 관절 이름에 접두어가 붙지 않아 화면과
@@ -986,8 +986,7 @@ def main(argv=None) -> int:
     # 있어 **가장 느린 쪽**에 맞춤 -- 빠른 쪽에 맞추면 느린 쪽이 매 주기 밀림.
     hz = args.hz if args.hz else min(limb.control_hz for limb in limbs)
     loop = ControlLoop(machine, hz=hz, mode=Mode.OBSERVE)
-    # 연결 전에 붙임 -- 연결할 때의 첫 읽기부터 셈이 맞음.
-    motors = motor_log.MotorLog(hz=hz, probe=args.probe).attach(machine) if args.probe else None
+
 
     # 지연은 첫 상태 읽기부터 잼 -- 통신은 패턴이 시작했는지와 무관함. 추종은 접근
     # 구간부터 매 주기 한 줄 (`_run`).
@@ -1051,8 +1050,8 @@ def main(argv=None) -> int:
             _save_track(args.track, args.log, args.command, *naming)
         if latency is not None:
             _save_latency(latency, args.log, args.command, *naming)
-        if motors is not None:
-            _save_motors(motors, args.log or Path("logs"), args.command, *naming)
+        if args.extra:
+            print("\n" + failures.extra_report(machine))
 
 
 def _log_naming(args) -> tuple:
@@ -1068,7 +1067,7 @@ def _log_naming(args) -> tuple:
                 "hz": args.hz or None,
                 "drain": args.drain_ms if args.drain_ms != 2.0 else None,
                 args.send_mode: True if args.send_mode != SEND_BURST else None,
-                "probe": args.probe,
+                "extra": args.extra,
             },
         ),
         run_name.header(
@@ -1077,7 +1076,7 @@ def _log_naming(args) -> tuple:
             hz=args.hz,
             drain_ms=args.drain_ms,
             send_mode=args.send_mode,
-            probe=args.probe,
+            extra=args.extra,
             approach=args.approach,
         ),
     )
@@ -1095,22 +1094,6 @@ def _save_track(track: "track_log.TrackLog", directory: Path, name: str,
         return
     note = f", 기록 실패 {track.errors}회" if track.errors else ""
     print(f"  추종 기록: {path}  ({len(track)}줄{note})")
-
-
-def _save_motors(motors: "motor_log.MotorLog", directory: Path, name: str,
-                 parts=(), run_meta=None) -> None:
-    """전류·전압 요약을 찍고 JSON 으로 씀. 실패해도 올리지 않음."""
-    print("\n" + motors.summary())
-    if not len(motors):
-        print("  모터 기록: 받은 값이 없음")
-        return
-    try:
-        path = motors.save(motor_log.default_path(directory, name, parts), run_meta or {})
-    except OSError as e:
-        print(f"  모터 기록 저장 실패: {e}")
-        return
-    note = f", 기록 실패 {motors.errors}회" if motors.errors else ""
-    print(f"  모터 기록: {path}  ({len(motors)}줄{note})")
 
 
 def _save_latency(latency: "latency_log.LatencyLog", directory: Path, name: str,

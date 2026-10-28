@@ -153,8 +153,13 @@ CAN id 가 호스트 id 인데, 모두 같으면(출하값 0xFD) 두 모터가 �
 seq 는 호스트 id 가 규칙과 다른 모터가 섞였을 때 쓰는 길로 남겨 둠.
 """
 
-PROBE_PARAMS = (tables.PARAM_IQF, tables.PARAM_VBUS)
-"""`--probe` 로 읽는 파라미터. iq 필터값(A), 버스 전압(V)."""
+EXTRA_PARAMS = {"iq": tables.PARAM_IQF, "vbus": tables.PARAM_VBUS}
+"""`--extra` 로 읽는 추가 값. 관찰 필드 이름 -> 파라미터 인덱스.
+
+    iq     iq 필터값 (A). 토크를 만드는 전류
+    vbus   모터가 보는 버스 전압 (V)
+
+온도는 상태 프레임에 늘 실려 와서 여기 없음 (`<모터>.temp`)."""
 
 
 class HostIdError(RuntimeError):
@@ -192,7 +197,7 @@ class Leg(Robot):
         ankle_kd: Tuple[float, float] = (0.0, 0.0),
         send_mode: str = SEND_BURST,
         verify_host_ids: bool = False,
-        probe: int = 0,
+        extra: int = 0,
     ) -> None:
         self.config = config
         self._base_gains = {name: motor.gains for name, motor in config.motors.items()}
@@ -234,28 +239,32 @@ class Leg(Robot):
         """연결할 때 모터마다 응답 CAN id 가 `HOST_ID_BASE + id` 인지 봄. 아니면
         `HostIdError`. 스크립트(`build_leg`)는 burst 일 때 켬."""
 
-        self.probe = int(probe)
-        """한 주기에 같이 실어 보낼 파라미터 읽기(Command 14) 수. 0 이면 안 읽음.
+        self.extra = int(extra)
+        """추가 값(`EXTRA_PARAMS`)을 읽을지, 읽으면 한 주기에 몇 개씩. 0 이면 안 읽음.
 
-        `PROBE_PARAMS` x 모터를 순서대로 돎 -- 전류를 모터마다 먼저, 다음에 전압.
-        2 면 100Hz 에서 값 하나가 약 17Hz 로 갱신됨. 응답은 상태 응답과 같이 수거하고,
-        빠져도 무응답으로 세지 않음 (`RobStrideBus.param_counts`).
+        명령에 파라미터 읽기(Command 14)를 그만큼 실어 보냄. 모터 x 값 칸을 순서대로
+        돎 -- 전류를 모터마다 먼저, 다음에 전압. 2 면 100Hz 에서 값 하나가 약 17Hz 로
+        갱신됨. 응답은 상태 응답과 같이 수거하고, 빠져도 무응답으로 세지 않음
+        (`RobStrideBus.param_counts`).
+
+        켜면 관찰에 `<모터>.iq`, `<모터>.vbus` 가 생김 (아직 못 읽었으면 NaN). 꺼져
+        있으면 그 필드가 아예 없음 -- 기록·뷰어의 `extra/...` 열도 그것을 따라감.
         """
-        if self.probe < 0:
-            raise ValueError(f"{config.name}: probe 는 0 이상이어야 함 (받은 값 {probe})")
-        if self.probe and send_mode != SEND_BURST:
+        if self.extra < 0:
+            raise ValueError(f"{config.name}: extra 는 0 이상이어야 함 (받은 값 {extra})")
+        if self.extra and send_mode != SEND_BURST:
             raise ValueError(
-                f"{config.name}: probe 는 burst 에서만 됨 -- 읽기 응답을 CAN id 로 가르는데 "
+                f"{config.name}: extra 는 burst 에서만 됨 -- 읽기 응답을 CAN id 로 가르는데 "
                 f"seq 는 호스트 id 가 같은 모터를 위한 길임"
             )
         ids = tuple(config.motor_ids)
-        unsafe = [hex(i) for i in PROBE_PARAMS if not mit.param_index_safe(i, ids)]
-        if self.probe and unsafe:
+        unsafe = [hex(i) for i in EXTRA_PARAMS.values() if not mit.param_index_safe(i, ids)]
+        if self.extra and unsafe:
             raise ValueError(f"{config.name}: 인덱스 낮은 바이트가 모터 id 와 겹침 {unsafe}")
-        self._probe_slots: Tuple[Tuple[int, int], ...] = tuple(
-            (mid, index) for index in PROBE_PARAMS for mid in ids
+        self._extra_slots: Tuple[Tuple[int, int], ...] = tuple(
+            (mid, index) for index in EXTRA_PARAMS.values() for mid in ids
         )
-        self._probe_next = 0
+        self._extra_next = 0
         self._reads_sent = 0
 
         self.ankle_kp = (float(ankle_kp[0]), float(ankle_kp[1]))
@@ -377,6 +386,9 @@ class Leg(Robot):
             out[f"{motor}.vel"] = float
             out[f"{motor}.torque"] = float
             out[f"{motor}.temp"] = float
+            if self.extra:
+                for field in EXTRA_PARAMS:
+                    out[f"{motor}.{field}"] = float
         out["ankle_pitch.pos"] = float
         out["ankle_roll.pos"] = float
         out["ankle_pitch.vel"] = float
@@ -441,12 +453,12 @@ class Leg(Robot):
             )
 
     def _next_reads(self) -> Tuple[Tuple[int, int], ...]:
-        """이번 주기에 실어 보낼 파라미터 읽기. `probe` 가 0 이면 빈 것."""
-        if not self.probe or not self._probe_slots:
+        """이번 주기에 실어 보낼 파라미터 읽기. `extra` 가 0 이면 빈 것."""
+        if not self.extra or not self._extra_slots:
             return ()
-        n = len(self._probe_slots)
-        out = tuple(self._probe_slots[(self._probe_next + k) % n] for k in range(min(self.probe, n)))
-        self._probe_next = (self._probe_next + len(out)) % n
+        n = len(self._extra_slots)
+        out = tuple(self._extra_slots[(self._extra_next + k) % n] for k in range(min(self.extra, n)))
+        self._extra_next = (self._extra_next + len(out)) % n
         return out
 
     def disconnect(self) -> None:
@@ -560,6 +572,11 @@ class Leg(Robot):
             out[f"{motor_name}.vel"] = state.velocity_deg_s
             out[f"{motor_name}.torque"] = state.torque_nm
             out[f"{motor_name}.temp"] = state.temp_c
+            if self.extra:
+                read = self.bus.params.get(self._motor_id(motor_name), {})
+                for field, index in EXTRA_PARAMS.items():
+                    value = read.get(index)
+                    out[f"{motor_name}.{field}"] = value[0] if value else float("nan")
 
         # 발목각. 모터가 보고하는 값이 아니라 FK 로 푼 값임. 못 풀었으면 마지막으로
         # 알려진 자세를 냄 -- 모터각이 응답 없을 때 직전 상태를 그대로 두는 것과 같음.
