@@ -201,7 +201,13 @@ ros2 service call /huphy/start_policy std_srvs/srv/Trigger
 창으로 조작 -- `huphy-run --teleop` 과 같은 pygame 창. 화면이 있는 **작업 기계**에서 (ssh 면 `-X`).
 `policy:=` 는 정책 노드에 준 것과 같은 꾸러미.
 
+**정책 노드(A-2)에 준 것과 같은 정책**을 줌 -- 그 정책의 명령 키만 생김.
+
 ```bash
+# 걷기 -- W/S 앞뒤, A/D 회전
+ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk
+
+# 스쿼트 -- ↑/↓ 높이
 ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
 ```
 
@@ -360,7 +366,9 @@ ros2 service call /huphy/start_policy std_srvs/srv/Trigger   # ready -> running 
 창으로 -- 같은 기계에 화면이 있으면 (A-6 의 키와 같음. R 기준 자세, Enter 시작, Esc 끔):
 
 ```bash
-ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk
+# B-1 의 policy:= 와 같은 것
+ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk   # 걷기 W/S/A/D
+ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat        # 스쿼트 ↑/↓
 ```
 
 명령으로 -- 정책에 맞는 것 하나. 끊으면 속도는 0.5초 뒤 0, 높이는 유지.
