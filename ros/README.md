@@ -152,7 +152,7 @@ ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/huphy
 |---|---|---|
 | `policy.launch.py` | 정책 꾸러미를 불러 두고 모션보드의 `joint_states` 를 받기 시작함. **띄우기만 하면 아무것도 안 냄** (`stage` = `off`) | `huphy-run --policy <이름>` 의 불러오기까지 |
 
-`checkpoint:=4500` 으로 다른 체크포인트, 안 주면 계약의 기본값 (`huphy-run --checkpoint`
+`checkpoint:=4500`(스쿼트) / `checkpoint:=37400`(걷기 예전 기본. 지금 기본은 49999) 로 다른 체크포인트, 안 주면 계약의 기본값 (`huphy-run --checkpoint`
 와 같음).
 
 #### A-3. 토크 넣기  `[작업 기계]`
@@ -433,7 +433,7 @@ ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔. 이 �
 | 이름 | 기본 | 무엇 |
 |---|---|---|
 | `policy` | 없음. **필수** | 정책 꾸러미 폴더 (`config/policies/<이름>`) |
-| `checkpoint` | 빈 값 = 계약의 기본값 | 꾸러미 안의 다른 체크포인트 번호 (예: `4500`) |
+| `checkpoint` | 빈 값 = 계약의 기본값 | 꾸러미 안의 다른 체크포인트 번호 (예: 스쿼트 `4500`, 걷기 `37400` -- 걷기 기본은 `49999`). `local.launch.py` 에도 같은 인자 |
 | `hz` | 0 = 계약의 `control_rate_hz` | 추론 주기. 보통 비워 둠 |
 | `state_stale_ms` | 60.0 | 상태가 이보다 낡으면 목표각을 안 냄 |
 | `approach_s` | 3.0 | 기준 자세로 옮기는 시간 |

@@ -66,7 +66,7 @@ Ctrl-Q 로 멈춤. 끝나면 실패 집계가 찍힘.
 
 | `--policy` | 무엇 | 명령 (`--cmd`) | 단위 | 체크포인트 |
 |---|---|---|---|---|
-| `generalized_walk` | 속도 명령으로 걷기 | `vx` 앞뒤<br>`wz` 돌기 | m/s<br>rad/s | `37400` |
+| `generalized_walk` | 속도 명령으로 걷기 | `vx` 앞뒤<br>`wz` 돌기 | m/s<br>rad/s | `49999`(기본) `37400` |
 | `huphy_squat` | 골반 높이를 잡고 서기 | `h_star` 높이 | m. **0.70~0.891** | `5000`(기본) `4500` `4000` |
 
 둘 다 50Hz, 관절 12개. 명령을 안 주면 전부 0 — 걷기는 제자리, 스쿼트는 계약의
@@ -99,6 +99,7 @@ huphy-run --policy generalized_walk --cmd vx=0.3          # 앞으로
 huphy-run --policy generalized_walk --cmd vx=0.3 --cmd wz=0.2
 huphy-run --policy huphy_squat --cmd h_star=0.80
 huphy-run --policy huphy_squat --checkpoint 4500
+huphy-run --policy generalized_walk --checkpoint 37400   # 예전 기본 (49999 는 37400 에서 이어 학습)
 ```
 
 3초에 걸쳐 기준 자세로 간 뒤 **Enter 를 눌러야** 정책이 시작됨. **Ctrl-Q** 로 멈춤.

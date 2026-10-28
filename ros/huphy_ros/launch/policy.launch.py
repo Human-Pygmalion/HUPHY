@@ -18,6 +18,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -35,7 +36,9 @@ def generate_launch_description():
             name="huphy_policy",
             parameters=[{
                 "policy": LaunchConfiguration("policy"),
-                "checkpoint": LaunchConfiguration("checkpoint"),
+                # 숫자만 주면(checkpoint:=49999) ROS 가 정수로 읽어서 문자열로 선언한
+                # 파라미터와 타입이 안 맞아 노드가 죽음. 늘 문자열로 넘김.
+                "checkpoint": ParameterValue(LaunchConfiguration("checkpoint"), value_type=str),
                 "hz": LaunchConfiguration("hz"),
                 "state_stale_ms": LaunchConfiguration("state_stale_ms"),
                 "approach_s": LaunchConfiguration("approach_s"),

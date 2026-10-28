@@ -960,6 +960,7 @@ Ctrl-Q 까지 계속함. 끝나면 실패 집계를 찍음. 자세한 것은 [6�
 huphy-run --policy generalized_walk --cmd vx=0.5   # 걷기, 앞으로 0.5m/s
 huphy-run --policy huphy_squat --cmd h_star=0.80  # 스쿼트, 0.8914 -> 0.80 m 를 0.1 m/s 로
 huphy-run --policy huphy_squat --checkpoint 4500  # 같은 꾸러미의 다른 체크포인트
+huphy-run --policy generalized_walk --checkpoint 37400  # 걷기 예전 기본. 지금 기본은 49999 (terrain10 union-DR, 37400 에서 이어 학습)
 
 # 정책 입출력을 logs/policy_<정책>_<시각>.csv 로 남김 (폴더 지정: --log 경로)
 huphy-run --policy generalized_walk --cmd vx=0.5 --log
