@@ -294,7 +294,7 @@ class ControlNode(Node):
         alive = self.thread is not None and self.thread.is_alive()
         response.success = alive
         response.message = (
-            "CONTROL. 토크 들어감 -- start_policy 전까지 감쇠" if alive
+            "CONTROL. 토크 들어감 -- 목표각이 오기 전까지 감쇠 (다음: approach)" if alive
             else "제어 루프가 바로 끝남. 노드 로그를 볼 것")
         return response
 

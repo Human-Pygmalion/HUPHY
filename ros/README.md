@@ -1,11 +1,12 @@
 # `ros/` — ROS 2 래퍼
 
-`src/huphy/` 를 고치지 않고 ROS 2 노드로 감싼 것. 노드 둘임.
+`src/huphy/` 를 고치지 않고 ROS 2 노드로 감싼 것. 노드 둘 + 조작 창 하나.
 
 | 노드 | 하는 일 | 어디서 |
 |---|---|---|
 | `control_node` | 모터를 몲. 100Hz, CAN, 가드 | 모션보드 (CAN·IMU 가 붙은 쪽) |
 | `policy_node` | 갈 자세를 냄. 정책 주기로 추론 (지금 정책 둘 다 50Hz) | 작업 기계 (사람이 쓰는 쪽) |
+| `teleop_node` | (선택) `huphy-run --teleop` 과 같은 창으로 명령·시작·멈춤 | 작업 기계 (화면 있는 쪽) |
 
 그림은 [`ros.drawio`](ros.drawio). 설계 근거는 **아래쪽 "아래는 설계"** 부터.
 
@@ -73,87 +74,71 @@ ros/install.sh
 
 ## 실행
 
-**어떻게 띄우느냐에 따라 순서가 다름.** 노드를 띄운 뒤로는 같음.
+**띄우는 방법이 둘임. 해당하는 단락 하나만 따라감** -- 두 단락은 서로를 참조하지 않음.
 
-| 띄우는 방법 | 순서 |
-|---|---|
-| **두 기계** (실제 배치) | 1 → 2 → 3 → 4 → 5 → 6 |
-| **한 기계** (개발·로봇 없이 점검) | 1′ → 2 → 4 → 5 → 6 (1, 3 은 건너뜀) |
-
-| 기계 | 붙은 것 | 띄우는 것 |
+| 띄우는 방법 | 언제 | 단락 |
 |---|---|---|
-| **모션보드** | CAN 어댑터 (모터) · IMU | `control_node` — 모터를 읽고 몲 |
-| **작업 기계** | 사람이 쓰는 PC | `policy_node` — 갈 자세를 계산해 모션보드로 보냄 |
+| **두 기계** | 실제 배치. 모션보드는 로봇에, 작업 기계는 사람 앞에 | [A. 두 기계](#a-두-기계) |
+| **한 기계** | 개발·점검. CAN·IMU 가 붙은 기계 하나에서 노드 둘 다 | [B. 한 기계](#b-한-기계) |
 
-launch 는 **띄운 터미널을 계속 차지함** (끄면 노드도 꺼짐). 2 이후 명령은 **새 터미널**에서
-침. ROS 명령은 네트워크 전체에 통하므로 두 기계면 **어느 쪽에서 쳐도 됨** — 보통 작업 기계.
+| 기계 | 붙은 것 | 띄우는 노드 |
+|---|---|---|
+| **모션보드** | CAN 어댑터 (모터) · IMU | `control_node` -- 모터를 읽고 몲 |
+| **작업 기계** | 사람이 쓰는 PC | `policy_node` -- 갈 자세를 계산해 모션보드로 보냄 |
 
-### 1 — 모션보드: CAN 올리고 제어 노드  `두 기계`
+각 단락은 **평소 쓰는 순서**(띄우기 -> 토크 -> 기준 자세 -> 정책 -> 명령 -> 멈춤)가 먼저 있고, 그 아래에
+**확인**(읽히는지, 토크 없이 정책 출력만)이 따로 있음. 처음 돌리거나 모터·배선을 바꿨으면
+토크 넣기 전에 확인부터 함.
 
-**어디서:** 모션보드.
+### 기존 명령과 어떻게 대응하나
 
-```bash
-huphy-can up            # CAN 채널 canr·canl 을 1 Mbps 로 올림
-ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml   # 제어 노드
-```
+ROS 없이 돌리는 `huphy-run` 한 번이 아래처럼 쪼개져 있음. **ROS 는 "토크 넣기" 와 "정책
+시작" 이 따로임** -- `huphy-run` 은 켜자마자 토크를 넣고 기준 자세로 감.
 
-| 명령 | 하는 일 |
+| `huphy-*` 로 하던 것 | ROS 에서 |
 |---|---|
-| `huphy-can up` | CAN 어댑터를 켬. 켜야 모터와 말이 통함. 재부팅·어댑터 재연결 뒤마다 다시 |
-| `control.launch.py` | 모터·IMU 를 100Hz 로 읽어 `joint_states` 로 내보내고, 들어온 목표각으로 모터를 몲 |
+| `huphy-can up` | 같음 (`huphy-can up`) |
+| `huphy-test --robot watch` -- 토크 없이 읽기만 | `control.launch.py` 를 띄운 직후 (`OBSERVE`) + `ros2 topic echo` 로 봄 |
+| `huphy-run --policy <이름>` 의 정책 불러오기 | `policy.launch.py policy:=<폴더>` -- 불러만 두고 아무것도 안 냄 |
+| `huphy-run` 시작 = 토크 켜고 기준 자세로 가서 기다림 | `enable` (토크, 감쇠로 대기) -> `approach` (기준 자세로 3초, 도착하면 붙잡고 기다림) |
+| `huphy-run` 의 **Enter** -- 정책 시작 | `start_policy` |
+| `--teleop` -- pygame 창으로 조작 | `teleop.launch.py` -- 같은 창. R(기준 자세)·Enter(시작)·Esc(끔) |
+| `--cmd vx=0.2` | `ros2 topic pub /huphy/cmd_vel ...` |
+| `--cmd h_star=0.80` / `--teleop` 의 ↑↓ | `ros2 topic pub /huphy/h_star ...` |
+| **Ctrl-Q** -- 감쇠 5초 후 토크 끔 | `stop_policy` -> `disable` (감쇠 5초 후 토크 끔). 또는 모션보드 런치에서 Ctrl-C |
+| (없음) | 토크 없이 정책 출력만 보기 -- `OBSERVE` 에서 `approach` -> `start_policy` |
 
-`OBSERVE` 로 시작함 — 읽기만 하고 **토크 안 들어감.** → 2 로.
+**launch 는 띄운 터미널을 계속 차지함** (끄면 노드도 꺼짐). 그 뒤 명령은 **새 터미널**에서
+침.
 
-### 1′ — 한 기계에서 둘 다  `한 기계`
+---
 
-**어디서:** CAN·IMU 가 붙은 그 기계 하나.
+### A. 두 기계
+
+모션보드(로봇) + 작업 기계(사람 앞). 각 단계 제목의 `[ ]` 가 **치는 기계**임.
+`ros2 service` · `ros2 topic` 은 네트워크 전체에 통해서 어느 기계에서 쳐도 되지만, 사람이 앉은
+**작업 기계**에서 치는 것으로 적음.
+
+두 기계의 `ROS_DOMAIN_ID` 가 같아야 함 (설치 스크립트가 7 로 넣음). 다르면 에러 없이 서로
+안 보임.
+
+#### A-1. CAN 올리고 제어 노드 띄우기  `[모션보드]`
 
 ```bash
 huphy-can up
-ros2 launch huphy_ros local.launch.py \
-  config:=$HOME/HUPHY/config/robot.yaml \
-  policy:=$HOME/HUPHY/config/policies/generalized_walk
+ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml
 ```
 
-1 의 제어 노드와 3 의 정책 노드를 **한 번에** 띄움. 정책은 `policy:=` 로 고름 — 걷기는
-`generalized_walk`, 스쿼트는 `huphy_squat`. 로그 끝에 `start_policy 를 기다림` 과 `OBSERVE 로 시작` 이
-나오면 된 것임. → 2 로 (3 은 건너뜀).
+| 명령 | 하는 일 | 기존으로 치면 |
+|---|---|---|
+| `huphy-can up` | CAN 채널 canr·canl 을 1 Mbps 로 올림. 재부팅·어댑터 재연결 뒤마다 다시 | 같음 |
+| `control.launch.py` | 모터·IMU 를 100Hz 로 읽어 `joint_states` 로 내보내고, 들어온 목표각으로 모터를 몲. **`OBSERVE` 로 시작 -- 토크 없음** | `huphy-test --robot watch` 를 띄운 상태 |
 
-로봇 없이 점검할 때는 `huphy-can up` 대신 가짜 채널을 올리고 `config:=/tmp/robot_vcan.yaml`
-— [`without_robot.md`](without_robot.md).
+모터 설정(호스트 id)이 어긋나 있으면 여기서 멈춤 -- 아래 [안 될 때](#안-될-때-1).
 
-### 2 — 읽히는지 확인  `공통`
+#### A-2. 정책 노드 띄우기  `[작업 기계]`
 
-**어디서:** 아무 기계, 새 터미널. **하는 일:** 제어 노드가 모터·IMU 값을 제대로 내보내는지
-봄. 토크 없음.
-
-```bash
-ros2 topic hz   /huphy/joint_states     # 초당 몇 번 오는지. 100 근처. Ctrl-C 로 멈춤
-ros2 topic echo /huphy/joint_states --once   # 관절 각도·속도 한 번
-ros2 topic echo /huphy/gravity --once        # IMU 가 본 중력 방향 한 번
-ros2 topic echo /huphy/loop_status --once    # 제어 루프 상태 (모드, 무응답 수)
-```
-
-`hz` 는 1초마다 줄을 계속 찍고 안 끝남. 확인했으면 **Ctrl-C**. `--once` 는 하나 찍고 끝남.
-
-| 보는 것 | 맞는 값 |
-|---|---|
-| 관절 이름 | `right_leg__knee` 꼴 |
-| 위치 | **라디안.** 무릎 20도면 0.35. 손으로 움직이면 따라 변함 |
-| 중력방향 | 서 있으면 z 가 −1 근처 |
-| `missing_cycles` | 거의 안 늚 |
-
-**여기서 다 맞아야 다음으로.** 두 기계면 → 3, 한 기계면 → 4.
-
-### 3 — 작업 기계: 정책 노드  `두 기계`
-
-> **한 기계(1′)로 띄웠으면 이 단계는 건너뜀.** 정책 노드가 1′ 에서 이미 떴음. 정책을
-> 바꾸려면 1′ 의 `policy:=` 폴더를 바꿔서 다시 띄움 (`generalized_walk` 또는 `huphy_squat`).
-
-**어디서:** 작업 기계. **하는 일:** 정책 노드를 띄움 — 모션보드의 `joint_states` 를 받아
-목표각을 계산해 `joint_targets` 로 돌려보냄.
-
-**둘 중 하나만** 침. 어느 정책을 돌릴지 고르는 것임.
+**둘 중 하나만** 침 -- 어느 정책을 돌릴지 고르는 것.
 
 ```bash
 # 걷기 -- /huphy/cmd_vel 로 앞뒤·회전 속도를 줌
@@ -163,29 +148,14 @@ ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/gener
 ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
 ```
 
-`policy` 는 꾸러미 폴더임 (`huphy-run --policy` 와 같음). `checkpoint:=4500` 으로
-다른 체크포인트, 안 주면 계약의 기본값.
+| 명령 | 하는 일 | 기존으로 치면 |
+|---|---|---|
+| `policy.launch.py` | 정책 꾸러미를 불러 두고 모션보드의 `joint_states` 를 받기 시작함. **띄우기만 하면 아무것도 안 냄** (`stage` = `off`) | `huphy-run --policy <이름>` 의 불러오기까지 |
 
-띄우기만 하면 아무것도 안 냄. `policy_status` 의 `stage` 가 `off`. → 4 로.
+`checkpoint:=4500` 으로 다른 체크포인트, 안 주면 계약의 기본값 (`huphy-run --checkpoint`
+와 같음).
 
-### 4 — 토크 없이 정책 먼저  `공통`
-
-**어디서:** 아무 기계, 새 터미널. **하는 일:** 정책을 켜서 목표각이 제대로 나오는지만 봄.
-모터는 아직 `OBSERVE` 라 목표각을 받아도 안 움직임.
-
-```bash
-ros2 service call /huphy/start_policy std_srvs/srv/Trigger   # 정책 켬
-ros2 topic hz   /huphy/joint_targets     # 목표각이 초당 몇 번. launch 로그의 Hz 근처. Ctrl-C
-ros2 topic echo /huphy/joint_targets --once                  # 목표각 한 번
-ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔
-```
-
-목표각이 −2 ~ 2 rad 면 정상.
-
-### 5 — 토크  `공통`
-
-**어디서:** 아무 기계. **하는 일:** 제어 노드를 `OBSERVE` → `CONTROL` 로 바꿈. **이때부터
-모터에 힘이 들어감.**
+#### A-3. 토크 넣기  `[작업 기계]`
 
 **로봇을 들거나 테더에 맨 상태에서.**
 
@@ -193,44 +163,253 @@ ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔
 ros2 service call /huphy/enable std_srvs/srv/Trigger
 ```
 
+| 명령 | 하는 일 | 기존으로 치면 |
+|---|---|---|
+| `enable` | 모션보드를 `OBSERVE` -> `CONTROL`. **모터에 힘이 들어감.** 정책이 없는 동안은 감쇠 명령(위치를 안 붙잡고 빠른 움직임만 막음)으로 버팀 | `huphy-run` 을 켠 순간의 토크 넣기 (단, `huphy-run` 은 곧바로 기준 자세로 감) |
+
 `success: true` 가 나와야 함. `false` 면 메시지에 이유가 있음.
 
-`start_policy` 전까지는 **감쇠 명령**을 보냄 — 위치를 붙잡지 않고 빠르게 움직이는 것만 막음.
-명령을 계속 보내야 모터가 답해서 통신 두절로 멈추지 않음. → 6 으로.
+#### A-4. 기준 자세로  `[작업 기계]`
 
-### 6 — 정책 시작  `공통`
+```bash
+ros2 service call /huphy/approach std_srvs/srv/Trigger
+```
 
-**어디서:** 아무 기계. **하는 일:** 정책이 낸 목표각대로 로봇이 실제로 움직임.
+| 명령 | 하는 일 | 기존으로 치면 |
+|---|---|---|
+| `approach` | 3초에 걸쳐 정책의 기준 자세로 간 뒤 **그 자세를 붙잡고 기다림**. `stage` 가 `off -> approach -> ready` | `huphy-run` 이 켜지고 기준 자세로 가서 기다리는 부분 |
+
+로봇이 기준 자세로 제대로 섰는지 보고 다음으로.
+
+#### A-5. 정책 시작  `[작업 기계]`
 
 ```bash
 ros2 service call /huphy/start_policy std_srvs/srv/Trigger
 ```
 
-3초에 걸쳐 기준 자세로 간 뒤 신경망으로 바뀜. `stage` 가 `off → approach → running`.
+| 명령 | 하는 일 | 기존으로 치면 |
+|---|---|---|
+| `start_policy` | 신경망으로 바뀜. `stage` 가 `ready -> running`. **`ready` 가 아니면 거절**하고 이유를 줌 (먼저 approach / 아직 가는 중 n초) | **Enter** |
 
-명령을 줌 — 정책에 맞는 것 하나. `pub -r 20` 은 초당 20번 계속 보냄. **Ctrl-C 로 멈추면
-마지막 값이 유지됨.**
+어느 정책(걷기/스쿼트)인지는 A-2 에서 띄울 때 정해짐 -- 여기서 고르지 않음. 지금 불린 것은
+`ros2 topic echo /huphy/policy_status --once` 의 `hardware_id`. 바꾸려면 정책 런치를 다시 띄움.
+
+#### A-6. 명령 주기 (cmd)  `[작업 기계]`
+
+**방법 둘 -- 창(teleop) 또는 명령.**
+
+창으로 조작 -- `huphy-run --teleop` 과 같은 pygame 창. 화면이 있는 **작업 기계**에서 (ssh 면 `-X`).
+`policy:=` 는 정책 노드에 준 것과 같은 꾸러미.
 
 ```bash
-# 걷기: linear.x 앞뒤 (m/s), angular.z 돌기 (rad/s). 안 보내면 (0, 0) = 제자리
+ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
+```
+
+| 창에서 누르는 키 | 하는 일 | 기존으로 치면 |
+|---|---|---|
+| W/S · A/D | 걷기 앞뒤 · 회전. 누르는 동안 가속, 떼면 감속해 0 | `--teleop` 의 W/S/A/D |
+| ↑/↓ | 스쿼트 높이 | `--teleop` 의 ↑/↓ |
+| Space | 속도 즉시 0 | 같음 |
+| **R** | 기준 자세로 (`approach`). **토크가 켜져 있을 때만** -- 아니면 안 보내고 로그에 "먼저 enable" | (없음 -- `huphy-run` 은 켜자마자 감) |
+| **Enter** | 정책 시작 (`start_policy`). 기준 자세 도착 뒤에만 | Enter |
+| **Esc** · 창 닫기 | 정책 끔 -> 토크 끔 (`stop_policy` -> `disable`), 창도 닫힘 | Esc |
+
+창 맨 위에 지금 상태가 뜸 -- `Torque OFF` / `R: go to ready pose` / `Moving to ready pose` /
+`Ready. Enter: start policy` / `POLICY RUNNING`. **토크 켜기(`enable`)는 키로 안 함** -- 명령으로
+침. 속도 상한 등은 `max:="vx=0.8" accel:="vx=0.4" decel:="vx=1.5"` (`--max` 등과 같음).
+
+창을 쓰면 A-4·A-5·A-6 의 명령을 대신함 (enable 만 명령).
+
+명령으로 줄 때는 정책에 맞는 것 **하나**. `pub -r 20` 은 초당 20번 계속 보냄. 안 보내면 걷기는
+(0, 0) = 제자리, 스쿼트는 시작값 0.8914.
+
+**끊으면:** 속도(`cmd_vel`)는 **0.5초 뒤 0** 으로 돌아감 -- 보내던 쪽이 죽어도 마지막 속도로
+계속 걸어가지 않게 (`policy_node` 의 `cmd_timeout_s`. `--teleop` 은 0.2초). 높이(`h_star`)는
+마지막 값이 유지됨.
+
+```bash
+# 걷기: linear.x 앞뒤 (m/s), angular.z 돌기 (rad/s)
 ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
   '{linear: {x: 0.2}, angular: {z: 0.0}}'
 
-# 스쿼트: 골반 높이 (m). 0.70 ~ 0.891, 시작값 0.8914
+# 스쿼트: 골반 높이 (m). 0.70 ~ 0.891
 ros2 topic pub -r 20 /huphy/h_star std_msgs/msg/Float64 '{data: 0.80}'
 ```
 
-### 멈춤
+| 명령 | 하는 일 | 기존으로 치면 |
+|---|---|---|
+| `topic pub cmd_vel` | 걷기 속도 명령 | `--cmd vx=0.2 wz=0` 또는 `--teleop` 의 W·S·A·D |
+| `topic pub h_star` | 스쿼트 높이 명령 | `--cmd h_star=0.80` 또는 `--teleop` 의 ↑↓ |
 
-**어디서:** 아무 기계.
+#### A-7. 멈춤 · 토크 끄기  `[작업 기계]` · 급하면 `[모션보드]`
 
 ```bash
 ros2 service call /huphy/stop_policy std_srvs/srv/Trigger   # 목표각 중단
 ros2 service call /huphy/disable std_srvs/srv/Trigger       # 감쇠 5초 후 토크 차단
 ```
 
-급하면 런치 터미널에서 **Ctrl-C** — 같은 절차를 탐. 두 기계면 **모션보드** 쪽 런치를
-끊음.
+| 명령 | 하는 일 | 기존으로 치면 |
+|---|---|---|
+| `stop_policy` | 정책이 목표각을 그만 냄(어느 단계에서든). 모션보드는 감쇠로 버팀 | (없음 -- 둘이 한 번에 일어남) |
+| `disable` | 감쇠 5초 후 토크를 끊고 `OBSERVE` 로 | **Ctrl-Q** |
+
+급하면 **모션보드**의 런치 터미널에서 **Ctrl-C** -- 같은 절차(감쇠 후 차단)를 탐. 작업
+기계의 정책 런치를 끊으면 목표각이 끊겨 모션보드가 100ms 뒤 감쇠로 떨어지지만, 토크는
+`disable` 이나 모션보드 Ctrl-C 로 끊어야 함.
+
+다시 돌리려면 A-3 (`enable`) 부터.
+
+#### A 확인 1. 읽히는지  `[작업 기계]` -- A-1 뒤, 토크 전에
+
+```bash
+ros2 topic hz   /huphy/joint_states          # 초당 몇 번 오는지. 100 근처. Ctrl-C 로 멈춤
+ros2 topic echo /huphy/joint_states --once   # 관절 각도·속도 한 번
+ros2 topic echo /huphy/gravity --once        # IMU 가 본 중력 방향 한 번
+ros2 topic echo /huphy/loop_status --once    # 제어 루프 상태 (모드, 무응답 수)
+```
+
+| 명령 | 하는 일 | 기존으로 치면 |
+|---|---|---|
+| `topic hz joint_states` | 모션보드 상태가 **네트워크 너머로** 제 주기로 오는지 | (없음 -- ROS 만의 확인) |
+| `topic echo joint_states` | 관절 각도·속도 | `watch` 의 실시간 뷰어 숫자 |
+| `topic echo gravity` | IMU 중력방향 | 실시간 뷰어 IMU 그래프 |
+| `topic echo loop_status` | 모드·무응답 수 | 끝에 찍히는 실패 집계 |
+
+`hz` 는 계속 찍고 안 끝남 -- 확인했으면 **Ctrl-C**. `--once` 는 하나 찍고 끝남.
+
+| 보는 것 | 맞는 값 |
+|---|---|
+| 관절 이름 | `right_leg__knee` 꼴, **모터 12개.** 발목은 `ankle_a`/`ankle_b` (기존 레포·정책 계약과 같음. `ankle_pitch`/`ankle_roll` 이 보이면 예전 노드임) |
+| 위치 | **라디안.** 무릎 20도면 0.35. 손으로 움직이면 따라 변함 |
+| 중력방향 | 서 있으면 z 가 −1 근처 |
+| `missing_cycles` | 거의 안 늚 |
+
+#### A 확인 2. 토크 없이 정책 출력만  `[작업 기계]` -- A-2 뒤, A-3 전에
+
+```bash
+ros2 service call /huphy/approach std_srvs/srv/Trigger       # 기준 자세 목표각 (3초 뒤 ready)
+ros2 service call /huphy/start_policy std_srvs/srv/Trigger   # 정책 켬
+ros2 topic hz   /huphy/joint_targets                         # 목표각이 초당 몇 번. Ctrl-C
+ros2 topic echo /huphy/joint_targets --once                  # 목표각 한 번
+ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔
+```
+
+| 명령 | 하는 일 | 기존으로 치면 |
+|---|---|---|
+| `approach` -> `start_policy` | 정책이 목표각을 내기 시작. 모션보드가 아직 `OBSERVE` 라 **모터는 안 움직임** | **없음** -- `huphy-run` 은 늘 토크를 넣고 돎 |
+| `topic hz/echo joint_targets` | 목표각이 정책 주기(50Hz 근처)로, −2 ~ 2 rad 안에서 나오는지 | (없음) |
+| `stop_policy` | 정책 끔. 이 뒤에 A-3 으로 | (없음) |
+
+---
+
+### B. 한 기계
+
+**모든 명령을 CAN·IMU 가 붙은 그 기계 하나에서** 침. 노드 둘을 런치 하나로 같이 띄우는 것만
+다르고, 그 뒤 서비스·토픽은 A 와 같음. 런치 뒤 명령은 새 터미널에서.
+
+#### B-1. CAN 올리고 노드 둘 띄우기
+
+```bash
+huphy-can up
+ros2 launch huphy_ros local.launch.py \
+  config:=$HOME/HUPHY/config/robot.yaml \
+  policy:=$HOME/HUPHY/config/policies/generalized_walk
+```
+
+| 명령 | 하는 일 | 기존으로 치면 |
+|---|---|---|
+| `huphy-can up` | CAN 채널을 1 Mbps 로 올림 | 같음 |
+| `local.launch.py` | 제어 노드(`OBSERVE`, 토크 없음)와 정책 노드(불러만 둠)를 **한 번에** 띄움. 정책은 `policy:=` 로 고름 -- `generalized_walk` / `huphy_squat` | `huphy-test --robot watch` 상태 + `huphy-run --policy <이름>` 의 불러오기 |
+
+로그 끝에 `approach 를 기다림` 과 `OBSERVE 로 시작` 이 나오면 된 것임.
+
+로봇 없이 점검할 때는 `huphy-can up` 대신 가짜 채널을 올리고 `config:=/tmp/robot_vcan.yaml`
+-- [`without_robot.md`](without_robot.md).
+
+#### B-2. 토크 넣기
+
+**로봇을 들거나 테더에 맨 상태에서.**
+
+```bash
+ros2 service call /huphy/enable std_srvs/srv/Trigger
+```
+
+`OBSERVE` -> `CONTROL`. 정책이 없는 동안은 감쇠로 버팀. `huphy-run` 을 켠 순간의 토크
+넣기에 해당 (단, 기준 자세로는 아직 안 감). `success: true` 가 나와야 함.
+
+#### B-3. 기준 자세로
+
+```bash
+ros2 service call /huphy/approach std_srvs/srv/Trigger       # 3초에 걸쳐 기준 자세로, 도착하면 붙잡고 기다림
+```
+
+`stage` 가 `off -> approach -> ready`. `huphy-run` 이 켜지고 기준 자세에서 기다리는 부분.
+로봇이 제대로 섰는지 보고 다음으로.
+
+#### B-4. 정책 시작
+
+```bash
+ros2 service call /huphy/start_policy std_srvs/srv/Trigger   # ready -> running (= huphy-run 의 Enter)
+```
+
+`ready` 가 아니면 거절하고 이유를 줌. 어느 정책인지는 B-1 의 `policy:=` 로 정해짐 -- 바꾸려면
+`disable` 후 런치를 다시 띄움 (제어 노드도 같이 뜨는 런치라서).
+
+#### B-5. 명령 주기 (cmd)
+
+창으로 -- 같은 기계에 화면이 있으면 (A-6 의 키와 같음. R 기준 자세, Enter 시작, Esc 끔):
+
+```bash
+ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk
+```
+
+명령으로 -- 정책에 맞는 것 하나. 끊으면 속도는 0.5초 뒤 0, 높이는 유지.
+
+```bash
+ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
+  '{linear: {x: 0.2}, angular: {z: 0.0}}'                      # 걷기 (= --cmd vx=0.2)
+ros2 topic pub -r 20 /huphy/h_star std_msgs/msg/Float64 '{data: 0.80}'   # 스쿼트 (= --cmd h_star=0.80)
+```
+
+#### B-6. 멈춤 · 토크 끄기
+
+```bash
+ros2 service call /huphy/stop_policy std_srvs/srv/Trigger   # 목표각 중단
+ros2 service call /huphy/disable std_srvs/srv/Trigger       # 감쇠 5초 후 토크 차단 (= Ctrl-Q)
+```
+
+급하면 런치 터미널에서 **Ctrl-C** -- 같은 절차를 탐. 다시 돌리려면 B-2 (`enable`) 부터.
+
+#### B 확인 1. 읽히는지 -- B-1 뒤, 토크 전에
+
+```bash
+ros2 topic hz   /huphy/joint_states          # 100 근처. Ctrl-C
+ros2 topic echo /huphy/joint_states --once   # 관절 각도·속도
+ros2 topic echo /huphy/gravity --once        # 중력 방향
+ros2 topic echo /huphy/loop_status --once    # 모드, 무응답 수
+```
+
+| 명령 | 하는 일 | 기존으로 치면 |
+|---|---|---|
+| `topic hz joint_states` | 상태가 제 주기로 나오는지 | (없음) |
+| `topic echo joint_states` | 관절 각도·속도 | `watch` 의 실시간 뷰어 숫자 |
+| `topic echo gravity` | IMU 중력방향 | 실시간 뷰어 IMU 그래프 |
+| `topic echo loop_status` | 모드·무응답 수 | 끝에 찍히는 실패 집계 |
+
+맞는 값: 이름 `right_leg__knee` 꼴로 모터 12개(발목은 `ankle_a`/`ankle_b`), 위치는 **라디안**(무릎 20도면 0.35), 중력방향 z 가
+−1 근처, `missing_cycles` 가 거의 안 늚.
+
+#### B 확인 2. 토크 없이 정책 출력만 -- B-1 뒤, B-2 전에
+
+```bash
+ros2 service call /huphy/approach std_srvs/srv/Trigger       # 기준 자세 목표각 (3초 뒤 ready)
+ros2 service call /huphy/start_policy std_srvs/srv/Trigger   # 정책 켬 -- 모터는 안 움직임
+ros2 topic hz   /huphy/joint_targets                         # 정책 주기 근처. Ctrl-C
+ros2 topic echo /huphy/joint_targets --once                  # −2 ~ 2 rad 면 정상
+ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔. 이 뒤에 B-2 로
+```
+
+`huphy-run` 에는 없는 단계임 -- 토크 없이 정책이 무엇을 내는지만 봄.
 
 ---
 
@@ -244,7 +423,7 @@ ros2 service call /huphy/disable std_srvs/srv/Trigger       # 감쇠 5초 후 �
 | `limb` | 빈 값 = 양다리 | 다리 하나만 돌릴 때 |
 | `hz` | 100.0 | 제어 주기 |
 | `state_hz` | 100.0 | 상태 발행 주기 |
-| `drain_ms` | 2.0 | 응답을 기다리는 최대 시간 |
+| `drain_ms` | 4.0 | 응답을 기다리는 최대 시간. 다 오면 즉시 넘어가서 평소엔 안 씀. 2 면 마지막 응답 모터(ankle_b)가 가끔 무응답으로 잡혀 통신 두절로 멈췄음 |
 | `send_mode` | `burst` | 명령을 내는 방식. `burst` 는 모터마다 호스트 id 가 0xF0+id 여야 함 -- 시작할 때 확인하고 아니면 멈춤. 못 맞춘 모터가 있으면 `seq` (`docs/can_communication.md` 4절) |
 | `target_stale_ms` | 100.0 | 목표각이 이보다 안 오면 감쇠 |
 | `allow_uncalibrated` | false | 실측 전에도 토크를 넣음 |
@@ -258,6 +437,14 @@ ros2 service call /huphy/disable std_srvs/srv/Trigger       # 감쇠 5초 후 �
 | `hz` | 0 = 계약의 `control_rate_hz` | 추론 주기. 보통 비워 둠 |
 | `state_stale_ms` | 60.0 | 상태가 이보다 낡으면 목표각을 안 냄 |
 | `approach_s` | 3.0 | 기준 자세로 옮기는 시간 |
+| `cmd_timeout_s` | 0.5 | 속도 명령(`cmd_vel`)이 이만큼 안 오면 속도를 0 으로. 높이는 유지 |
+
+### `teleop_node`
+
+| 이름 | 기본 | 무엇 |
+|---|---|---|
+| `policy` | 없음. **필수** | 정책 꾸러미 폴더. 정책 노드와 같은 것 -- 그 정책의 명령만 조작함 |
+| `max` / `accel` / `decel` | 빈 값 = 기본 | `"vx=0.8 wz=1.0"` 꼴. `huphy-run --max/--accel/--decel` 과 같음 |
 
 **게인·관절 한계·모터 id 는 양쪽 다 없음.** `robot.yaml` 과
 `config/calibration/*.json` 이 유일한 출처임. 파라미터로 또 받으면 어긋났을 때 어느
@@ -413,7 +600,7 @@ ros2 run huphy_ros control_node --ros-args -p config:=... --log-level huphy_cont
      │                  │<─────50Hz─────────┤                │
      │                  │   joint_targets   │                │
      v                  │                   │   cmd_vel      │
-  모터 12개             │<┄┄ enable ┄┄┄┄┄┄┄ │   start_policy │
+  모터 12개             │<┄┄ enable ┄┄┄┄┄┄┄ │ approach·start │
   IMU                   │     disable       │        ↓       │
                         │                   │  ┌──────────┐  │
                         ├┄┄ loop_status ┄┄> │  │  사람    │<─┘
@@ -438,7 +625,7 @@ ros2 run huphy_ros control_node --ros-args -p config:=... --log-level huphy_cont
            신경망 추론                            작업 기계 안
            q(t-1) 보관                            작업 기계 안
            cmd_vel                               작업 기계 안
-           start_policy / stop_policy            작업 기계 안
+           approach / start_policy / stop_policy 작업 기계 안
 ```
 
 ### 한 주기에 값이 지나는 길
@@ -500,7 +687,7 @@ policy_node
           가드(safety/guards.py)와 통신두절 판정(safety/link.py)은 여기서 돎
 받음      /huphy/joint_targets        관절 목표각 12개
           /huphy/enable, /disable     서비스
-보냄      /huphy/joint_states         관절 12개 위치·속도·토크
+보냄      /huphy/joint_states         모터 12개 위치·속도·토크 (발목은 ankle_a/b)
           /huphy/imu                  각속도·가속도
           /huphy/gravity              중력방향 3칸
           /huphy/loop_status          주기·밀림·무응답
@@ -515,7 +702,7 @@ policy_node
           접근 단계(기준 자세로 보간)도 여기서 함
 받음      /huphy/joint_states, /huphy/imu, /huphy/gravity
           /huphy/cmd_vel              속도 명령
-          /huphy/start_policy, /stop_policy   서비스
+          /huphy/approach, /start_policy, /stop_policy   서비스
 보냄      /huphy/joint_targets        관절 목표각 12개
           /huphy/policy_status        단계·상태 나이·멈춘 이유
 ```
@@ -657,10 +844,10 @@ control_node 가 목표각을 100ms 넘게 못 받음
 ```
 
 `stop_policy` 를 불러도, `policy_node` 가 꺼져도 이 길을 탐. **OBSERVE 로 돌아가므로 상태는
-계속 읽힘.** 다시 돌리려면 `enable` → `start_policy`.
+계속 읽힘.** 다시 돌리려면 `enable` → `approach` → `start_policy`.
 
 `enable` 직후 목표각이 **아직 한 번도 안 왔으면** 이 판정을 안 함 — 그 동안은 감쇠 명령을 보냄
-(실행 5).
+(실행 A-3 / B-2).
 
 `100 > 60` 이므로 순서가 뒤바뀌지 않음. 정책이 먼저 멈추고, 그 뒤에 제어가 멈춤.
 
@@ -785,16 +972,21 @@ Latest()
 **목표각이 낡으면 `_motion` 안에서 `loop.stop()`.** 플래그만 세우는 일이라 그 주기는
 정상으로 끝나고, `finally` 가 감쇠 뒤 토크를 끊음 (결정 2).
 
-### 8-5. `policy_node.py` — 세 단계
+### 8-5. `policy_node.py` — 네 단계
 
 ```
 꺼짐      아무것도 안 냄
 접근      지금 자세에서 기준 자세로 approach_s 초 동안 보간한 목표각
+대기      기준 자세를 계속 냄. 사람이 자리를 잡는 시간
 정책      신경망 출력
 ```
 
-`/huphy/start_policy` 가 꺼짐 → 접근, `approach_s` 가 지나면 접근 → 정책.
-`/huphy/stop_policy` 가 꺼짐으로.
+`/huphy/approach` 가 꺼짐 → 접근, `approach_s` 가 지나면 저절로 대기. `/huphy/start_policy`
+가 대기 → 정책 (`huphy-run` 의 Enter) -- 대기가 아니면 이유를 붙여 거절함.
+`/huphy/stop_policy` 가 어디서든 꺼짐으로.
+
+접근과 정책 시작을 나눈 이유: 하나로 묶여 있으면 기준 자세에 도착하자마자 정책으로 넘어가서,
+로봇이 제대로 섰는지 보고 시작할 틈이 없음. `huphy-run` 도 기준 자세에서 Enter 를 기다림.
 
 접근을 여기서 하는 이유 (결정 3): 기준 자세(계약의 행동 오프셋,
 `DeployPolicy.default_pose()`)를 아는 쪽이 여기뿐임. 모션보드에도 두면 같은 값이 두
@@ -917,7 +1109,7 @@ GIL 문제는 안 생김. CPU 와 대역은 남음.
 
 | 확인함 | 안 함 |
 |---|---|
-| 한 기계에서 실물로 실행 2·4 (상태 100Hz, IMU, 토크 없이 목표각) | 실행 5·6 — **ROS 로 토크를 넣어 본 적 없음** |
+| 한 기계에서 실물로 B 확인 1·2 (상태 100Hz, IMU, 토크 없이 목표각) | 토크 넣기·기준 자세·정책 시작 (A-3~A-5 / B-2~B-4) — **ROS 로 토크를 넣어 본 적 없음** |
 | 로봇 없이 가짜 CAN 으로 노드 둘 ([`without_robot.md`](without_robot.md)) | **두 기계** 구성 |
 | | `huphy-run` 에만 있는 것: 로그(`--log`), 실시간 그래프(`--live`), `--profile`, `--gain-scale`, `--teleop` |
 

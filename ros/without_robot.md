@@ -61,7 +61,7 @@ ros2 topic echo /huphy/loop_status --once
 
 | 보는 것 | 맞는 값 |
 |---|---|
-| 관절 이름 | `right_leg__hip_pitch` 꼴, 12개 |
+| 관절 이름 | `right_leg__hip_pitch` 꼴, 모터 12개. 발목은 `ankle_a`/`ankle_b` |
 | `position` | **전부 0.** 아무도 안 답하니 상태가 안 들어옴 |
 | `hz` | 100 근처. 첫 줄이 찍히기까지 몇 초 걸림 |
 | `missing_cycles` | **주기마다 늘어남.** `cycles` 와 같은 값 |
@@ -87,9 +87,11 @@ candump vcan0
 ## 6. 정책 확인
 
 ```bash
-ros2 service call /huphy/start_policy std_srvs/srv/Trigger
+ros2 service call /huphy/approach std_srvs/srv/Trigger       # 기준 자세로 가서 기다림
+ros2 topic echo /huphy/policy_status --once  # stage: approach -> ready (3초 뒤)
+ros2 service call /huphy/start_policy std_srvs/srv/Trigger   # 정책 시작
 ros2 topic hz   /huphy/joint_targets         # 50 근처
-ros2 topic echo /huphy/policy_status --once  # stage: approach -> running
+ros2 topic echo /huphy/policy_status --once  # stage: running
 ```
 
 ```bash

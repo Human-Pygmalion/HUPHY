@@ -40,6 +40,19 @@
   `Teleop.targets` 가 **속도 명령을 0** 으로 냄. 높이는 마지막 값을 유지함.
 * 창을 닫거나 Esc·Ctrl-C·Ctrl-Q 를 누르면 `huphy-run` 이 멈춤. 창이 선택돼 있으면
   Ctrl-C/Ctrl-Q 가 터미널로 안 가고 이 창으로 오기 때문에 여기서도 받음.
+
+
+## ROS 에서도 씀 (`ros/huphy_ros/huphy_ros/teleop_node.py`)
+
+같은 창·키를 ROS 노드가 띄움. 그래서 두 가지가 더 있음 -- `huphy-run` 은 안 씀.
+
+* **R** -- "기준 자세로" 요청 (`approach_count`). ROS 는 기준 자세와 정책 시작이 따로임.
+* **상태 줄** -- 부모가 `set_status(코드)` 로 창 맨 위 글을 바꿈 (`STATUS_TEXT`). 0 이면
+  예전처럼 Enter 여부만 보여 줌.
+
+Enter·R 은 **누른 횟수**를 셈 (`start_count`, `approach_count`). ROS 에서는 멈췄다가 다시
+시작할 수 있어서 한 번 켜지고 끝나는 표시로는 모자람. `start_requested` 는 예전 그대로
+"한 번이라도 눌렀나" 임.
 """
 
 from __future__ import annotations
@@ -73,6 +86,18 @@ VELOCITY_DEFAULTS = {"max": 0.5, "accel": 0.5, "decel": 1.0}
 
 HEIGHT_DEFAULTS = {"accel": 0.05}
 """높이 명령: 누르는 동안 목표가 움직이는 속도 [m/s]."""
+
+
+STATUS_TEXT: Dict[int, Tuple[str, Tuple[int, int, int]]] = {
+    1: ("Torque OFF - run /huphy/enable first", (230, 120, 90)),
+    2: ("R: go to ready pose", (230, 200, 90)),
+    3: ("Moving to ready pose ...", (230, 200, 90)),
+    4: ("Ready. Enter: start policy", (230, 200, 90)),
+    5: ("POLICY RUNNING", (120, 220, 120)),
+    6: ("No control_node (loop_status)", (230, 120, 90)),
+    7: ("No policy_node (policy_status)", (230, 120, 90)),
+}
+"""`set_status` 코드 -> 창 맨 위 글. ROS 노드가 씀. 창 글자는 영어 (기본 글꼴이 한글을 못 그림)."""
 
 
 class TeleopError(RuntimeError):
@@ -198,6 +223,8 @@ class Keys:
             return "stop"
         if name in ("return", "enter"):
             return "start"
+        if name == "r":
+            return "approach"
         if name == "space":
             self.state.stop_velocities()
             self.held.clear()
@@ -209,8 +236,10 @@ class Keys:
 # ===========================================================================
 # 공유 메모리 배치
 # ===========================================================================
-# [명령 값 n개][심장박동][시작 요청][멈춤 요청][부모가 끝내라 함][준비됨(1)/실패(-1)]
-HEARTBEAT, START, STOP, SHUTDOWN, READY = range(5)
+# [명령 값 n개][심장박동][시작 횟수][멈춤 요청][부모가 끝내라 함][준비됨(1)/실패(-1)]
+# [기준 자세 요청 횟수][상태 코드 -- 부모가 씀]
+HEARTBEAT, START, STOP, SHUTDOWN, READY, APPROACH, STATUS = range(7)
+N_SLOTS = 7
 
 
 def _slot(n: int, which: int) -> int:
@@ -265,7 +294,9 @@ def _process(axes_dicts: List[dict], start: Dict[str, float], shared, parent_pid
                 ):
                     action = keys.handle("focus_lost")
                 if action == "start":
-                    shared[_slot(n, START)] = 1.0
+                    shared[_slot(n, START)] += 1.0
+                elif action == "approach":
+                    shared[_slot(n, APPROACH)] += 1.0
                 elif action == "stop":
                     shared[_slot(n, STOP)] = 1.0
 
@@ -278,24 +309,32 @@ def _process(axes_dicts: List[dict], start: Dict[str, float], shared, parent_pid
 
             if now >= next_draw:
                 next_draw = now + 1.0 / DRAW_HZ
-                _draw(pygame, screen, font, axes, values, keys.held, shared[_slot(n, START)] != 0.0)
+                _draw(pygame, screen, font, axes, values, keys.held,
+                      shared[_slot(n, START)] != 0.0, int(shared[_slot(n, STATUS)]))
             time.sleep(max(0.0, period - (time.monotonic() - now)))
     finally:
         pygame.quit()
 
 
-def _draw(pygame, screen, font, axes, values, held, started) -> None:
+def _draw(pygame, screen, font, axes, values, held, started, status=0) -> None:
     screen.fill((24, 24, 28))
     # 창 글자는 영어 -- pygame 기본 글꼴이 한글을 못 그림.
-    lines = [("POLICY RUNNING" if started else "Enter: start policy",
-              (120, 220, 120) if started else (230, 200, 90))]
+    if status in STATUS_TEXT:
+        lines = [STATUS_TEXT[status]]
+    else:
+        lines = [("POLICY RUNNING" if started else "Enter: start policy",
+                  (120, 220, 120) if started else (230, 200, 90))]
     for a in axes:
         plus, minus = a.keys
         pressed = "+" if plus in held else ("-" if minus in held else " ")
         limit = f"±{a.max:g}" if a.kind == "velocity" else f"{a.range[0]:g}~{a.range[1]:g}"
         keys = f"{plus.upper()}/{minus.upper()}" if a.kind == "velocity" else "UP/DOWN"
         lines.append((f"{a.name:6s} {values[a.name]:+7.3f}  [{pressed}]  {keys}  ({limit})", (230, 230, 230)))
-    lines.append(("Space: velocity 0    Esc / Ctrl-C / Ctrl-Q / close: stop", (160, 160, 170)))
+    if status:
+        lines.append(("R: ready pose   Enter: start   Space: velocity 0", (160, 160, 170)))
+        lines.append(("Esc / close: stop policy + torque off", (160, 160, 170)))
+    else:
+        lines.append(("Space: velocity 0    Esc / Ctrl-C / Ctrl-Q / close: stop", (160, 160, 170)))
     for i, (text, color) in enumerate(lines):
         screen.blit(font.render(text, True, color), (16, 16 + 30 * i))
     pygame.display.flip()
@@ -314,7 +353,7 @@ class Teleop:
         self.title = title
         self.n = len(self.axes)
         self._ctx = mp.get_context("spawn")       # CAN·스레드가 있는 프로세스를 fork 하지 않음
-        self.shared = self._ctx.Array("d", self.n + 5, lock=False)
+        self.shared = self._ctx.Array("d", self.n + N_SLOTS, lock=False)
         self.process = None
         self._last_height = {a.name: float(self.start_values.get(a.name, a.start))
                              for a in self.axes if a.kind == "height"}
@@ -364,6 +403,18 @@ class Teleop:
 
     def start_requested(self) -> bool:
         return self.shared[_slot(self.n, START)] != 0.0
+
+    def start_count(self) -> int:
+        """Enter 를 누른 횟수. ROS 노드가 늘어난 만큼 `start_policy` 를 부름."""
+        return int(self.shared[_slot(self.n, START)])
+
+    def approach_count(self) -> int:
+        """R 을 누른 횟수. ROS 노드가 늘어난 만큼 `approach` 를 부름."""
+        return int(self.shared[_slot(self.n, APPROACH)])
+
+    def set_status(self, code: int) -> None:
+        """창 맨 위 글을 바꿈 (`STATUS_TEXT`). 0 이면 예전 표시."""
+        self.shared[_slot(self.n, STATUS)] = float(code)
 
     def stop_requested(self) -> bool:
         return self.shared[_slot(self.n, STOP)] != 0.0
