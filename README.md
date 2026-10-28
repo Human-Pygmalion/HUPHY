@@ -126,6 +126,8 @@ yaw     Z축 회전    발끝 방향을 돌림
 | `zero_sta` (`0x7029`) | **1** | 모터 설정. 플래시 저장 |
 | 제어 모드 | **MIT** (전원 투입 기본값) | 모터 설정 |
 | 비트레이트 | **1 Mbps** | 모터와 CAN 채널 양쪽 |
+| 호스트 id | **0xF0 + CAN id** (응답이 `0F1`~`0FC` 로 옴) | 모터 설정 (Command 9). **이것만 코드가 확인함** -- burst 면 연결할 때 |
+| 펌웨어 | Command 14 를 받는 판 (RS04 0.4.1.29 / RS03 0.3.1.41 이상) | 모터. `--extra` 에만 필요 |
 
 ### 어긋나면
 
@@ -134,6 +136,8 @@ yaw     Z축 회전    발끝 방향을 돌림
 | 프로토콜이 private | **연결도 되고 에러도 없는데 모터만 안 움직임** |
 | `zero_sta = 0` | 위치가 `[0,360)` 으로 보고되어 음수 각도가 340도로 나옴 |
 | 비트레이트 불일치 | 통신이 아예 안 됨 |
+| 호스트 id 가 출하값(0xFD) | `huphy-run`·`huphy-test` 가 연결할 때 `HostIdError` 로 멈춤. 맞추거나 `--send-mode seq` |
+| 펌웨어가 구판 | `--extra` 의 읽기 응답이 안 옴 (끝 집계에서 유실 100%). 나머지는 정상 |
 
 **프로토콜이 가장 위험함.** 공장 기본값이 private 인데 이 코드는 MIT 로 보냄.
 증상이 "모터만 안 움직인다" 라서 배선·전원·CAN id 를 먼저 의심하게 되고, 프로토콜은
@@ -150,6 +154,9 @@ cansend can1 070AFD7F#0000000000000000     # Type 7   CAN id -> 10      즉시 �
 cansend can1 1200FD0A#2970000001000000     # Type 18  zero_sta -> 1     RAM 에만
 cansend can1 1600FD0A#0102030405060708     # Type 22  플래시에 커밋
 cansend can1 1900FD0A#0102030405060200     # Type 25  프로토콜 -> MIT    재투입 필요
+# 재투입 뒤 (MIT)
+cansend can1 00A#FFFFFFFFFFFFFA01          # Command 9  호스트 id -> 0xFA (= F0 + 10)  즉시·영구
+python3 tools/can_scan.py                  # 호스트 id·펌웨어(Command 14)까지 한 번에 확인
 ```
 
 **이 단계에서는 `huphy-commission` 을 못 씀.** 그 도구는 `robot.yaml` 에 적힌 id 로
@@ -158,7 +165,8 @@ cansend can1 1900FD0A#0102030405060200     # Type 25  프로토콜 -> MIT    재
 MotorStudio 로 해도 됨.
 
 **id 가 부여되고 MIT 로 바뀐 뒤부터** 이 저장소 도구가 붙음. 나중에 모터를 교체하면
-그 한 대만 다시 밟으면 됨.
+그 한 대만 다시 밟으면 됨 -- **호스트 id 까지** ([`docs/motor_setup.md`](docs/motor_setup.md)
+14절). 빠뜨리면 다음 실행이 연결할 때 멈춤. 펌웨어가 구판이면 15절로 올림.
 
 ```bash
 huphy-commission --limb right_leg protocol knee --to mit --yes
@@ -722,7 +730,9 @@ huphy-test --robot --hz 100 --drain-ms 4 zero
 | `--margin 5` | 한계에서 남길 여유. 한계는 하드스톱을 잰 값이라 그대로 명령하면 부딪힘 |
 | `--drain-ms 2` | 응답을 기다리는 최대 시간 (ms) |
 | `--live [PORT]` | 도는 동안 관절 목표·실측을 브라우저로 봄. 기본 포트 8770. 시작할 때 주소를 찍음 ([tools/README.md](tools/README.md)) |
-| `--log [DIR]` | 매 주기 목표·실측각(`track_test_<명령>_<시각>.csv`, `tools/policy_viewer.html`)과 관절별 응답 지연(`latency_test_...csv`, `tools/latency_viewer.html`)을 남김. 폴더를 안 주면 `logs/` |
+| `--log [DIR]` | 매 주기 목표·실측각(`logs/track/<월일>_track_<명령>.json`, `tools/policy_viewer.html`)과 관절별 응답 지연(`logs/latency/...json`, `tools/latency_viewer.html`)을 남김. 폴더를 안 주면 `logs/` |
+| `--send-mode seq` | 한 모터씩 보냄. 기본은 `burst` -- 모터마다 호스트 id 가 0xF0+id 여야 하고 아니면 연결할 때 멈춤 (2절) |
+| `--extra` | 추가 값(모터 전류 iq·전압 VBUS)을 중간중간 읽어 옴. 실시간 뷰어와 `--log` 기록에 `extra/<모터>/iq·temp·vbus` 열이 생김. 한 주기 읽기 수는 `--extra-per-cycle N` (다리당, 기본 2) |
 | `--robot` | 다리 전부를 한 루프로. `--limb` 과 같이 못 씀 |
 | `--gain-scale` `--hz` `--allow-uncalibrated` | 브링업과 같음 |
 
@@ -956,6 +966,22 @@ huphy-run --policy generalized_walk --cmd vx=0.5 --log
 
 # 권장 -- 50Hz, 수거 대기 4ms, 게인 나머지 0.5배 · 발목 0.8배
 huphy-run --policy generalized_walk --cmd vx=0.5 --hz 50 --drain-ms 4 --gain-scale 0.5 0.8 --log
+
+# 주기를 못 지킬 때 -- 한 주기 안 단계별 소요 시간을 끝에 찍음 (huphy-run 만)
+huphy-run --policy generalized_walk --profile
+
+# 모터 전류·전압·온도를 같이 봄 -- 실시간 뷰어와 기록에 extra/ 열 (huphy-test 도 됨)
+huphy-run --policy generalized_walk --extra --live --log
+```
+
+`--profile` 출력은 이런 모양임. 어느 단계가 주기(50Hz 면 20ms)를 잡아먹는지 봄.
+
+```
+  단계별 소요 (ms)
+  관측   평균 x.xxxms  p95 x.xxxms  최대 x.xxxms  (n=...)   <- 로봇 상태 읽기
+  정책   평균 ...                                          <- 모델 추론 + 관찰 만들기
+  송신   평균 ...                                          <- CAN 으로 명령 내기
+  수거   평균 ...                                          <- 응답 기다리기 (--drain-ms 가 상한)
 ```
 
 **`--teleop` 이면 pygame 창으로 실시간 조작함.** `--cmd` 만 주면 실행 내내 고정값.

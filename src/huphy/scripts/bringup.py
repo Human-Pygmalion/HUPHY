@@ -53,7 +53,7 @@ from ..motors.base import Gains
 from ..motors.canbus import CanBus, bring_up_hint
 from ..motors.robstride.bus import RobStrideBus
 from ..robots.biped import Biped
-from ..robots.leg import ANKLE_JOINTS, SEND_BURST, SINGLE_JOINTS, Leg
+from ..robots.leg import ANKLE_JOINTS, SEND_BURST, SINGLE_JOINTS, HostIdError, Leg
 from ..sensors import make_imus
 from . import table
 from .commission import CONFIG_NAME, _find_config, _pick_limb
@@ -673,7 +673,7 @@ def main(argv=None) -> int:
 
     try:
         leg.connect()
-    except ImportError as e:
+    except (ImportError, HostIdError) as e:
         raise SystemExit(f"{e}") from e
     except ConnectionError as e:
         raise SystemExit(f"{e}\n{bring_up_hint([limb.channel])}") from e

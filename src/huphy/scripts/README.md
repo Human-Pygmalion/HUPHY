@@ -70,6 +70,10 @@ huphy-commission --limb right_leg zero knee --note "다리 편 상태" --yes
 
 `mode` `can-id` `protocol` 은 모터를 새로 사거나 갈아 끼울 때만 씀. 한 관절씩만 다룸.
 
+**갈아 끼운 모터는 호스트 id 도 맞출 것** (0xF0 + id, `docs/motor_setup.md` 14절). 이
+도구에는 없고 `cansend` 한 줄임. 안 맞추면 `huphy-run`·`huphy-test` 가 연결할 때
+`HostIdError` 로 멈춤. 확인은 `python3 tools/can_scan.py`.
+
 ### 관절과 옵션을 생략하면 물어봄
 
 관절을 받는 명령(`clear-fault` `sweep` `nudge` `zero` `mode` `can-id` `protocol`)은

@@ -245,6 +245,7 @@ ros2 service call /huphy/disable std_srvs/srv/Trigger       # 감쇠 5초 후 �
 | `hz` | 100.0 | 제어 주기 |
 | `state_hz` | 100.0 | 상태 발행 주기 |
 | `drain_ms` | 2.0 | 응답을 기다리는 최대 시간 |
+| `send_mode` | `burst` | 명령을 내는 방식. `burst` 는 모터마다 호스트 id 가 0xF0+id 여야 함 -- 시작할 때 확인하고 아니면 멈춤. 못 맞춘 모터가 있으면 `seq` (`docs/can_communication.md` 4절) |
 | `target_stale_ms` | 100.0 | 목표각이 이보다 안 오면 감쇠 |
 | `allow_uncalibrated` | false | 실측 전에도 토크를 넣음 |
 
@@ -298,6 +299,7 @@ ros2 topic info -v /huphy/joint_states    # QoS 가 양쪽 맞는지
 | `ros2 node list` 에 상대가 없음 | `ROS_DOMAIN_ID` 가 다름 / 멀티캐스트가 막힘 |
 | 토픽은 보이는데 값이 안 옴 | QoS 가 다름 |
 | `joint_states` 가 안 뜸 | `control_node` 가 CAN 을 못 열었음. 로그를 볼 것 |
+| `control_node` 가 시작하자마자 `호스트 id 가 규칙과 다른 모터` 로 끝남 | 갈아 끼운 모터의 호스트 id 를 안 맞춤. `python3 tools/can_scan.py` 로 보고 맞추거나 `-p send_mode:=seq` |
 
 ROS 1(Noetic)이 같이 깔려 있으면 **같은 셸에서 둘 다 `source` 하지 말 것.**
 `ROS_DISTRO`, `PYTHONPATH`, `CMAKE_PREFIX_PATH` 가 서로 덮어씀.

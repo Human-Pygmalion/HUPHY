@@ -50,6 +50,7 @@ from std_srvs.srv import Trigger
 
 from huphy.config import ConfigError, load_robot
 from huphy.control import ControlLoop, Mode
+from huphy.robots.leg import SEND_BURST, SEND_MODES, HostIdError
 from huphy.scripts.bringup import build_biped, build_leg
 from huphy.scripts.commission import all_legs
 
@@ -85,6 +86,7 @@ class ControlNode(Node):
         self.declare_parameter("hz", 100.0)
         self.declare_parameter("state_hz", 100.0)
         self.declare_parameter("drain_ms", 2.0)
+        self.declare_parameter("send_mode", SEND_BURST)
         self.declare_parameter("target_stale_ms", CONTROL_TARGET_STALE_S * 1000.0)
         self.declare_parameter("allow_uncalibrated", False)
 
@@ -96,9 +98,14 @@ class ControlNode(Node):
         except ConfigError as e:
             raise SystemExit(f"{e}") from e
 
+        send_mode = str(self.get_parameter("send_mode").value)
+        if send_mode not in SEND_MODES:
+            raise SystemExit(f"send_mode 는 {SEND_MODES} 중 하나 (받은 값 {send_mode!r})")
         options = dict(
             allow_uncalibrated=bool(self.get_parameter("allow_uncalibrated").value),
             drain_s=float(self.get_parameter("drain_ms").value) / 1000.0,
+            # burst 면 연결할 때 모터마다 호스트 id(0xF0 + id)를 확인함 (build_leg)
+            send_mode=send_mode,
         )
         self.allow_uncalibrated = bool(options["allow_uncalibrated"])
         limb = self.get_parameter("limb").value
@@ -144,7 +151,12 @@ class ControlNode(Node):
 
     # ---- 수명 -------------------------------------------------------------
     def start(self) -> None:
-        self.robot.connect()
+        try:
+            self.robot.connect()
+        except HostIdError as e:
+            # 모터를 갈고 호스트 id 를 안 맞춘 경우. traceback 대신 무엇을 할지 남김.
+            self.get_logger().error(str(e))
+            raise SystemExit(1) from e
         self.names = tuple(self.robot.joint_names)
         """관절 이름은 한 번만 읽음. 매 발행마다 로봇에 안 물어봄."""
         self.imus = tuple(self.robot.imus)

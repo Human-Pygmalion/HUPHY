@@ -21,6 +21,7 @@ def generate_launch_description():
         DeclareLaunchArgument("hz", default_value="100.0"),
         DeclareLaunchArgument("state_hz", default_value="100.0"),
         DeclareLaunchArgument("drain_ms", default_value="2.0"),
+        DeclareLaunchArgument("send_mode", default_value="burst"),
         DeclareLaunchArgument("target_stale_ms", default_value="100.0"),
         DeclareLaunchArgument("allow_uncalibrated", default_value="false"),
         Node(
@@ -32,6 +33,7 @@ def generate_launch_description():
                 "hz": LaunchConfiguration("hz"),
                 "state_hz": LaunchConfiguration("state_hz"),
                 "drain_ms": LaunchConfiguration("drain_ms"),
+                "send_mode": LaunchConfiguration("send_mode"),
                 "target_stale_ms": LaunchConfiguration("target_stale_ms"),
                 "allow_uncalibrated": LaunchConfiguration("allow_uncalibrated"),
             }],

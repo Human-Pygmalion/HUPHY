@@ -176,6 +176,7 @@ huphy-run --policy generalized_walk --drain-ms 4
 | `--send-mode seq` | 한 모터씩 보냄. 기본은 `burst`(6개를 연달아). burst 는 모터마다 호스트 id 가 0xF0+id 여야 하고, 아니면 연결할 때 멈춤 -- 그때 쓰는 길 |
 | `--extra` | 추가 값(모터 전류 iq·전압 VBUS)을 중간중간 읽어 옴. 실시간 뷰어와 `--log` 기록에 `extra/<모터>/iq·temp·vbus` 열이 생김. burst 에서만. 한 주기 읽기 수는 `--extra-per-cycle N` (다리당, 기본 2) |
 | `--hz 100` | 모터 전송 주기. 정책은 항상 자기 주기(50Hz)로만 불리고, 그 사이는 직전 목표를 반복 전송 |
+| `--profile` | `huphy-run` 만. 끝에 한 주기 안 단계(관측/정책/송신/수거)별 소요 시간을 평균·p95·최대로 찍음. 주기를 못 지킬 때 어느 단계가 범인인지 좁힘 |
 
 끝나면 실패 집계가 찍힘. 자세한 것은
 [`docs/can_communication.md`](docs/can_communication.md).

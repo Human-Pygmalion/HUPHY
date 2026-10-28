@@ -359,6 +359,11 @@ UDP 는 실시간으로 보는 것이고, 이쪽은 **끝나고 나서 되돌아
     tgt/<관절>     실제로 나간 관절 목표각 (도). 가드가 자른 뒤 값 (`robot.last_sent`)
     pos/<관절>     그 명령에 대한 실측 관절각 (도)
     imu/<이름>/<값> IMU. roll/pitch/yaw, gx/gy/gz, grav_x/y/z, ax/ay/az, age (`IMU_FIELDS`)
+    extra/<모터>/<값> 추가 값. `--extra` 를 켰을 때만. iq (A), temp (C), vbus (V)
+
+`extra/` 는 IMU 열 바로 뒤에 붙고, 실시간 뷰어(`live`)와 `policy_log` 에도 같은 열이
+붙음. 전류·전압은 몇 주기에 한 번씩 갱신되므로(`--extra-per-cycle`) 그 사이 줄에는 마지막
+값이 들어가고, 첫 값을 받기 전에는 빈 칸임. 온도는 모터가 정수 도로 보냄.
 
 `policy_log` 에서 정책 칸(obs/act)을 뺀 모양이라 `tools/policy_viewer.html` 로 그대로
 열림. 뷰어는 `act/` 가 없으면 관절 목록을 `tgt/` 에서 읽음.
