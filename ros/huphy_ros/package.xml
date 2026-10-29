@@ -13,6 +13,8 @@
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>diagnostic_msgs</depend>
+  <!-- gamepad.launch.py 가 joy_node 를 띄움. 빌드에는 안 씀 -->
+  <exec_depend>joy</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

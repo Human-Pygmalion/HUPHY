@@ -1,12 +1,13 @@
 # `ros/` — ROS 2 래퍼
 
-`src/huphy/` 를 고치지 않고 ROS 2 노드로 감싼 것. 노드 둘 + 조작 창 하나.
+`src/huphy/` 를 고치지 않고 ROS 2 노드로 감싼 것. 노드 둘 + 조작 노드 둘 (창, 패드).
 
 | 노드 | 하는 일 | 어디서 |
 |---|---|---|
 | `control_node` | 모터를 몲. 100Hz, CAN, 가드 | 모션보드 (CAN·IMU 가 붙은 쪽) |
 | `policy_node` | 갈 자세를 냄. 정책 주기로 추론 (지금 정책 둘 다 50Hz) | 작업 기계 (사람이 쓰는 쪽) |
 | `teleop_node` | (선택) `huphy-run --teleop` 과 같은 창으로 명령·시작·멈춤 | 작업 기계 (화면 있는 쪽) |
+| `gamepad_node` | (선택) Xbox 패드로 명령·토크·시작·멈춤. `joy_node` 와 같이 띄움 | 작업 기계 (패드 꽂은 쪽) |
 
 그림은 [`ros.drawio`](ros.drawio). 설계 근거는 **아래쪽 "아래는 설계"** 부터.
 
@@ -196,7 +197,7 @@ ros2 service call /huphy/start_policy std_srvs/srv/Trigger
 
 #### A-6. 명령 주기 (cmd)  `[작업 기계]`
 
-**방법 둘 -- 창(teleop) 또는 명령.**
+**방법 셋 -- 창(teleop), 패드(gamepad), 또는 명령.**
 
 창으로 조작 -- `huphy-run --teleop` 과 같은 pygame 창. 화면이 있는 **작업 기계**에서 (ssh 면 `-X`).
 `policy:=` 는 정책 노드에 준 것과 같은 꾸러미.
@@ -225,6 +226,53 @@ ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/huphy
 침. 속도 상한 등은 `max:="vx=0.8" accel:="vx=0.4" decel:="vx=1.5"` (`--max` 등과 같음).
 
 창을 쓰면 A-4·A-5·A-6 의 명령을 대신함 (enable 만 명령).
+
+---
+
+패드로 조작 -- Xbox 패드. 화면이 필요 없음. 패드를 USB 나 블루투스로 붙이면
+`/dev/input/js0` 가 생기고, 런치가 `joy_node`(ROS 의 `joy` 패키지)와 `gamepad_node` 를 같이 띄움.
+`policy:=` 는 정책 노드에 준 것과 같은 꾸러미.
+
+```bash
+# 걷기 -- 왼쪽 스틱 앞뒤, 오른쪽 스틱 회전
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk
+
+# 스쿼트 -- 십자키 위아래로 높이
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
+```
+
+| 패드 | 하는 일 |
+|---|---|
+| 왼쪽 스틱 세로 · 가로 | `vx` 앞뒤 · `vy` 옆 (스틱값 × 그 명령의 `max`) |
+| 오른쪽 스틱 가로 | `wz` 회전 |
+| 십자키 세로 | `h_star` 높이. `accel`(기본 0.05 m/s)씩 움직이고 계약의 범위에서 멈춤 |
+| **RB** | 누르고 있는 동안에만 명령이 먹음. 떼면 속도 0, 높이는 마지막 값 유지 |
+| **A** | 기준 자세로 (`approach`). **토크가 켜져 있을 때만** |
+| **RB + Menu** | 정책 시작 (`start_policy`). **RB 를 누르고 있어야 나감** |
+| **B** | 정책 끔 -> 토크 끔 (`stop_policy` -> `disable`), 노드도 끝남 |
+| **View 1초** | 토크 넣기 (`enable`). **1초 계속 눌러야** 한 번 나감 |
+
+**창(teleop)과 다른 점은 `enable` 이 패드에 있다는 것뿐임.** 토크가 들어가는 순간이 가장
+위험해서, 한 번 눌리는 것으로는 안 나가게 `enable_hold_s`(기본 1.0초)를 둠. 정책 시작도
+RB 를 쥐고 있어야 나감 -- 손이 데드맨에 가 있어야 정책이 돈다는 뜻임. 둘 다 버튼이
+**안 눌림 -> 눌림** 으로 바뀐 주기에만 나가므로, Menu 를 누른 채로 RB 를 더하는 것은 안 됨
+(Menu 를 뗐다가 RB 를 먼저 쥐고 다시 누를 것).
+
+**끊기면:** `/joy` 가 0.5초 넘게 안 오면 (선이 빠짐, `joy_node` 가 죽음) 전부 놓은 것으로 보고
+속도 0 을 냄. `gamepad_node` 까지 죽으면 `cmd_vel` 이 끊겨 정책 노드가 0.5초 뒤 0 으로 돌림.
+**둘 다 속도만 0 이고 토크는 안 꺼짐** -- 끄는 것은 B 또는 A-7 의 명령.
+
+축·버튼 번호는 드라이버마다 다름 (USB 의 `xpad` 와 블루투스의 `xpadneo` 가 다름). 안 맞으면
+`ros2 topic echo /joy` 로 실제 번호를 보고 덮어씀.
+
+```bash
+ros2 launch huphy_ros gamepad.launch.py policy:=... \
+  --ros-args -p axis_vx:=1 -p button_deadman:=5
+```
+
+패드 하나로 A-3·A-4·A-5·A-6·A-7 을 다 함.
+
+---
 
 명령으로 줄 때는 정책에 맞는 것 **하나**. `pub -r 20` 은 초당 20번 계속 보냄. 안 보내면 걷기는
 (0, 0) = 제자리, 스쿼트는 시작값 0.8914.
