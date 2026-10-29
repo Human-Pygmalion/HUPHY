@@ -7,7 +7,7 @@
 `sensor_msgs/Joy` 를 `/joy` 에서 받음. `gamepad.launch.py` 가 둘을 같이 띄움.
 
 
-## 조작 (기본값. 전부 파라미터로 바꿈)
+## 조작 (버튼 번호는 연결 방식마다 다름 -- 아래 "배치")
 
     왼쪽 스틱 세로     vx        위로 밀면 +
     왼쪽 스틱 가로     vy        왼쪽으로 밀면 +   (vy 가 있는 정책만)
@@ -33,6 +33,22 @@
 -- 서비스는 버튼이 안 눌림에서 눌림으로 바뀐 주기에만 부르기 때문임. Menu 를 뗐다가
 RB 를 먼저 쥐고 다시 눌러야 함. RB 를 떼면 정책은 계속 돌지만 속도 명령이 0 이
 되어 제자리걸음이 됨 -- 멈추는 것은 B 임.
+
+
+## 배치 -- USB 와 블루투스의 번호가 다름
+
+같은 패드라도 `joy_node` 가 내는 번호가 연결 방식마다 다름. **버튼 수로 가림** (`LAYOUTS`):
+
+    배치        버튼 수  View  Menu  RB  A  B  오른쪽 스틱 가로
+    usb         11       6     7     5   0  1  축 3     (커널 xpad 기준)
+    bluetooth   16       10    11    7   0  1  축 2     (2026-10-29 Xbox Wireless 실측)
+
+**둘 다 아니면 버튼·스틱을 전부 무시하고 속도 0 만 냄** -- 번호를 모르는 채로 쓰면 엉뚱한
+버튼이 토크를 넣음 (블루투스로 붙였는데 usb 번호를 쓰면 LB 가 "View" 가 됐었음).
+`layout:=usb|bluetooth` 로 고정하거나, `button_<이름>`/`axis_<이름>` 으로 칸 하나씩 덮음.
+
+`game_controller_node` (SDL 표준 배치)는 안 씀 -- Ubuntu 22.04 의 SDL 2.0.20 이 블루투스
+Series X 패드를 잘못 알아서 RB 가 안 잡히고 View 가 8번으로 나왔음.
 
 
 ## 스틱 값 -> 명령 값
@@ -81,19 +97,34 @@ PUBLISH_HZ = 20.0
 STATUS_STALE_S = 1.0
 """상태 토픽이 이만큼 안 오면 그 노드가 없는 것으로 봄. 둘 다 5Hz 로 냄."""
 
-AXES = {"vx": 1, "vy": 0, "wz": 3, "h_star": 7}
-"""명령 이름 -> `Joy.axes` 의 칸 번호. 커널 `xpad` 드라이버 기준임.
+AXES = ("vx", "vy", "wz", "h_star")
+"""스틱·십자키로 움직이는 명령."""
 
-    0 왼쪽 스틱 가로   1 왼쪽 스틱 세로   2 LT   3 오른쪽 스틱 가로
-    4 오른쪽 스틱 세로 5 RT              6 십자키 가로   7 십자키 세로
+BUTTONS = ("deadman", "approach", "start_policy", "stop", "enable")
+"""버튼으로 하는 일. RB 데드맨, A 기준 자세, Menu 정책 시작, B 끔, View 토크."""
 
-블루투스로 붙이거나 `xpadneo` 드라이버가 끼면 번호가 달라짐. `ros2 topic echo /joy`
-로 보고 `axis_<이름>` 파라미터로 바꿀 것.
-"""
-
-BUTTONS = {"deadman": 5, "approach": 0, "start_policy": 7, "stop": 1, "enable": 6}
-"""할 일 -> `Joy.buttons` 의 칸 번호. `xpad` 기준으로 0 A, 1 B, 2 X, 3 Y,
-4 LB, 5 RB, 6 View, 7 Menu. `button_<이름>` 파라미터로 바꿈."""
+LAYOUTS = {
+    "usb": {
+        # 커널 xpad + joy_node(SDL joystick). 0 LX 1 LY 2 LT 3 RX 4 RY 5 RT 6 십자가로 7 십자세로
+        "buttons_n": 11,
+        "axes": {"vx": 1, "vy": 0, "wz": 3, "h_star": 7},
+        # 0 A 1 B 2 X 3 Y 4 LB 5 RB 6 View 7 Menu 8 Xbox 9 LS 10 RS
+        "buttons": {"deadman": 5, "approach": 0, "start_policy": 7, "stop": 1, "enable": 6},
+    },
+    "bluetooth": {
+        # 2026-10-29 Xbox Wireless Controller 를 블루투스로 붙여 실측 (/joy 기록과
+        # tools/gamepad_viewer.py 로 확인 -- 0~14 는 커널 번호와 같고 joy_node 가 15 를 더 붙임).
+        # 축 (joy_node 는 위·왼쪽을 + 로 뒤집어 냄):
+        #   0 왼쪽 가로  1 왼쪽 세로  2 오른쪽 가로  3 오른쪽 세로  4 RT  5 LT  6 십자 가로  7 십자 세로
+        "buttons_n": 16,
+        "axes": {"vx": 1, "vy": 0, "wz": 2, "h_star": 7},
+        # 버튼: 0 A(아래)  1 B(오른쪽)  2 C(빈 칸)  3 X(왼쪽)  4 Y(위)  5 Z(빈 칸)  6 LB  7 RB
+        #       8 LT 버튼  9 RT 버튼  10 View  11 Menu  12 Xbox  13 왼쪽 스틱 누름  14 오른쪽 스틱 누름
+        #   C·Z 는 옛 게임패드 형식의 빈 자리라 USB 배치보다 X 부터 한 칸씩 밀림.
+        "buttons": {"deadman": 7, "approach": 0, "start_policy": 11, "stop": 1, "enable": 10},
+    },
+}
+"""연결 방식별 번호. `joy_node` 가 내는 버튼 수로 고름 (`_pick_layout`)."""
 
 
 class GamepadNode(Node):
@@ -107,10 +138,11 @@ class GamepadNode(Node):
         self.declare_parameter("deadzone", 0.08)
         self.declare_parameter("enable_hold_s", 1.0)
         self.declare_parameter("joy_timeout_s", 0.5)
-        for name, index in AXES.items():
-            self.declare_parameter(f"axis_{name}", index)
-        for name, index in BUTTONS.items():
-            self.declare_parameter(f"button_{name}", index)
+        self.declare_parameter("layout", "auto")
+        for name in AXES:
+            self.declare_parameter(f"axis_{name}", -1)      # -1 = 배치 표를 따름
+        for name in BUTTONS:
+            self.declare_parameter(f"button_{name}", -1)
 
         folder = self.get_parameter("policy").value
         if not folder:
@@ -130,15 +162,21 @@ class GamepadNode(Node):
             raise SystemExit(f"gamepad: {e}") from e
         self.axes = {a.name: a for a in axes}
 
-        self.axis_index = {n: int(self.get_parameter(f"axis_{n}").value)
-                           for n in AXES if n in self.axes}
-        unmapped = sorted(set(self.axes) - set(self.axis_index))
+        unmapped = sorted(set(self.axes) - set(AXES))
         if unmapped:
             raise SystemExit(
                 f"{self.policy.name}: 패드에 배정할 자리가 없는 명령 {unmapped}. "
-                f"배정된 것: {sorted(AXES)}")
-        self.button_index = {k: int(self.get_parameter(f"button_{k}").value)
-                             for k in BUTTONS}
+                f"배정된 것: {list(AXES)}")
+        self.layout_name = str(self.get_parameter("layout").value)
+        if self.layout_name not in ("auto", *LAYOUTS):
+            raise SystemExit(f"layout 은 auto / {' / '.join(LAYOUTS)} 중 하나 (받은 값 {self.layout_name!r})")
+        self.axis_override = {n: int(self.get_parameter(f"axis_{n}").value) for n in AXES}
+        self.button_override = {k: int(self.get_parameter(f"button_{k}").value) for k in BUTTONS}
+        self.layout: Optional[str] = None
+        """지금 쓰는 배치. 첫 `/joy` 를 보고 정함. None 이면 번호를 몰라서 패드를 무시함."""
+        self.axis_index: Dict[str, int] = {}
+        self.button_index: Dict[str, int] = {}
+        self._buttons_n: Optional[int] = None
         self.deadzone = float(self.get_parameter("deadzone").value)
         self.enable_hold_s = float(self.get_parameter("enable_hold_s").value)
         self.joy_timeout_s = float(self.get_parameter("joy_timeout_s").value)
@@ -185,11 +223,48 @@ class GamepadNode(Node):
         self.get_logger().info(
             f"{self.policy.name}  패드: 스틱 {sorted(self.axes)}  "
             f"RB 누른 동안만 속도  A 기준 자세  RB+Menu 정책 시작  B 끔  "
-            f"View {self.enable_hold_s:g}초 토크 넣기")
+            f"View {self.enable_hold_s:g}초 토크 넣기  -- 배치 {self.layout_name} "
+            f"(첫 /joy 를 보고 정함)")
 
     # ---- 들어오는 것 -------------------------------------------------------
     def _on_joy(self, msg: Joy) -> None:
+        if len(msg.buttons) != self._buttons_n:
+            self._pick_layout(len(msg.buttons))
         self.joy, self.joy_at = msg, time.monotonic()
+
+    def _pick_layout(self, buttons_n: int) -> None:
+        """버튼 수로 배치를 고름. 모르는 수면 `layout` 을 None 으로 -- 패드를 무시함.
+
+        도중에 바뀌면(블루투스를 끊고 USB 로 꽂음) 다시 고르고, 누른 상태를 전부 지움.
+        """
+        self._buttons_n = buttons_n
+        self.pressed = {k: False for k in BUTTONS}
+        self.enable_since, self.enable_sent = None, False
+        if self.layout_name != "auto":
+            name = self.layout_name
+        else:
+            name = next((n for n, l in LAYOUTS.items() if l["buttons_n"] == buttons_n), None)
+        if name is None:
+            self.layout = None
+            known = ", ".join(f"{n} {l['buttons_n']}개" for n, l in LAYOUTS.items())
+            self.get_logger().error(
+                f"패드 버튼이 {buttons_n}개 -- 아는 배치가 아님 ({known}). "
+                f"번호를 모르면 엉뚱한 버튼이 토크를 넣으므로 **패드를 무시함 (속도 0)**. "
+                f"ros2 topic echo /joy 로 보고 layout:=… 이나 button_<이름>:=… 으로 지정할 것")
+            return
+        table = LAYOUTS[name]
+        self.layout = name
+        self.axis_index = {n: (self.axis_override[n] if self.axis_override[n] >= 0
+                               else table["axes"][n]) for n in AXES}
+        self.button_index = {k: (self.button_override[k] if self.button_override[k] >= 0
+                                 else table["buttons"][k]) for k in BUTTONS}
+        if table["buttons_n"] != buttons_n:
+            self.get_logger().warning(
+                f"layout:={name} 은 버튼 {table['buttons_n']}개 배치인데 패드는 {buttons_n}개")
+        self.get_logger().info(
+            f"패드 배치 {name} (버튼 {buttons_n}개): " + ", ".join(
+                f"{k} {v}" for k, v in self.button_index.items())
+            + "  축 " + ", ".join(f"{k} {v}" for k, v in self.axis_index.items()))
 
     def _on_loop(self, msg: DiagnosticArray) -> None:
         if msg.status:
@@ -206,13 +281,13 @@ class GamepadNode(Node):
     # ---- 패드 읽기 ---------------------------------------------------------
     def _axis(self, index: int) -> float:
         """`Joy.axes[index]`. 칸이 없으면 0. 가운데 흔들림은 잘라냄."""
-        if self.joy is None or index >= len(self.joy.axes):
+        if self.joy is None or self.layout is None or not 0 <= index < len(self.joy.axes):
             return 0.0
         v = float(self.joy.axes[index])
         return 0.0 if abs(v) < self.deadzone else v
 
     def _button(self, name: str) -> bool:
-        if self.joy is None:
+        if self.joy is None or self.layout is None:
             return False
         index = self.button_index[name]
         return index < len(self.joy.buttons) and bool(self.joy.buttons[index])
@@ -248,13 +323,13 @@ class GamepadNode(Node):
 
         held = self._button("deadman")
         for name in self.velocity_names:
-            self.values[name] = (self._axis(self.axis_index[name]) * self.axes[name].max
+            self.values[name] = (self._axis(self.axis_index.get(name, -1)) * self.axes[name].max
                                  if held else 0.0)
         for name in self.height_names:
             # 높이는 0 으로 돌리면 안 됨 (바닥까지 내려가라는 뜻이 됨). RB 를 떼면
             # 지금 값을 그대로 내보내고 십자키만 안 먹게 함.
             a = self.axes[name]
-            step = self._axis(self.axis_index[name]) * a.accel * dt if held else 0.0
+            step = self._axis(self.axis_index.get(name, -1)) * a.accel * dt if held else 0.0
             self.values[name] = min(max(self.values[name] + step, a.range[0]), a.range[1])
         self._publish(self.values)
 

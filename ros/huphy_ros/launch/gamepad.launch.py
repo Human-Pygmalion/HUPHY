@@ -14,8 +14,10 @@
     B        정책·토크 끔 (/huphy/stop_policy -> /huphy/disable)
     View 1초 토크 넣기 (/huphy/enable)
 
-축·버튼 번호는 드라이버마다 다름. `ros2 topic echo /joy` 로 보고 `axis_vx:=1`,
-`button_deadman:=5` 처럼 덮어쓸 것 (이름은 gamepad_node.py 의 AXES·BUTTONS).
+버튼 번호는 USB 와 블루투스가 다름. gamepad_node 가 /joy 의 버튼 수로 고름
+(11개 usb, 16개 bluetooth -- gamepad_node.py 의 LAYOUTS). 모르는 수면 패드를 무시함.
+고정하려면 layout:=usb|bluetooth. 칸 하나만 바꾸려면 gamepad_node 의
+button_<이름>/axis_<이름> 파라미터.
 """
 
 from launch import LaunchDescription
@@ -33,6 +35,7 @@ def generate_launch_description():
         DeclareLaunchArgument("accel", default_value=""),
         DeclareLaunchArgument("deadzone", default_value="0.08"),
         DeclareLaunchArgument("enable_hold_s", default_value="1.0"),
+        DeclareLaunchArgument("layout", default_value="auto"),
         Node(
             package="joy",
             executable="joy_node",
@@ -58,6 +61,7 @@ def generate_launch_description():
                 "accel": LaunchConfiguration("accel"),
                 "deadzone": LaunchConfiguration("deadzone"),
                 "enable_hold_s": LaunchConfiguration("enable_hold_s"),
+                "layout": LaunchConfiguration("layout"),
             }],
             output="screen",
             emulate_tty=True,

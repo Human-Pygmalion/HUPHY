@@ -258,6 +258,17 @@ RB 를 쥐고 있어야 나감 -- 손이 데드맨에 가 있어야 정책이 �
 **안 눌림 -> 눌림** 으로 바뀐 주기에만 나가므로, Menu 를 누른 채로 RB 를 더하는 것은 안 됨
 (Menu 를 뗐다가 RB 를 먼저 쥐고 다시 누를 것).
 
+**버튼 번호는 USB 와 블루투스가 다름** -- 같은 View 가 USB 에서는 6번, 블루투스에서는 10번.
+`gamepad_node` 가 첫 `/joy` 의 버튼 수로 배치를 고름 (11개 usb, 16개 bluetooth). 시작 로그에
+`패드 배치 bluetooth (버튼 16개): deadman 7, …` 처럼 찍힘. **모르는 버튼 수면 패드를 통째로
+무시하고 속도 0 만 냄** -- 번호를 모르는 채로 쓰면 엉뚱한 버튼이 토크를 넣음 (블루투스에서
+USB 번호를 쓰면 LB 가 "View" 였음). 고정하려면 `layout:=usb` / `layout:=bluetooth`.
+
+`joy` 패키지는 apt 로 깜: `sudo apt install -y ros-humble-joy` (pip 아님).
+
+패드 입력만 따로 보려면 `python3 tools/gamepad_viewer.py` -- ROS 없이 패드를 직접 읽어 버튼·축의
+번호와 이름(`View`, `RB` 등)을 브라우저에 실시간으로 보여 줌 (`tools/README.md`).
+
 **끊기면:** `/joy` 가 0.5초 넘게 안 오면 (선이 빠짐, `joy_node` 가 죽음) 전부 놓은 것으로 보고
 속도 0 을 냄. `gamepad_node` 까지 죽으면 `cmd_vel` 이 끊겨 정책 노드가 0.5초 뒤 0 으로 돌림.
 **둘 다 속도만 0 이고 토크는 안 꺼짐** -- 끄는 것은 B 또는 A-7 의 명령.
