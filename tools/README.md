@@ -9,6 +9,7 @@ tools/
 ├── make_sequences.py     studio 시퀀스(스쿼트, 정적 보행)를 계산으로 만들고 한계를 검사
 ├── sequence_preview.html 그 시퀀스를 막대 그림으로 재생 (make_sequences.py 가 채워 씀)
 ├── can_scan.py           CAN 라인을 훑어 모터마다 호스트 id·전압·전류·zero_sta 를 표로
+├── gamepad_viewer.py     패드 입력을 브라우저로 실시간 -- ROS 없이 패드를 직접 읽음
 └── rs_ota.py             RobStride 펌웨어 업데이트 (CAN, private 프로토콜)
 ```
 
@@ -287,3 +288,31 @@ python3 tools/rs_ota.py --channel canr --motor 8 --bin rs04_0.4.1.38.bin   # 약
 `rs_ota.py` 는 쓰기 전에 모터의 버전과 파일 이름의 모델(rs03 / rs04)을 맞춰 보고 다르면
 멈춤. 모델이 다른 펌웨어도 파일 앞부분이 같아서 이 확인이 없으면 못 가림.
 
+---
+
+## `gamepad_viewer.py` -- 패드 입력 실시간
+
+**이 파일 하나로 끝.** ROS·런치·노드·`joy` 패키지 안 씀. 리눅스 조이스틱 장치(`/dev/input/js*`)를
+파이썬 표준 라이브러리로 직접 읽어 브라우저에 보여 줌. 읽기만 하고, 장치는 여러 프로그램이
+같이 열 수 있어서 `gamepad.launch.py` 가 돌고 있어도 됨.
+
+```bash
+python3 tools/gamepad_viewer.py                  # http://127.0.0.1:8780
+python3 tools/gamepad_viewer.py --host 0.0.0.0   # 같은 망의 다른 기계에서도
+python3 tools/gamepad_viewer.py --device /dev/input/js1
+```
+
+| 칸 | 무엇 |
+|---|---|
+| 맨 위 | 패드 이름, 장치, 버튼·축 개수, 마지막 입력. 끊기면 "연결 안 됨" (Xbox 버튼으로 깨우면 다시 엶) |
+| 스틱 | 왼쪽·오른쪽 위치 점과 값. 커널 값이라 위로 밀면 세로가 − |
+| 버튼 | 번호와 **장치가 알려 준 입력 코드로 붙인 이름** -- `A`, `X`, `RB`, `View`, `Menu` 등. 누르면 초록, 방금 바뀐 줄은 밝아짐 |
+| 축 | 번호·이름·막대·값 (−1 ~ +1) |
+
+이름은 장치에 입력 코드를 물어 붙이므로 USB·블루투스를 따로 맞출 필요가 없음. 블루투스 Xbox 는
+오른쪽 스틱이 `Z`/`RZ`, 트리거가 `GAS`(RT)/`BRAKE`(LT) 로 옴 (USB 는 `RX`/`RY` 와 `Z`/`RZ`).
+버튼의 `C`·`Z` 는 옛 게임패드 형식의 빈 칸이라 안 눌림 -- 그래서 블루투스에서 X·Y·LB·RB·View 가 한 칸씩 밀림.
+리눅스 별칭 `NORTH`/`WEST` 는 Xbox 에서 위치가 반대라 안 씀 -- 위쪽 버튼은 Y(4번), 왼쪽은 X(3번).
+
+**번호는 커널 번호임** -- ROS `joy_node` 의 `/joy` 번호와 다를 수 있음. 블루투스에서는 0~14 가
+같았고 joy_node 가 끝에 하나를 더 붙였음 (16개). gamepad_node 의 번호를 정할 때는 이름으로 맞출 것.
