@@ -13,8 +13,13 @@
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>diagnostic_msgs</depend>
+  <!-- 기록용 메시지 4개. 제어 토픽은 표준 타입 그대로임 -->
+  <depend>huphy_ros_interfaces</depend>
   <!-- gamepad.launch.py 가 joy_node 를 띄움. 빌드에는 안 씀 -->
   <exec_depend>joy</exec_depend>
+  <!-- camera.launch.py 가 인텔 공식 카메라 노드를 띄움. 빌드에는 안 씀.
+       카메라를 안 쓰면 없어도 다른 런치 파일은 다 돎 (README "D455 설치"). -->
+  <exec_depend>realsense2_camera</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

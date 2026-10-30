@@ -9,6 +9,13 @@
 | `teleop_node` | (선택) `huphy-run --teleop` 과 같은 창으로 명령·시작·멈춤 | 작업 기계 (화면 있는 쪽) |
 | `gamepad_node` | (선택) Xbox 패드로 명령·토크·시작·멈춤. `joy_node` 와 같이 띄움 | 작업 기계 (패드 꽂은 쪽) |
 
+D455 를 쓸 때는 노드가 하나 더 돎. **그건 우리가 만든 것이 아니라 인텔 공식
+패키지임** -- 아래 [카메라 (D455)](#카메라-d455).
+
+| 노드 | 하는 일 | 어디서 | 누가 만든 것 |
+|---|---|---|---|
+| `realsense2_camera_node` | D455 를 열어 깊이·색·IMU 를 토픽으로 냄 | 카메라가 USB 로 꽂힌 기계 | 인텔 (`realsense2_camera`) |
+
 그림은 [`ros.drawio`](ros.drawio). 설계 근거는 **아래쪽 "아래는 설계"** 부터.
 
 로봇 없이 ROS 만 테스트하려면 [`without_robot.md`](without_robot.md).
@@ -70,6 +77,30 @@ ros/install.sh
 | `Package 'huphy_ros' not found` | 새 터미널을 안 엶. 그래도 안 되면 `ros/install.sh` 다시 |
 | `No module named 'huphy'` | `colcon build` 를 직접 쳤음. `ros/install.sh` 다시 |
 | 스크립트가 `✗` 로 멈춤 | 그 줄에 이유가 있음. 고치고 다시 실행 |
+
+### D455 설치 (카메라를 쓸 때만)
+
+**`ros/install.sh` 는 이걸 안 깖.** 카메라를 안 쓰면 없어도 나머지는 다 돎.
+**카메라가 USB 로 꽂히는 기계에서만** 깔면 됨.
+
+```bash
+sudo apt install -y ros-humble-librealsense2*      # 인텔 SDK (librealsense2)
+sudo apt install -y ros-humble-realsense2-*        # ROS 래퍼 + 메시지 + urdf
+```
+
+앞줄이 카메라와 USB 로 이야기하는 라이브러리, 뒷줄이 그걸 ROS 노드로 감싼 것임.
+뒷줄은 `realsense2-camera`, `realsense2-camera-msgs`, `realsense2-description`
+셋을 같이 깖.
+
+깔렸는지 보려면
+
+```bash
+ros2 pkg list | grep realsense           # realsense2_camera 가 나와야 함
+lsusb | grep -i intel                    # 꽂혀 있으면 Intel RealSense 가 보임
+```
+
+**`colcon build` 를 다시 할 필요 없음.** apt 로 깔리는 별개 패키지라
+`~/ros2_ws` 와 상관없음.
 
 ---
 
@@ -477,6 +508,104 @@ ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔. 이 �
 ```
 
 `huphy-run` 에는 없는 단계임 -- 토크 없이 정책이 무엇을 내는지만 봄.
+
+## 카메라 (D455)
+
+**지금은 카메라가 무엇을 내는지 보는 데까지임.** 깊이를 지형으로 바꿔 정책에
+넣는 노드는 아직 없음 -- 아래 [지형 -- 아직 정하는 중](#지형--아직-정하는-중).
+
+띄우는 노드는 인텔이 만든 `realsense2_camera_node` 임. 우리가 가진 것은
+그걸 우리 설정으로 부르는 런치 파일 하나
+([`camera.launch.py`](huphy_ros/launch/camera.launch.py)) 뿐임.
+
+### C-1. 띄우기  `[카메라가 꽂힌 기계]`
+
+```bash
+ros2 launch huphy_ros camera.launch.py
+```
+
+**혼자 돎.** `control_node` 나 `policy_node` 가 떠 있든 말든 상관없고, 구독자가
+없어도 그냥 토픽을 냄. 그래서 책상에서 작업 기계에 꽂고 띄워 봐도 됨.
+
+자주 쓰는 인자.
+
+```bash
+# 드라이버가 역투영까지 해서 PointCloud2 로도 냄
+ros2 launch huphy_ros camera.launch.py pointcloud:=true
+
+# 눈으로 보려고 색까지
+ros2 launch huphy_ros camera.launch.py color:=true
+
+# 해상도를 낮춤 ("848x480x30" 도 "848,480,30" 도 됨)
+ros2 launch huphy_ros camera.launch.py depth_profile:=424x240x30
+
+# 드라이버 쪽에서 가로세로 반으로 줄임 (점 수 1/4)
+ros2 launch huphy_ros camera.launch.py decimation:=true
+
+# 카메라가 안 열릴 때 (앞 실행이 비정상 종료한 경우)
+ros2 launch huphy_ros camera.launch.py initial_reset:=true
+```
+
+인자 전체는 런치 파일 맨 위 주석과 `ARGUMENTS` 목록에 있음.
+
+### C-2. 나오는 토픽
+
+| 토픽 | 타입 | 무엇 |
+|---|---|---|
+| `/huphy/d455/depth/image_rect_raw` | `sensor_msgs/Image` | 깊이. `Z16`, 한 칸이 1mm |
+| `/huphy/d455/depth/camera_info` | `sensor_msgs/CameraInfo` | 초점거리·주점. 역투영에 필요 |
+| `/tf_static` | `tf2_msgs/TFMessage` | 카메라 안 좌표계 관계. 드라이버가 냄 |
+| `/huphy/d455/depth/color/points` | `sensor_msgs/PointCloud2` | `pointcloud:=true` 일 때만 |
+| `/huphy/d455/color/image_raw` | `sensor_msgs/Image` | `color:=true` 일 때만 |
+| `/huphy/d455/imu` | `sensor_msgs/Imu` | `imu:=true` 일 때만. 카메라 내장 IMU |
+
+이름공간을 `/huphy/d455` 로 바꿔 둔 것임 (드라이버 기본값은 `/camera/camera`).
+런치 인자 `namespace:=`, `name:=` 로 바꿀 수 있음.
+
+### C 확인. 실제로 무엇을 얼마나 내는지
+
+```bash
+ros2 topic list                                              # 토픽이 다 떴는지
+ros2 topic hz   /huphy/d455/depth/image_rect_raw             # 초당 프레임 수. Ctrl-C
+ros2 topic bw   /huphy/d455/depth/image_rect_raw             # 초당 바이트. Ctrl-C
+ros2 topic echo /huphy/d455/depth/camera_info --once         # 초점거리(k[0], k[4])
+ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
+```
+
+`hz` 와 `bw` 가 **지형 노드를 설계할 때 필요한 숫자**임 -- 얼마나 자주 오는지,
+기계 사이로 보내면 얼마를 먹는지.
+
+### 안 될 때
+
+| 증상 | 이유·할 것 |
+|---|---|
+| `Package 'realsense2_camera' not found` | 안 깔림. 위 "D455 설치" |
+| `No RealSense devices were found` | USB 에 안 꽂힘. `lsusb \| grep -i intel` 로 확인 |
+| 열렸다 바로 닫힘 | 앞 실행이 남아 있음. `initial_reset:=true` |
+| 프레임이 뚝뚝 끊김 | USB 2.0 포트에 꽂힘. USB 3 포트(보통 파란색)로 |
+| 깊이가 다 0 | 너무 가까움. D455 최소 거리가 대략 0.5m |
+
+### 지형 -- 아직 정하는 중
+
+깊이를 정책 입력으로 바꾸는 노드(`terrain_node`)는 **아직 안 만듦.** 만들려면
+학습 쪽에서 다음이 정해져야 함.
+
+- 정책이 지형을 **어떤 모양으로** 받는가 -- 높이 격자인지, 깊이 영상을 학습된
+  인코더에 넣은 벡터인지, 영상 자체인지. 셋이 완전히 다른 노드가 됨
+- **쌓는가** -- 지금 안 보이는 곳을 기억해야 하면 로봇이 공간 어디에 있는지를
+  알아야 함. 그 추정 코드가 지금 우리 레포에 없음. 노드가 하나 더 생김
+- 격자를 쓴다면 **크기·간격·칸의 값·안 보이는 칸의 값**
+- 지형이 **낡았을 때** 무엇을 넣는가. 제어 루프는 멈출 수 없음
+
+값과 무관하게 정해진 것도 있음.
+
+- 지형 처리는 `control_node` 와 **다른 프로세스**여야 함. `control_node` 는
+  100Hz 제어 스레드가 마감을 지키고 있어서 길이를 모르는 일을 같이 둘 수 없음
+- 깊이 영상은 **기계 사이로 건너면 안 됨**. `/huphy/joint_targets` 와 같은 선을
+  다투게 되고, 늦으면 `control_node` 의 `target_stale_ms` 에 걸려 루프가 멈춤.
+  줄이는 일은 카메라가 붙은 기계에서 함
+- 기하 계산은 `src/huphy/` 에 두고 노드는 부르기만 함. `control_node` ·
+  `policy_node` 가 이미 그 구조임
 
 ---
 
