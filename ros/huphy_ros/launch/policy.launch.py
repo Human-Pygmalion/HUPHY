@@ -30,6 +30,8 @@ def generate_launch_description():
         DeclareLaunchArgument("state_stale_ms", default_value="60.0"),
         DeclareLaunchArgument("approach_s", default_value="3.0"),
         DeclareLaunchArgument("cmd_timeout_s", default_value="0.5"),
+        # 기록용 토픽. 켜야 log_node 가 정책 입출력을 받음 (log.launch.py)
+        DeclareLaunchArgument("debug", default_value="false"),
         Node(
             package="huphy_ros",
             executable="policy_node",
@@ -43,6 +45,7 @@ def generate_launch_description():
                 "state_stale_ms": LaunchConfiguration("state_stale_ms"),
                 "approach_s": LaunchConfiguration("approach_s"),
                 "cmd_timeout_s": LaunchConfiguration("cmd_timeout_s"),
+                "debug": LaunchConfiguration("debug"),
             }],
             output="screen",
             emulate_tty=True,

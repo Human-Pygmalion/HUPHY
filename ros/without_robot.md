@@ -48,16 +48,39 @@ ros2 launch huphy_ros local.launch.py \
 
 한 기계에서 둘 다 띄우는 런치임. `OBSERVE` 로 시작하므로 토크 경로를 안 탐.
 
+기록까지 확인하려면 `debug:=true` 를 붙임 — 기록 노드가 같이 뜨고 파일이
+`$HOME/HUPHY/ros/logs/` 에 남음 (`log:=` 로 바꿈).
+
+```bash
+ros2 launch huphy_ros local.launch.py \
+  config:=/tmp/robot_vcan.yaml \
+  policy:=$HOME/HUPHY/config/policies/generalized_walk \
+  debug:=true
+```
+
+가짜 CAN 은 아무도 응답하지 않으므로 **지연 기록은 전부 유실로 남음.** 보이는 것은
+줄이 제대로 만들어지는지와 파일 이름·`run` 칸이고, 지연 숫자는 모터가 있어야 나옴.
+
 ---
 
 ## 4. ROS 쪽 확인
 
 ```bash
-ros2 node list                          # /huphy_control, /huphy_policy
+ros2 node list                          # /huphy_control, /huphy_policy (debug 면 /huphy_log)
 ros2 topic hz   /huphy/joint_states     # 100 근처
 ros2 topic echo /huphy/joint_states --once
 ros2 topic echo /huphy/loop_status --once
 ```
+
+`debug:=true` 로 띄웠으면 기록 토픽도 봄.
+
+```bash
+ros2 topic echo /huphy/debug/control_info --once   # 관절 이름·가동범위
+ros2 topic echo /huphy/debug/policy_info --once    # 열 이름 44개·관절 순서
+ros2 topic hz   /huphy/debug/latency               # 100 근처
+```
+
+`policy_row` 는 정책이 `running` 일 때만 나감 (6번).
 
 | 보는 것 | 맞는 값 |
 |---|---|
@@ -100,7 +123,36 @@ ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
 ros2 topic echo /huphy/policy_status --once  # vx 가 0.200
 ```
 
+```bash
+ros2 topic hz /huphy/debug/policy_row        # 50 근처 (debug:=true 일 때)
+```
+
 여기까지 되면 **ROS 배선은 전부 맞는 것임.** 남은 것은 모터뿐.
+
+## 7. 기록 확인 (`debug:=true` 일 때)
+
+```bash
+ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 한 실행의 끝
+ls $HOME/HUPHY/ros/logs/policy $HOME/HUPHY/ros/logs/latency
+```
+
+두 파일이 같은 이름으로 나와야 함.
+
+```
+policy/<월일>_policy_generalized_walk.json
+latency/<월일>_latency_generalized_walk.json
+```
+
+`stop_policy` 를 또 하면 `_2` 가 붙고, **두 파일에 같이** 붙어야 함.
+
+```bash
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); \
+  print(d['run']); print(len(d['columns']), '열', len(d['rows']), '줄')" \
+  $HOME/HUPHY/ros/logs/policy/*.json
+```
+
+`run` 에 `source: ros` 가 있어야 하고, 열이 `1 + 44 + 12*3 = 81` 개여야 함.
+`tools/policy_viewer.html` 에 끌어다 놓으면 열림.
 
 ---
 

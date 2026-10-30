@@ -53,19 +53,40 @@
 **속도 명령은 `cmd_timeout_s`(기본 0.5초) 넘게 안 오면 0 으로 돌림** -- 조작하던 쪽
 (teleop 창, `ros2 topic pub -r`)이 죽거나 끊겼는데 마지막 속도로 계속 걸어가면 안 됨.
 `huphy-run --teleop` 은 0.2초에 같은 일을 함. 높이(`h_star`)는 마지막 값을 유지함.
+
+## 기록 (`debug` 파라미터)
+
+`debug:=true` 면 추론 한 번을 `/huphy/debug/policy_row` 로 냄 -- `t`, 관찰 벡터,
+모델 출력 날값, 관절 목표각, 실측 관절각. `telemetry/policy_log.py` 기록의 한 줄과
+같은 내용임.
+
+**파일은 안 씀.** 쓰는 것은 `log_node` 이고, 그 이유는 기계가 둘이기 때문임
+(`ros/README.md` 결정 13). 여기서 쓰면 정책 기록은 작업 기계에, 지연 기록은
+모션보드에 떨어져 둘을 같이 보려면 매번 옮겨야 함.
+
+관찰 벡터와 모델 출력은 `deploy.Runner` 가 `last_vector`/`last_action` 으로 들고
+있어서 모델을 감싸지 않고 읽음. 발행은 `_tick` 안에서 함 -- `_tick` 이 executor
+타이머라 스레드를 넘기지 않음.
+
+열 이름(`obs_names`)과 관절 순서는 `/huphy/debug/policy_info` 로 **시작할 때 한
+번** 냄. `transient_local` 이라 `log_node` 를 나중에 띄워도 받음. 그 값을 보내는
+이유: `log_node` 가 정책 꾸러미를 다시 읽어 이름을 만들면 두 곳에서 만드는 것이
+되어 어긋날 수 있음.
 """
 
 from __future__ import annotations
 
 import math
+import time
 from pathlib import Path
 from typing import Optional
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import Twist, Vector3Stamped
+from huphy_ros_interfaces.msg import PolicyInfo, PolicyRow
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import Imu, JointState
 from std_msgs.msg import Float64
 from std_srvs.srv import Trigger
@@ -85,6 +106,13 @@ VELOCITY_COMMANDS = ("vx", "vy", "wz")
 OFF, APPROACH, READY, RUNNING = "off", "approach", "ready", "running"
 """네 단계. `policy_status` 의 `stage` 에 그대로 나감."""
 
+INFO_QOS = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+"""한 번만 내고 끝나는 값에 쓰는 QoS. **나중에 뜬 구독자도 마지막 것을 받음.**
+
+`log_node` 를 정책 노드보다 늦게 띄워도 열 이름을 받게 하려는 것임. 깊이 1 --
+값이 바뀌지 않으므로 이력이 필요 없음.
+"""
+
 
 class PolicyNode(Node):
     def __init__(self) -> None:
@@ -99,6 +127,7 @@ class PolicyNode(Node):
         self.declare_parameter("state_stale_ms", POLICY_STATE_STALE_S * 1000.0)
         self.declare_parameter("approach_s", 3.0)
         self.declare_parameter("cmd_timeout_s", 0.5)
+        self.declare_parameter("debug", False)
 
         folder = self.get_parameter("policy").value
         if not folder:
@@ -129,11 +158,30 @@ class PolicyNode(Node):
         self.approach_motion = None
         self.hold_pose: dict = {}
         self.emitted = 0
+        self._row_t0: Optional[float] = None
+        """`PolicyRow.t` 의 기준. **정책이 처음 불릴 때** 잡고 꺼질 때 비움 --
+        기록의 `t` 는 "첫 추론부터 흐른 초" 임 (`telemetry/policy_log.py`)."""
 
         self.targets_pub = self.create_publisher(
             JointState, "/huphy/joint_targets", qos_profile_sensor_data)
         self.status_pub = self.create_publisher(
             DiagnosticArray, "/huphy/policy_status", 10)
+
+        # 기록용. debug 를 안 켜면 만들지 않고, _tick 이 None 을 보고 건너뜀.
+        self.row_pub = None
+        if bool(self.get_parameter("debug").value):
+            self.info_pub = self.create_publisher(
+                PolicyInfo, "/huphy/debug/policy_info", INFO_QOS)
+            self.row_pub = self.create_publisher(
+                PolicyRow, "/huphy/debug/policy_row", qos_profile_sensor_data)
+            self.info_pub.publish(PolicyInfo(
+                policy=self.policy.name,
+                checkpoint=str(checkpoint or self.policy.default_checkpoint),
+                hz=self.hz,
+                approach_s=self.approach_s,
+                obs_names=list(self.policy.obs_names),
+                joint_names=list(self.policy.order),
+            ))
         self.create_subscription(
             JointState, "/huphy/joint_states", self._on_joints, qos_profile_sensor_data)
         self.create_subscription(
@@ -215,6 +263,7 @@ class PolicyNode(Node):
         self.approach_motion = approach(self.hold_pose, start, self.approach_s)
         self.started_at = self._now()
         self.stage = APPROACH
+        self._publish_status()               # 5Hz 타이머를 기다리지 않음 (아래 설명)
         response.success = True
         response.message = (
             f"{self.approach_s:.0f}초에 걸쳐 기준 자세로. 도착하면 붙잡고 기다림 -> start_policy")
@@ -238,6 +287,8 @@ class PolicyNode(Node):
             return response
         self.runner.reset()                  # 이력·직전 행동을 지금부터 새로 쌓음
         self.stage = RUNNING
+        self._row_t0 = None                  # 기록의 t 를 이 실행의 첫 추론부터 셈
+        self._publish_status()
         self.get_logger().info("정책 시작")
         response.success = True
         response.message = "정책 시작"
@@ -248,6 +299,7 @@ class PolicyNode(Node):
         self.stage = OFF
         self.approach_motion = None
         self.started_at = None
+        self._publish_status()
         response.success = True
         response.message = "멈춤. 목표각을 안 냄 -> 모션보드가 감쇠로 들어감"
         return response
@@ -272,6 +324,7 @@ class PolicyNode(Node):
                 self._emit(self.approach_motion(elapsed, observation))
                 return
             self.stage = READY
+            self._publish_status()
             self.get_logger().info("기준 자세 도착. 붙잡고 기다림 -- start_policy 로 정책 시작")
         if self.stage == READY:
             # 기준 자세를 계속 냄. 안 내면 모션보드가 100ms 뒤 감쇠로 떨어짐.
@@ -281,6 +334,41 @@ class PolicyNode(Node):
         targets = self._infer(observation)
         if targets is not None:
             self._emit(targets)
+            if self.row_pub is not None:
+                self._publish_row(targets, observation)
+
+    def _publish_row(self, targets, observation) -> None:
+        """추론 한 번을 `PolicyRow` 로. `log_node` 가 그대로 기록의 한 줄로 씀.
+
+        관찰 벡터와 모델 출력은 `deploy.Runner` 가 `step` 안에서 써 둔 것임
+        (`control/deploy.py` 의 `last_vector`/`last_action`) -- 모델을 감싸지 않고
+        읽음.
+
+        `t` 는 **이 노드의 시계**로 첫 추론부터 흐른 초임. 받는 쪽이 도착 시각으로
+        찍으면 추론 간격의 지터가 아니라 DDS 지연이 섞임.
+
+        기록이 제어를 막으면 안 되므로 예외는 한 번만 알리고 발행을 끔.
+        """
+        vector = self.runner.last_vector
+        if vector is None:
+            return
+        now = time.monotonic()
+        if self._row_t0 is None:
+            self._row_t0 = now
+        try:
+            msg = PolicyRow()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.t = now - self._row_t0
+            msg.obs = [float(v) for v in vector]
+            msg.action = [float(v) for v in self.runner.last_action]
+            msg.target_deg = [float(targets.get(j, float("nan"))) for j in self.policy.order]
+            msg.measured_deg = [
+                float(observation.get(f"{j}.pos", float("nan"))) for j in self.policy.order
+            ]
+            self.row_pub.publish(msg)
+        except Exception as e:                # noqa: BLE001
+            self.row_pub = None
+            self.get_logger().error(f"기록 발행 실패. 기록만 끔 (정책은 계속 돎): {e}")
 
     def _infer(self, observation):
         """한 번 추론. 관찰이 모자라면 `None`.
@@ -318,6 +406,15 @@ class PolicyNode(Node):
         return self.get_clock().now().nanoseconds * 1e-9
 
     def _publish_status(self) -> None:
+        """상태 한 번. `STATUS_HZ`(5Hz) 타이머와 **단계 전이 직후** 불림.
+
+        전이 때 따로 부르는 이유: `control_node` 가 `message`(단계)를 보고 지연을
+        어느 구간만 기록할지 가림. 5Hz 만 쓰면 `running` 진입을 최대 200ms 늦게
+        알아, 100Hz 기준 접근·대기 20주기가 기록에 섞임.
+
+        `hardware_id` 에 정책 이름이 들어감 -- `log_node` 가 그 이름으로 두 기록
+        파일의 이름을 지음.
+        """
         pairs = {
             "stage": self.stage,
             "joint_age_s": f"{self.joints.age():.3f}",

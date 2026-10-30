@@ -1,4 +1,4 @@
-"""추종 기록 -- 매 주기 **관절 목표각과 실측각**을 CSV 로 남김. `huphy-test --log`.
+"""추종 기록 -- 매 주기 **관절 목표각과 실측각**을 JSON 으로 남김. `huphy-test --log`.
 
     t              첫 주기부터 흐른 초
     tgt/<관절>     실제로 나간 관절 목표각 (도). 가드가 자른 뒤 값
@@ -10,10 +10,11 @@
 로 그대로 열림. 목표가 고정(`zero`, `pose`)이면 실측이 거기로 어떻게 다가가고 얼마나
 처지는지가 보임.
 
-## 가동범위 줄
+## 파일 모양
 
-첫 줄이 `#` 로 시작하는 범위 줄임 (`# limits right_leg/knee=6:114 ...`). 뷰어가 관절
-그래프를 가동범위로 정규화하는 데 씀. pandas 로 읽을 때는 `comment="#"` 을 줄 것.
+`run_name.write` 가 정함 -- `columns` 에 위 열 이름, `rows` 에 한 주기 한 줄, `run` 에
+이 실행의 인자, `limits` 에 관절 가동범위(`{"right_leg/knee": [6, 114], ...}`, 도).
+뷰어가 `limits` 로 관절 그래프를 가동범위로 정규화함.
 
     모터 관절   캘리브레이션의 limits_deg
     발목 관절   ankle_pitch/ankle_roll 은 IK 시험 범위 (`AnkleEnvelope`)
@@ -59,7 +60,6 @@
 
 from __future__ import annotations
 
-import csv
 import logging
 import time
 from pathlib import Path
@@ -230,15 +230,9 @@ def joint_limits(robot: Any) -> Dict[str, Tuple[float, float]]:
                 out[prefix + "ankle_pitch"] = tuple(map(float, envelope.pitch_deg))
                 out[prefix + "ankle_roll"] = tuple(map(float, envelope.roll_deg))
     except Exception as e:                    # 관측이 기록을 막으면 안 됨
-        logger.warning("가동범위를 못 읽음 (범위 줄 없이 씀): %s", e)
+        logger.warning("가동범위를 못 읽음 (limits 칸 없이 씀): %s", e)
         return {}
     return out
-
-
-def write_limits(f, limits: Dict[str, Tuple[float, float]]) -> None:
-    """`# limits 이름=최소:최대 ...` 한 줄. 범위가 없으면 안 씀."""
-    if limits:
-        f.write("# limits " + " ".join(f"{k}={lo:g}:{hi:g}" for k, (lo, hi) in limits.items()) + "\n")
 
 
 def columns(order: Optional[Sequence[str]], imu_cols: Optional[Sequence[str]], has_tgt: bool) -> tuple:

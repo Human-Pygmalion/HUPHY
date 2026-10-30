@@ -3,7 +3,7 @@
     지연 = 응답 도착 시각(수신 스레드가 찍음) - 그 명령 묶음을 보내기 직전 시각
 
 `RobStrideBus.latency` 에 붙어서 모터마다 보낸 횟수와 응답의 지연을 모음. 끝나면
-CSV 로 쓰고 터미널에 요약을 찍음. `tools/latency_viewer.html` 로 열면 관절별·전체
+JSON 으로 쓰고 터미널에 요약을 찍음. `tools/latency_viewer.html` 로 열면 관절별·전체
 히스토그램이 나옴.
 
 
@@ -16,11 +16,19 @@ CSV 로 쓰고 터미널에 요약을 찍음. `tools/latency_viewer.html` 로 �
 late 가 많으면 `--drain-ms` 를 늘릴 자리이고, lost 가 많으면 어댑터·배선 쪽임.
 
 
-## CSV
+## 파일 모양
 
-    # drain_ms=4 hz=100            주석 줄. 뷰어가 기준선을 그리는 데 씀
-    t,joint,latency_ms,status      한 줄이 응답 하나
-    ,right_leg/knee,,lost          lost 는 개수만큼 빈 지연으로 씀
+`run_name.write` 가 정함.
+
+    {"run":     {"at": ..., "policy": ..., ...},
+     "meta":    {"drain_ms": 4, "hz": 100},
+     "columns": ["t", "joint", "latency_ms", "status"],
+     "rows":    [[1.2041, "right_leg/knee", 2.6133, "ontime"],
+                 [null, "right_leg/knee", null, "lost"]]}
+
+`meta` 는 뷰어가 기준선을 그리는 데 씀. `rows` 한 줄이 응답 하나이고, `lost` 는
+개수만큼 `t`·`latency_ms` 가 `null` 인 줄로 들어감 -- 받은 줄과 칸 모양이 같아야
+뷰어가 한 가지 방법으로 읽음.
 
 **수신 스레드가 없는 버스**(다리 하나)는 도착이 아니라 꺼낸 시각이 찍혀 지연이 조금
 크게 나옴. 양다리(`--robot`)는 스레드가 켜져 있음.
@@ -28,7 +36,6 @@ late 가 많으면 `--drain-ms` 를 늘릴 자리이고, lost 가 많으면 어�
 
 from __future__ import annotations
 
-import csv
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
@@ -87,6 +94,42 @@ class LatencyLog:
             self._armed_at = now
         return now - self._armed_at >= self.skip_s
 
+    # ---- 넣기 -------------------------------------------------------------
+    def set_joints(self, names: Iterable[str]) -> None:
+        """관절 이름을 등록. 이미 있는 이름은 건너뜀.
+
+        `attach` 가 버스에서 이름을 읽어 부르고, 버스가 없는 쪽(ROS `log_node` --
+        `ControlInfo` 토픽으로 이름을 받음)은 직접 부름. **등록 순서가 파일의 줄
+        순서**임 (`save` 가 `self.joints` 를 돌며 씀).
+        """
+        for name in names:
+            if name not in self.sent:
+                self.joints.append(name)
+                self.sent[name] = 0
+                self.samples[name] = []
+
+    def note_sent(self, joint: str) -> bool:
+        """송신 하나. 셌으면 참.
+
+        **센 송신만 `sent` 에 올리고, 그 사실을 `_counted` 에 적어 둠** -- 응답
+        쪽이 그것을 보고 셀지 말지 가림. 켜고 끄는 경계에서 송신만 세고 응답은
+        안 세면 가짜 유실이 생김.
+        """
+        if joint not in self.sent:
+            return False
+        counted = self._recording()
+        self._counted[joint] = counted
+        if counted:
+            self.sent[joint] += 1
+        return counted
+
+    def add_sample(self, t: float, joint: str, latency_ms: float, late: bool) -> None:
+        """응답 하나. **센 송신의 응답만 넣음.** 중복 수신은 버림."""
+        if not self._counted.get(joint):
+            return
+        self._counted[joint] = False
+        self.samples[joint].append((float(t), float(latency_ms), bool(late)))
+
     # ---- 붙이기 -----------------------------------------------------------
     def attach(self, robot: Any) -> "LatencyLog":
         """다리 하나든 `Biped` 든 그 안의 버스에 전부 붙임."""
@@ -96,11 +139,7 @@ class LatencyLog:
                 mid: f"{part.id}/{part.config.joint_of(mid) or mid}"
                 for mid in bus.motor_ids
             }
-            for name in names.values():
-                if name not in self.sent:
-                    self.joints.append(name)
-                    self.sent[name] = 0
-                    self.samples[name] = []
+            self.set_joints(names.values())
             bus.latency = _BusSink(self, names)
         return self
 
@@ -177,20 +216,15 @@ class _BusSink:
 
     def sent(self, mid: int) -> None:
         name = self.names.get(mid)
-        if name is None:
-            return
-        counted = self.log._recording()
-        self.log._counted[name] = counted
-        if counted:
-            self.log.sent[name] += 1
+        if name is not None:
+            self.log.note_sent(name)
 
     def received(self, mid: int, latency_s: float, late: bool) -> None:
         name = self.names.get(mid)
-        if name is None or not self.log._counted.get(name):
+        if name is None:
             return
-        self.log._counted[name] = False      # 응답 하나만 셈. 중복 수신은 버림
         t = time.monotonic() - self.log._t0
-        self.log.samples[name].append((t, latency_s * 1000.0, late))
+        self.log.add_sample(t, name, latency_s * 1000.0, late)
 
 
 def _row(name: str, lat: Iterable[float], sent: int, late: int, lost: int) -> str:
@@ -206,5 +240,5 @@ def _row(name: str, lat: Iterable[float], sent: int, late: int, lost: int) -> st
 
 
 def default_path(directory: "str | Path", name: str, parts=()) -> Path:
-    """`<폴더>/<월일>_latency_<이름>[_<인자들>].csv`. 규칙은 `run_name` 에 있음."""
+    """`<폴더>/latency/<월일>_latency_<이름>[_<인자들>].json`. 규칙은 `run_name` 에 있음."""
     return run_name.path(directory, "latency", name, parts)

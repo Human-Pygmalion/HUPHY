@@ -129,3 +129,61 @@ class TestOutput:
         bus.collect()
         out = log.summary()
         assert "left_leg/knee" in out and "left_leg/hip_pitch" in out and "전체" in out
+
+
+class TestOutsideEntry:
+    """버스 없이 밖에서 넣는 길 (`set_joints`/`note_sent`/`add_sample`).
+
+    ROS `log_node` 가 쓰는 입구임 -- 모터가 다른 기계에 있어서 버스에 붙을 수
+    없고, `control_node` 가 토픽으로 보낸 사건을 받아 넣음. **버스에 붙여 모은
+    것과 같은 파일이 나와야** 두 경로 기록을 비교할 수 있음.
+    """
+
+    def test_the_file_matches_what_the_bus_path_collects(self, rig, tmp_path):
+        clock, stub, bus, log = rig
+        send(bus, clock, 10.0)
+        stub.queue = [frame(1, 10.002)]             # knee 는 제때, hip_pitch 는 유실
+        bus.collect()
+        by_bus = json.loads(log.save(tmp_path / "bus.json").read_text())
+
+        outside = LatencyLog(drain_ms=4, hz=100)
+        outside.set_joints(log.joints)
+        for joint in log.joints:
+            outside.note_sent(joint)
+        for joint, rows in log.samples.items():
+            for t, ms, late in rows:
+                outside.add_sample(t, joint, ms, late)
+        by_topic = json.loads(outside.save(tmp_path / "topic.json").read_text())
+
+        assert by_topic["columns"] == by_bus["columns"]
+        assert by_topic["meta"] == by_bus["meta"]
+        assert by_topic["rows"] == by_bus["rows"]
+
+    def test_a_reply_without_a_counted_send_is_dropped(self):
+        """응답만 들어오면 안 셈. 기록을 켠 순간 날아오던 응답이 섞이면 받은 수가
+        보낸 수보다 커져 유실이 음수가 됨."""
+        log = LatencyLog()
+        log.set_joints(["knee"])
+        log.add_sample(0.1, "knee", 2.0, False)
+        assert log.samples["knee"] == []
+        assert log.counts("knee") == (0, 0, 0)
+
+    def test_one_send_counts_one_reply(self):
+        log = LatencyLog()
+        log.set_joints(["knee"])
+        log.note_sent("knee")
+        log.add_sample(0.1, "knee", 2.0, False)
+        log.add_sample(0.2, "knee", 9.0, False)     # 중복 수신
+        assert log.counts("knee") == (1, 0, 0)
+
+    def test_an_unknown_joint_is_ignored(self):
+        log = LatencyLog()
+        log.set_joints(["knee"])
+        assert log.note_sent("elbow") is False
+        assert log.joints == ["knee"]
+
+    def test_set_joints_keeps_the_first_order(self):
+        log = LatencyLog()
+        log.set_joints(["b", "a"])
+        log.set_joints(["a", "c"])
+        assert log.joints == ["b", "a", "c"]

@@ -24,6 +24,8 @@ def generate_launch_description():
         DeclareLaunchArgument("send_mode", default_value="burst"),
         DeclareLaunchArgument("target_stale_ms", default_value="100.0"),
         DeclareLaunchArgument("allow_uncalibrated", default_value="false"),
+        # 기록용 토픽. 켜야 log_node 가 지연을 받음 (log.launch.py)
+        DeclareLaunchArgument("debug", default_value="false"),
         Node(
             package="huphy_ros",
             executable="control_node",
@@ -36,6 +38,7 @@ def generate_launch_description():
                 "send_mode": LaunchConfiguration("send_mode"),
                 "target_stale_ms": LaunchConfiguration("target_stale_ms"),
                 "allow_uncalibrated": LaunchConfiguration("allow_uncalibrated"),
+                "debug": LaunchConfiguration("debug"),
             }],
             output="screen",
             emulate_tty=True,

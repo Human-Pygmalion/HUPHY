@@ -28,6 +28,7 @@ setup(
             "policy_node = huphy_ros.policy_node:main",
             "teleop_node = huphy_ros.teleop_node:main",
             "gamepad_node = huphy_ros.gamepad_node:main",
+            "log_node = huphy_ros.log_node:main",
         ],
     },
 )

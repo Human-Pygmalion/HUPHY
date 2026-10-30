@@ -32,6 +32,28 @@
 ## 토크는 명시해야 들어감
 
 기본이 `OBSERVE` 임. 파라미터를 빠뜨렸을 때 안 움직이는 쪽으로 떨어지게 함.
+
+## 기록 (`debug` 파라미터)
+
+`debug:=true` 면 두 가지를 냄.
+
+    /huphy/debug/control_info   시작할 때 한 번. 주기·수거 대기·관절 이름·가동범위
+    /huphy/debug/latency        100Hz. 송신·수신 사건 묶음
+
+**파일은 안 씀.** 쓰는 것은 `log_node` 임 -- 기계가 둘이라(`ros/README.md` 결정 13)
+여기서 쓰면 지연 기록만 모션보드에 남고 정책 기록은 작업 기계에 남음.
+
+`control_info` 에 가동범위를 싣는 이유: 그 값은 캘리브레이션 파일에서 오고
+(`calibration/store.py`) 그 파일은 **이 기계에만** 있음. 다른 기계의 `log_node` 가
+기록의 `limits` 칸을 채울 길이 이것뿐임.
+
+**구간을 안 고름.** 모든 주기를 흘려 보내고, 정책이 도는 구간만 세는 것은
+`log_node` 가 `policy_status` 의 단계를 보고 함. `huphy-run` 은 한 프로세스라
+`LatencyLog` 를 켜고 끄지만(`active=False`, `loop.on_settle`), 여기서는 단계를 아는
+쪽이 다른 기계에 있음.
+
+사건을 큐에 담는 것은 `latency_tap.py` 가 하고, 발행은 `_publish` 타이머가 함 --
+제어 스레드에서 `publish()` 를 부르지 않는 것은 관찰과 같은 이유임 (아래 `_publish`).
 """
 
 from __future__ import annotations
@@ -43,8 +65,9 @@ from typing import Optional
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import Vector3Stamped
+from huphy_ros_interfaces.msg import ControlInfo, LatencyBatch
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import Imu, JointState
 from std_srvs.srv import Trigger
 
@@ -54,11 +77,26 @@ from huphy.robots.leg import SEND_BURST, SEND_MODES, HostIdError
 from huphy.scripts.bringup import build_biped, build_leg
 from huphy.scripts.commission import all_legs
 
-from . import convert, logbridge
+from huphy.telemetry.track_log import joint_limits
+
+from . import convert, latency_tap, logbridge
 from .freshness import CONTROL_TARGET_STALE_S, Freshness, Latest
 
 STATUS_HZ = 5.0
 """`loop_status` 를 내보내는 주기. 사람이 보는 값이라 느려도 됨."""
+
+nan = float("nan")
+"""가동범위가 안 정해진 관절의 자리. `log_node` 가 그런 관절은 `limits` 칸에서 뺌.
+
+`joint_limits` 는 한계가 없는 관절을 아예 빼지만(`telemetry/track_log.py`),
+`ControlInfo` 의 세 배열은 길이가 같아야 해서 자리를 비워 둘 수 없음.
+"""
+
+INFO_QOS = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+"""한 번만 내고 끝나는 값에 쓰는 QoS. **나중에 뜬 구독자도 마지막 것을 받음.**
+
+`log_node` 를 제어 노드보다 늦게 띄워도 관절 이름과 가동범위를 받게 하려는 것임.
+"""
 
 ENABLE_SETTLE_S = 0.3
 """`enable` 서비스가 루프를 띄운 뒤 살아 있는지 보기 전에 기다리는 시간.
@@ -89,6 +127,7 @@ class ControlNode(Node):
         self.declare_parameter("send_mode", SEND_BURST)
         self.declare_parameter("target_stale_ms", CONTROL_TARGET_STALE_S * 1000.0)
         self.declare_parameter("allow_uncalibrated", False)
+        self.declare_parameter("debug", False)
 
         path = self.get_parameter("config").value
         if not path:
@@ -140,6 +179,28 @@ class ControlNode(Node):
             Vector3Stamped, "/huphy/gravity", qos_profile_sensor_data)
         self.status_pub = self.create_publisher(
             DiagnosticArray, "/huphy/loop_status", 10)
+
+        # 기록용. debug 를 안 켜면 버스에 붙지도 않음 -- 안 붙으면 버스가 시각을
+        # 재지도 않음 (`motors/robstride/bus.py` 의 `latency`).
+        self.taps = None
+        self.batch_pub = None
+        if bool(self.get_parameter("debug").value):
+            self.taps = latency_tap.TapSet(self.robot)
+            self.batch_pub = self.create_publisher(
+                LatencyBatch, "/huphy/debug/latency", qos_profile_sensor_data)
+            limits = joint_limits(self.robot)
+            info_pub = self.create_publisher(
+                ControlInfo, "/huphy/debug/control_info", INFO_QOS)
+            info_pub.publish(ControlInfo(
+                robot=self.robot.id,
+                hz=self.hz,
+                drain_ms=float(self.get_parameter("drain_ms").value),
+                send_mode=send_mode,
+                joint_names=list(self.taps.joints),
+                limit_lo_deg=[float(limits.get(j, (nan, nan))[0]) for j in self.taps.joints],
+                limit_hi_deg=[float(limits.get(j, (nan, nan))[1]) for j in self.taps.joints],
+            ))
+            self.info_pub = info_pub
         self.create_subscription(
             JointState, "/huphy/joint_targets", self._on_targets,
             qos_profile_sensor_data)
@@ -173,6 +234,10 @@ class ControlNode(Node):
 
     def shutdown(self) -> None:
         self._stop_loop()
+        if self.taps is not None:
+            # 루프를 멈춘 뒤에 뗌. 먼저 떼면 감쇠 구간의 송신이 안 세어져
+            # 받은 수가 보낸 수보다 커짐.
+            self.taps.detach(self.robot)
         self.robot.disconnect()
 
     def _run_loop(self, mode: Mode) -> None:
@@ -308,6 +373,13 @@ class ControlNode(Node):
 
     # ---- 발행 -------------------------------------------------------------
     def _publish(self) -> None:
+        """`state_hz` 타이머. **ROS executor 스레드에서 돎.**
+
+        제어 스레드에서 `publish()` 를 부르지 않음 -- 직렬화와 DDS 가 제어 주기
+        안에 들어감. 제어 스레드는 관찰을 `Latest` 에, 지연 사건을 큐에 써 두고
+        여기서 꺼냄.
+        """
+        self._publish_latency()              # 관찰이 없어도 내보내야 함
         observation = self.observation.take()
         if not observation:
             return
@@ -339,6 +411,29 @@ class ControlNode(Node):
             g.vector.x, g.vector.y, g.vector.z = gravity
             self.gravity_pub.publish(g)
 
+    def _publish_latency(self) -> None:
+        """큐에 쌓인 송신·수신 사건을 한 메시지로 냄. 없으면 안 냄.
+
+        한 번에 24개 정도임 (관절 12개 x 송신+수신, 한 주기분). 주기가 밀리면 더
+        쌓이고, `latency_tap.MAX_EVENTS` 를 넘으면 오래된 것이 버려짐 -- 쌓인
+        길이는 상태 토픽의 `latency_pending` 으로 보임.
+
+        **고르지 않고 전부 보냄.** 정책이 도는 구간만 세는 것은 `log_node` 가
+        `policy_status` 의 단계를 보고 함.
+        """
+        if self.batch_pub is None or self.taps is None:
+            return
+        events = self.taps.drain()
+        if not events:
+            return
+        msg = LatencyBatch()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.t = [e[0] for e in events]
+        msg.joint = [e[1] for e in events]
+        msg.latency_ms = [e[2] for e in events]
+        msg.kind = [e[3] for e in events]
+        self.batch_pub.publish(msg)
+
     def _publish_status(self) -> None:
         loop, stats = self.loop, getattr(self.loop, "stats", None)
         pairs = {
@@ -348,6 +443,10 @@ class ControlNode(Node):
             "target_stale_count": str(self.targets.stale_count),
             "stopped_by_stale": str(self.stopped_by_stale),
         }
+        if self.taps is not None:
+            # 24 안쪽이 정상. MAX_EVENTS 에 붙어 있으면 발행이 밀려 오래된 사건을
+            # 버리는 중임 (`latency_tap.py`).
+            pairs["latency_pending"] = str(self.taps.pending)
         if stats is not None:
             pairs.update({
                 "cycles": str(stats.cycles),

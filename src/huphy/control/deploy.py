@@ -379,6 +379,14 @@ class Runner:
     def reset(self) -> None:
         self.history: List[Dict[str, float]] = []
         self.last_action = [0.0] * len(self.policy.order)
+        self.last_vector: Optional[np.ndarray] = None
+        """직전 `step` 이 모델에 넣은 관찰 벡터. 아직 안 불렸으면 `None`.
+
+        `last_action` 은 다음 관찰의 `last_action` 칸에 쓰이지만 이것은 **쓰이지
+        않음** -- 기록·발행하는 쪽이 모델이 본 숫자를 꺼내 가려고 둔 것임
+        (`huphy-run` 은 `PolicyLog.wrap_model` 로 가로채고, ROS 쪽
+        `policy_node` 는 여기서 읽음).
+        """
 
     def step(self, observation: Dict[str, Any], imu_state: Any) -> Dict[str, float]:
         p = self.policy
@@ -388,6 +396,7 @@ class Runner:
         command = self.commands.step(1.0 / p.hz)
         frame = Frame(observation, imu_state, list(self.history), self.last_action, command)
         vector = p.observation_vector(frame)
+        self.last_vector = vector
         action = self.model(vector)
         self.last_action = [float(v) for v in action]
         return p.joint_targets(self.last_action)

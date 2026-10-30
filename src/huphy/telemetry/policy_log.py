@@ -1,4 +1,4 @@
-"""정책 입출력 기록 -- 모델이 **실제로 본 숫자와 낸 숫자**를 CSV 로 남김.
+"""정책 입출력 기록 -- 모델이 **실제로 본 숫자와 낸 숫자**를 JSON 으로 남김.
 
     t                  첫 정책 호출부터 흐른 초
     obs/...            모델 입력 그대로 (정규화 전, 라디안 단위)
@@ -7,8 +7,9 @@
     pos/<관절>         그 순간의 실측 관절각 (도)
     extra/<모터>/<값>  추가 값 (iq A, temp C, vbus V). `--extra` 를 켰을 때만 (`track_log`)
 
-`tools/policy_viewer.html` 로 열면 재생하듯 볼 수 있음. 첫 줄은 `# limits ...` 가동범위
-줄이고 그 아래가 헤더가 있는 평범한 CSV 임 -- pandas 는 `comment="#"` 로 읽을 것.
+`tools/policy_viewer.html` 로 열면 재생하듯 볼 수 있음. 파일 모양은 `run_name.write`
+가 정함 -- `columns` 에 열 이름, `rows` 에 한 주기 한 줄, `limits` 에 관절 가동범위,
+`run` 에 이 실행의 인자.
 
 
 ## 두 군데를 감쌈
@@ -32,7 +33,6 @@ motion 만 감싸면 모델이 본 벡터를 모름. 그래서 둘 다 감싸고
 
 from __future__ import annotations
 
-import csv
 import logging
 import time
 from pathlib import Path
@@ -41,7 +41,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 import numpy as np
 
 from . import run_name
-from .track_log import extra_values, joint_limits, write_limits
+from .track_log import extra_values, joint_limits
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +49,25 @@ logger = logging.getLogger(__name__)
 class PolicyLog:
     """정책 한 번 실행의 입출력 기록."""
 
-    def __init__(self, obs_names: Sequence[str], order: Sequence[str], *, robot: Any = None) -> None:
+    def __init__(
+        self,
+        obs_names: Sequence[str],
+        order: Sequence[str],
+        *,
+        robot: Any = None,
+        limits: Optional[Mapping[str, Sequence[float]]] = None,
+    ) -> None:
         self.obs_names = tuple(obs_names)
-        self.limits = joint_limits(robot)
-        """관절 가동범위. 파일 첫 줄(`# limits ...`)로 남아 뷰어가 정규화에 씀."""
+        self.limits = (
+            joint_limits(robot) if limits is None
+            else {k: (float(v[0]), float(v[1])) for k, v in limits.items()}
+        )
+        """관절 가동범위. 파일의 `limits` 칸으로 남아 뷰어가 정규화에 씀.
+
+        `robot` 을 주면 그 로봇에서 읽음 (`huphy-run`). 로봇 객체가 없는 쪽은
+        `limits` 로 직접 줌 -- ROS `log_node` 는 모터가 다른 기계에 있어서
+        캘리브레이션 파일을 못 읽고, `control_node` 가 토픽으로 보낸 값을 씀.
+        """
         self.order = tuple(order)
         self.base_columns = (
             ("t",)
@@ -119,14 +134,59 @@ class PolicyLog:
         now = time.monotonic()
         if self._t0 is None:
             self._t0 = now
-        row = [now - self._t0] + pending
-        row += [float(targets.get(j, float("nan"))) for j in self.order]
-        row += [float(observation.get(f"{j}.pos", float("nan"))) for j in self.order]
-        extra = extra_values(observation)
+        n_obs = len(self.obs_names)
+        self._append(
+            now - self._t0,
+            pending[:n_obs],
+            pending[n_obs:],
+            [targets.get(j, float("nan")) for j in self.order],
+            [observation.get(f"{j}.pos", float("nan")) for j in self.order],
+            extra_values(observation),
+        )
+
+    # ---- 줄 만들기 ---------------------------------------------------------
+    def _append(self, t, obs, act, tgt, pos, extra: Mapping[str, float]) -> None:
+        """한 줄을 `rows` 에 넣음. **열 순서를 정하는 곳은 여기 하나임.**
+
+        `base_columns` 와 같은 순서여야 함 -- `t`, `obs/*`, `act/*`, `tgt/*`,
+        `pos/*`, `extra/*`. 들어오는 길이 둘(`_finish` 와 `add_row`)이 같은 파일을
+        내야 하므로 조립은 한 곳에서만 함.
+
+        `extra_cols` 는 첫 줄의 `extra` 로 정해짐. `--extra` 를 안 켰으면 빈 것임.
+        """
+        row = [float(t)] + [float(v) for v in obs] + [float(v) for v in act]
+        row += [float(v) for v in tgt]
+        row += [float(v) for v in pos]
         if self.extra_cols is None:
             self.extra_cols = tuple(extra)
-        row += [extra.get(c, float("nan")) for c in self.extra_cols]
+        row += [float(extra.get(c, float("nan"))) for c in self.extra_cols]
         self.rows.append(row)
+
+    def add_row(self, t: float, obs, action, target_deg, measured_deg) -> None:
+        """완성된 한 줄을 그대로 넣음. **감싸는 것 없이 밖에서 넣는 입구.**
+
+        `wrap_model`/`wrap_motion` 은 모델과 motion 호출을 가로채 줄을 만드는데,
+        가로챌 것이 없는 쪽(ROS `log_node` -- 토픽으로 숫자를 받음)이 쓸 입구가
+        필요해서 둠. 같은 `_append` 를 거치므로 두 길이 같은 파일을 냄.
+
+            t             초. **부르는 쪽이 찍은 상대 시각**을 그대로 씀. 여기서
+                          `time.monotonic()` 을 찍으면 추론한 기계의 주기 지터가
+                          아니라 이 프로세스의 수신 지터가 됨
+            obs           `obs_names` 개수. 정규화 전
+            action        `order` 개수. 모델 출력 날값
+            target_deg    `order` 개수. 관절 목표각 (도)
+            measured_deg  `order` 개수. 실측 관절각 (도)
+
+        길이가 다르면 멈춤 -- 그대로 넣으면 열이 밀려 뷰어가 다른 관절의 그래프를
+        그림. `extra/` 는 이 길로는 안 들어감 (`--extra` 가 ROS 쪽에 없음).
+        """
+        n_obs, n_act = len(self.obs_names), len(self.order)
+        sizes = ((obs, n_obs, "obs"), (action, n_act, "action"),
+                 (target_deg, n_act, "target_deg"), (measured_deg, n_act, "measured_deg"))
+        bad = [f"{name} {len(v)}/{want}" for v, want, name in sizes if len(v) != want]
+        if bad:
+            raise ValueError(f"기록 칸이 안 맞음: {', '.join(bad)}")
+        self._append(t, obs, action, target_deg, measured_deg, {})
 
     def _fail(self, e: Exception) -> None:
         self.errors += 1
@@ -152,5 +212,5 @@ class PolicyLog:
 
 
 def default_path(directory: "str | Path", policy_name: str, parts=()) -> Path:
-    """`<폴더>/<월일>_policy_<이름>[_<인자들>].csv`. 규칙은 `run_name` 에 있음."""
+    """`<폴더>/policy/<월일>_policy_<이름>[_<인자들>].json`. 규칙은 `run_name` 에 있음."""
     return run_name.path(directory, "policy", policy_name, parts)

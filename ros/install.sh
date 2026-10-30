@@ -147,8 +147,15 @@ step "6. 확인"
 set +u; source "$WS/install/setup.bash"; set -u
 ros2 pkg list 2>/dev/null | grep -qx huphy_ros || die "ros2 가 huphy_ros 를 못 찾음"
 ok "ros2 pkg list 에 huphy_ros"
+# 기록용 메시지 패키지. 없으면 노드가 import 에서 죽음.
+ros2 pkg list 2>/dev/null | grep -qx huphy_ros_interfaces \
+  || die "ros2 가 huphy_ros_interfaces 를 못 찾음 (ros/huphy_ros_interfaces 빌드 실패)"
+ok "ros2 pkg list 에 huphy_ros_interfaces"
 "$PY" -c "import huphy, huphy_ros" || die "import huphy, huphy_ros 실패"
 ok "import huphy, huphy_ros"
+"$PY" -c "from huphy_ros_interfaces.msg import PolicyRow, LatencyBatch" \
+  || die "기록용 메시지를 import 못 함"
+ok "기록용 메시지 import"
 [ "$(head -1 "$node")" = "#!$PY" ] || die "노드가 가상환경 파이썬으로 빌드되지 않음: $(head -1 "$node")"
 ok "노드가 가상환경 파이썬으로 돎"
 

@@ -78,3 +78,59 @@ class TestLog:
     def test_default_path_carries_the_arguments(self, tmp_path):
         path = default_path(tmp_path, "generalized_walk", ["g0.3", "vx0.3"])
         assert path.name.endswith("_policy_generalized_walk_g0.3_vx0.3.json")
+
+
+class TestOutsideEntry:
+    """감싸지 않고 밖에서 넣는 길 (`add_row`).
+
+    ROS `log_node` 가 쓰는 입구임 -- 모델을 안 부르고 `PolicyRow` 토픽으로 완성된
+    줄을 받음. **감싸서 모은 것과 같은 파일이 나와야** `huphy-run` 기록과 비교할
+    수 있음.
+    """
+
+    def test_the_file_matches_what_wrapping_collects(self, tmp_path):
+        wrapped = PolicyLog(WALK.obs_names, WALK.order)
+        model = wrapped.wrap_model(lambda v: np.full(len(WALK.order), 0.1))
+        motion = wrapped.wrap_motion(WALK.motion(model, FakeImu()))
+        for k in range(3):
+            motion(k * 0.02, gw_observation())
+        by_wrap = json.loads(wrapped.save(tmp_path / "wrap.json").read_text())
+
+        outside = PolicyLog(WALK.obs_names, WALK.order)
+        n_obs, n_act = WALK.obs_dim, len(WALK.order)
+        for row in wrapped.rows:
+            outside.add_row(
+                row[0],
+                row[1:1 + n_obs],
+                row[1 + n_obs:1 + n_obs + n_act],
+                row[1 + n_obs + n_act:1 + n_obs + 2 * n_act],
+                row[1 + n_obs + 2 * n_act:1 + n_obs + 3 * n_act],
+            )
+        by_topic = json.loads(outside.save(tmp_path / "topic.json").read_text())
+
+        assert by_topic["columns"] == by_wrap["columns"]
+        assert by_topic["rows"] == by_wrap["rows"]
+
+    def test_t_is_taken_as_given(self):
+        """부르는 쪽이 찍은 시각을 그대로 씀 -- 추론한 기계의 주기 지터가 남아야 함."""
+        log = PolicyLog(WALK.obs_names, WALK.order)
+        for t in (0.0, 0.02, 0.041):
+            log.add_row(t, [0.0] * WALK.obs_dim, [0.0] * 12, [0.0] * 12, [0.0] * 12)
+        assert [r[0] for r in log.rows] == [0.0, 0.02, 0.041]
+
+    def test_a_wrong_length_stops_instead_of_shifting_columns(self):
+        log = PolicyLog(WALK.obs_names, WALK.order)
+        import pytest
+        with pytest.raises(ValueError, match="obs"):
+            log.add_row(0.0, [0.0] * 3, [0.0] * 12, [0.0] * 12, [0.0] * 12)
+        with pytest.raises(ValueError, match="target_deg"):
+            log.add_row(0.0, [0.0] * WALK.obs_dim, [0.0] * 12, [0.0] * 5, [0.0] * 12)
+        assert len(log) == 0
+
+    def test_limits_can_be_given_without_a_robot(self, tmp_path):
+        """`log_node` 는 모터가 다른 기계에 있어 캘리브레이션을 못 읽음."""
+        log = PolicyLog(WALK.obs_names, WALK.order,
+                        limits={"right_leg/knee": [6, 114]})
+        log.add_row(0.0, [0.0] * WALK.obs_dim, [0.0] * 12, [0.0] * 12, [0.0] * 12)
+        doc = json.loads(log.save(tmp_path / "x.json").read_text())
+        assert doc["limits"] == {"right_leg/knee": [6.0, 114.0]}
