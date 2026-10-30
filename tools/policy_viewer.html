@@ -127,7 +127,7 @@ const $ = (id) => document.getElementById(id);
 
 // ---- 읽기 ---------------------------------------------------------------
 // 가동범위가 안 적힌 예전 기록에 쓰는 값. robot_v1.0 캘리브레이션 limits_deg 와 발목 IK
-// 시험 범위(AnkleEnvelope). 새 기록은 첫 줄 "# limits ..." 의 값을 씀.
+// 시험 범위(AnkleEnvelope). 새 기록은 파일의 "limits" 칸의 값을 씀.
 const DEFAULT_LIMITS = {
   "right_leg/hip_pitch": [-112.75, 17.75], "right_leg/hip_roll": [-19.5, 79.5], "right_leg/hip_yaw": [-40.5, 40.5],
   "right_leg/knee": [6, 114], "right_leg/ankle_a": [-61.88, 61.88], "right_leg/ankle_b": [-61.88, 61.88],

@@ -578,7 +578,8 @@ huphy-test --robot studio             # 웹에서 토크·게인·자세·동작
 ```
 
 **`watch` 만 토크가 없음.** 위치만 읽어 실시간 뷰어에 띄우고(기본으로 켜짐, 포트
-8770), 화면의 녹화 버튼으로 원하는 구간을 `logs/track_live_test_watch_*.csv` 로 남김.
+8770), 화면의 녹화 버튼으로 원하는 구간을 `logs/track/<월일>_track_live_test_watch.json`
+으로 남김.
 다리가 중력에 처지므로 받쳐 두고 할 것.
 
 **`studio` 는 웹에서 조작함.** 힘이 풀린 채로 시작하고 `http://127.0.0.1:8770` 에
@@ -962,7 +963,7 @@ huphy-run --policy huphy_squat --cmd h_star=0.80  # 스쿼트, 0.8914 -> 0.80 m 
 huphy-run --policy huphy_squat --checkpoint 4500  # 같은 꾸러미의 다른 체크포인트
 huphy-run --policy generalized_walk --checkpoint 37400  # 걷기 예전 기본. 지금 기본은 49999 (terrain10 union-DR, 37400 에서 이어 학습)
 
-# 정책 입출력을 logs/policy_<정책>_<시각>.csv 로 남김 (폴더 지정: --log 경로)
+# 정책 입출력을 logs/policy/<월일>_policy_<정책>[_<인자>].json 으로 남김 (폴더 지정: --log 경로)
 huphy-run --policy generalized_walk --cmd vx=0.5 --log
 
 # 권장 -- 50Hz, 수거 대기 4ms, 게인 나머지 0.5배 · 발목 0.8배
@@ -1019,11 +1020,14 @@ W 와 A 를 같이 누르면 앞으로 가면서 돎. 창이 포커스를 잃으
 에 넣으면 끝임. 계약에 이 코드가 모르는 관찰 항목(`func`)이 있으면 모터를 켜기 전에
 멈추고, 그때만 `control/deploy.py` 의 `OBSERVATIONS` 에 함수를 하나 더하면 됨.
 
-`--log` 파일은 모델이 본 관찰(정규화 전), 모델 출력, 관절 목표각·실측각을 정책
-호출마다 한 줄씩 담음. `tools/policy_viewer.html` 을 브라우저로 열고 파일을 끌어다
-놓으면 재생하듯 볼 수 있음 (인터넷 없이 열림).
+`--log` 파일은 JSON 하나임. `columns` 에 열 이름을 한 번 적고 `rows` 에 정책 호출마다
+한 줄씩 값을 담음 -- 모델이 본 관찰(정규화 전), 모델 출력, 관절 목표각·실측각. 그 밖에
+`run` 에 이 실행이 무엇이었는지(시각·정책·체크포인트·게인 배율·주기·명령값)를,
+`limits` 에 관절 가동범위를 담음. 파일 이름에서 뺀 기본값도 `run` 에는 다 들어감.
+`tools/policy_viewer.html` 을 브라우저로 열고 파일을 끌어다 놓으면 재생하듯 볼 수 있음
+(인터넷 없이 열림). 열 목록은 [`tools/README.md`](tools/README.md).
 
-같은 폴더에 `latency_<이름>_<시각>.csv` 도 남음. 관절마다 **명령을 보낸 때부터
+`logs/latency/<월일>_latency_<정책>[_<인자>].json` 도 같이 남음. 관절마다 **명령을 보낸 때부터
 응답이 도착한 때까지**의 지연이고, 끝날 때 관절별 p50/p95/p99·늦음·유실 표를 찍음.
 `tools/latency_viewer.html` 로 열면 관절별·전체 히스토그램이 나옴 (빨간 점선이
 `--drain-ms`). 늦음이 많으면 `--drain-ms` 를 늘릴 자리이고, 유실이 많으면 어댑터·배선
@@ -1058,7 +1062,7 @@ W 와 A 를 같이 누르면 앞으로 가면서 돎. 창이 포커스를 잃으
 | `--teleop` | pygame 창으로 실시간 조작 (위 표). `--max/--accel/--decel 이름=값` 으로 설정 |
 | `--hz` | 모터 전송 주기. 기본은 정책 주기(지금 둘 다 50). **그 정수 배**만 받음. 정책은 늘 정책 주기로만 불리고 그 사이 주기는 직전 목표를 다시 보냄 |
 | `--gain-scale A [B]` | kp/kd 배율. 숫자 하나면 전체, 둘이면 **나머지 A · 발목 B** (`ankle_a`/`ankle_b`). 0 초과 1 이하. 시작 화면에 실제로 걸린 값이 찍힘 |
-| `--log [DIR]` | 정책 입출력(`policy_*.csv`)과 관절별 응답 지연(`latency_*.csv`)을 남김. 폴더를 안 주면 `logs/` |
+| `--log [DIR]` | 정책 입출력(`policy/<월일>_policy_*.json`)과 관절별 응답 지연(`latency/<월일>_latency_*.json`)을 남김. 폴더를 안 주면 `logs/`, 그 안에서 종류별로 나눠 담음 |
 | `--live [PORT]` | 도는 동안 관절 목표·실측을 브라우저로 봄. 기본 포트 8770 ([tools/README.md](tools/README.md)) |
 | `--duration` `--approach` `--drain-ms` `--allow-uncalibrated` | 위와 같음 |
 

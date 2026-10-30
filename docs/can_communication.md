@@ -389,8 +389,8 @@ journalctl -k --since "-10min" | grep -E "gs_usb.*(echo|BUG)"    # 드라이버 
 
 ## 6. 지연 기록 -- 무엇을 어떻게 세나
 
-`huphy-run --log`, `huphy-test --log` 이 `latency_<이름>_<시각>.csv` 를 남기고 끝날 때
-관절별 표를 찍음. `tools/latency_viewer.html` 로 히스토그램을 봄. 코드는
+`huphy-run --log`, `huphy-test --log` 이 `logs/latency/<월일>_latency_<이름>[_<인자>].json`
+을 남기고 끝날 때 관절별 표를 찍음. `tools/latency_viewer.html` 로 히스토그램을 봄. 코드는
 `telemetry/latency_log.py` 와 `RobStrideBus._note_sent` / `_note_received`.
 
 ### 시각
@@ -453,7 +453,7 @@ p50·p95·p99·최대 = 받은 표본(제때 + 늦음)의 지연 분포
 | 빠지는 구간 | 접근 자세, Enter 대기, 감쇠 정지 | 감쇠 정지 (studio 의 관찰 전환 포함) |
 
 감쇠는 `ControlLoop.on_settle` 이 시작·끝을 알려 `LatencyLog.on_settle` 이 끄고 켬.
-정책 입출력 기록(`policy_*.csv`) 은 원래 정책이 불릴 때만 남김.
+정책 입출력 기록(`logs/policy/*.json`) 은 원래 정책이 불릴 때만 남김.
 
 ### 다른 숫자와 헷갈리지 말 것
 

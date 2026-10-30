@@ -13,13 +13,12 @@ tools/
 └── rs_ota.py             RobStride 펌웨어 업데이트 (CAN, private 프로토콜)
 ```
 
-**셋 다 외부 라이브러리가 없음.** 로봇(Jetson)에서 인터넷 없이 열려야 해서임. html 은
+**셋 다 외부 라이브러리가 없음.** 제어 보드에서 인터넷 없이 열려야 해서임. html 은
 브라우저로 열고 파일을 끌어다 놓거나 "파일 열기" 로 고름. 기록 파일은 `huphy-run --log`
 과 `huphy-test --log` 이 `logs/` 에 남김.
 
 ```bash
-huphy-run --robot --policy stand --ankle-space ab --weights config/policies/stand_bi.pt \
-          --hz 50 --drain-ms 4 --log
+huphy-run --policy generalized_walk --cmd vx=0.5 --hz 50 --drain-ms 4 --log
 # 끝나면
 #   logs/policy/<월일>_policy_<정책>[_<인자>].json    -> policy_viewer.html
 #   logs/latency/<월일>_latency_<정책>[_<인자>].json  -> latency_viewer.html
@@ -41,15 +40,30 @@ huphy-test --robot --hz 50 --drain-ms 4 zero --log
 | 열 | 무엇 | 단위 |
 |---|---|---|
 | `t` | 첫 정책 호출부터 흐른 초 | s |
-| `obs/...` | 모델 입력 그대로 (정규화 전). 이름은 `stand.OBS_NAMES` / `policy.observation_names` | rad, rad/s |
+| `obs/...` | 모델 입력 그대로 (정규화 전). 이름은 계약의 관찰 항목에서 `control/deploy.py` 의 `_term_names` 가 만들고 `policy.obs_names` 로 나옴 | rad, rad/s |
 | `act/<관절>` | 모델 출력 그대로 (배율·기본자세 입히기 전) | — |
 | `tgt/<관절>` | 관절 목표각. 루프에 실제로 넘긴 것 | 도 |
 | `pos/<관절>` | 그 순간의 실측 관절각 | 도 |
 | `imu/<이름>/<값>` | IMU. `huphy-test --log`·실시간 녹화에만 있음. roll/pitch/yaw, gx/gy/gz, grav_x/y/z, ax/ay/az, age | 도, 도/초, —, m/s², ms |
 | `extra/<모터>/<값>` | 추가 값. `--extra` 로 돌렸을 때만 있음. iq(전류), temp(온도), vbus(전압). 전류·전압은 몇 주기마다 갱신되고 그 사이는 마지막 값 | A, °C, V |
 
-`stand` 의 관찰은 `obs/gyro/{x,y,z}`, `obs/grav/{x,y,z}`, `obs/q_prev/<관절>`,
-`obs/q/<관절>`, `obs/last_act/<관절>`, `obs/cmd/{vx,vy,wz}` 순서임 (45칸).
+`generalized_walk` 의 관찰은 `obs/gyro/{x,y,z}`, `obs/grav/{x,y,z}`, `obs/q_prev/<관절>`,
+`obs/q/<관절>`, `obs/last_act/<관절>`, `obs/cmd/{vx,wz}` 순서임 (44칸). `huphy_squat` 는
+명령이 `obs/cmd/h_star` 하나라 43칸임. 순서와 칸 수는 정책마다 다르고 계약
+(`config/policies/<이름>/deploy_contract.json`) 이 정함.
+
+### 그 밖의 칸
+
+| 칸 | 무엇 |
+|---|---|
+| `run` | 이 실행이 무엇이었는지. `at` 초 단위 시각, `policy`(또는 `huphy-test` 는 `command`), `checkpoint`, `gain`, `hz`, `drain_ms`, `send_mode`, `extra`, `approach`, `teleop`, 고정 명령값(`vx`·`wz`·`h_star`). 값이 없는 키는 안 들어감 |
+| `limits` | 관절마다 `[하한, 상한]` (도). 뷰어가 관절 그래프를 가동범위로 정규화하는 데 씀 |
+| `columns` | 열 이름. 위 표의 것들 |
+| `rows` | 한 줄이 한 주기. `columns` 과 같은 순서의 숫자 배열. 값이 없는 칸은 `null` |
+
+파일 이름에는 **기본값이 아닌 인자만** 들어가고(`_g0.5-0.8_vx0.3`), 기본값까지 다
+적힌 것은 `run` 임. `--teleop` 이면 이름에 `teleop` 만 적고 실제 명령값은 매 주기
+`obs/cmd/<이름>` 열에 들어감.
 
 ### 화면
 
@@ -127,11 +141,17 @@ huphy-run --robot --policy stand --ankle-space ab --hz 50 --live 8771
 
 ### 기록
 
+```json
+{"run":     {"at": "2026-10-30 14:30:52", "policy": "generalized_walk", "gain": 0.5, ...},
+ "meta":    {"drain_ms": 4, "hz": 50},
+ "columns": ["t", "joint", "latency_ms", "status"],
+ "rows":    [[1.2041, "right_leg/knee", 2.6133, "ontime"],
+             [null, "right_leg/knee", null, "lost"]]}
 ```
-# drain_ms=4 hz=50               뷰어가 기준선을 그리는 데 씀
-t,joint,latency_ms,status        한 줄이 응답 하나
-,right_leg/knee,,lost            유실은 개수만큼 빈 지연으로
-```
+
+`meta` 는 뷰어가 기준선을 그리는 데 씀. `rows` 한 줄이 응답 하나이고, 유실은 개수만큼
+`t` 와 `latency_ms` 가 `null` 인 줄로 들어감 -- 받은 줄과 칸 모양이 같아야 뷰어가 한
+가지 방법으로 읽음. `run` 칸은 `policy_viewer.html` 쪽과 같음 (위 "그 밖의 칸").
 
 | status | 뜻 | 많으면 |
 |---|---|---|

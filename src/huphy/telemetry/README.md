@@ -9,7 +9,8 @@ telemetry/
 ├── track_log.py    매 주기 관절 목표각과 실측각. huphy-test --log
 ├── live.py         같은 값을 브라우저로 실시간. huphy-test / huphy-run --live
 ├── live_viewer.html  live.py 가 내주는 화면
-└── latency_log.py  관절별 응답 지연 (송신 -> 도착). huphy-run / huphy-test --log
+├── latency_log.py  관절별 응답 지연 (송신 -> 도착). huphy-run / huphy-test --log
+└── run_name.py     위 셋의 파일 이름·`run` 칸·JSON 쓰기
 ```
 
 앞의 셋은 **한 주기의 로봇 상태**(스냅샷)를 내보내고, 뒤의 셋은 `--log` 으로 켜는
@@ -334,15 +335,24 @@ UDP 는 실시간으로 보는 것이고, 이쪽은 **끝나고 나서 되돌아
     act/<관절>        모델 출력 그대로
     tgt/<관절>        관절 목표각 (도). 루프에 실제로 넘긴 것
     pos/<관절>        그 순간의 실측 관절각 (도)
+    extra/<모터>/<값> 추가 값. `--extra` 를 켰을 때만 (`track_log` 와 같은 열)
+
+파일은 JSON 하나임 (`run_name.write`). `columns` 에 위 열 이름을, `rows` 에 한 주기
+한 줄씩, `limits` 에 관절 가동범위를, `run` 에 이 실행의 인자를 담음.
 
 ### 두 군데를 감쌈
 
     wrap_model    벡터 -> 행동. obs 와 act 를 잡음
     wrap_motion   (t, 관찰) -> 목표. tgt 와 pos 를 붙여 한 줄을 완성함
 
-모델만 감싸면 관절 이름이 붙은 목표·실측을 모르고, motion 만 감싸면 벡터를 모름.
-관찰 칸 이름은 `stand.OBS_NAMES` / `policy.observation_names()` 가 정함 -- 관찰 순서를
-바꾸면 거기도 같이 고칠 것. 길이가 어긋나면 첫 기록에서 세고 제어는 계속함.
+모델만 감싸면 관절 이름이 붙은 목표·실측을 모름 -- 그 둘은 관절 이름이 붙은 사전에만
+있음. motion 만 감싸면 모델이 본 벡터를 모름.
+
+관찰 칸 이름은 `control/deploy.py` 의 `_term_names` 가 계약의 관찰 항목(`func`)마다
+만들고, `policy.obs_names` 로 나와 `PolicyLog(obs_names, ...)` 에 들어감
+(`scripts/run.py` 의 `PolicyLog(policy.obs_names, policy.order, robot=leg)`). 계약이
+관찰 순서를 정하므로 이 README 를 고칠 일은 없고, 새 `func` 를 더하면 `_term_names`
+에 그 이름 짓는 분기를 같이 더할 것. 길이가 어긋나면 첫 기록에서 세고 제어는 계속함.
 
 ### 메모리에 쌓고 끝날 때 씀
 
@@ -406,6 +416,41 @@ MIT 응답에는 순번이 없어서, 도착 시각이 이번 송신보다 앞�
 끝나면 관절별 p50/p95/p99/최대·늦음·유실 표를 찍고 JSON 으로 씀. `meta` 칸에
 `drain_ms`·`hz` 를 남겨 뷰어가 기준선을 그림. **수신 스레드가 없는 버스**(다리 하나)는
 꺼낸 시각이 찍혀 지연이 조금 크게 나옴.
+
+---
+
+## `run_name.py`
+
+위 셋(`policy_log`·`track_log`·`latency_log`)의 **파일 이름·`run` 칸·쓰기를 한 곳에
+모은 것.** 한쪽만 고치면 같은 실행의 파일들이 다른 이름으로 나가, 어느 `latency` 가
+어느 `policy` 와 같은 실행 것인지 이름으로 못 가림.
+
+    <폴더>/<종류>/<월일>_<종류>_<이름>[_<인자들>].json
+
+    logs/policy/1030_policy_generalized_walk_g0.5-0.8_vx0.3.json
+    logs/latency/1030_latency_generalized_walk_g0.5-0.8_vx0.3.json
+    logs/track/1030_track_zero_g0.3.json
+
+- `tags()` 가 이름에 붙일 조각을 만듦. **기본값인 인자는 빼므로** 전부 기본값이면
+  월일·종류·이름만 남음. `--teleop` 이면 명령값 자리에 `teleop` 하나만 넣음 (값이 매
+  주기 바뀌어 이름에 넣을 수 없음 -- 실제 값은 `obs/cmd/<이름>` 열에 있음)
+- `path()` 가 종류별 폴더를 붙임. 같은 이름이 있으면 `_2`, `_3`. **덮어쓰지 않음**
+- `header()` 가 `run` 칸을 만듦. **이름에서 뺀 것이 전부 여기 들어감** -- 초 단위
+  시각, 체크포인트, 기본값인 인자들. 이름은 찾기용, `run` 은 정확한 기록임
+- `write()` 가 JSON 으로 씀
+
+    {"run":     {"at": "2026-10-30 14:30:52", "policy": "generalized_walk", ...},
+     "limits":  {"right_leg/knee": [6, 114], ...},
+     "columns": ["t", "obs/gyro/x", ...],
+     "rows":    [[0.0, 0.01, ...], [0.02, ...]]}
+
+**열 이름을 한 번만 적고 값은 배열로** 둠. 줄마다 `{"t": ..., "obs/...": ...}` 로
+쓰면 같은 기록이 1.9배로 커짐 (50Hz 60초, 열 81개 기준 2.2MB -> 4.0MB).
+
+셋 다 CSV 였다가 JSON 으로 바꿨음. 전에는 뷰어가 `# limits ...` 와 `# run ...` 줄을
+문자열로 쪼개 읽어야 했는데, 지금은 `doc.run.gain` 으로 바로 읽음. **스냅샷 쪽
+(`csv_log.py`) 은 그대로 CSV 임** -- 저쪽은 제어 루프 안에서 매 주기 이어 쓰는
+파일이라 끝에 한 번에 쓰는 JSON 과 맞지 않음.
 
 ---
 
