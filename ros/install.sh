@@ -37,7 +37,8 @@ info "워크스페이스 $WS"
 # ---- 1. ROS 2 Humble -------------------------------------------------------
 step "1. ROS 2 Humble"
 need=()
-for p in ros-humble-ros-base python3-colcon-common-extensions curl; do
+# build-essential: ros/huphy_ros_interfaces (메시지 패키지) 가 C++ 로 빌드돼서 g++ 가 필요함.
+for p in ros-humble-ros-base python3-colcon-common-extensions curl build-essential; do
   dpkg -s "$p" >/dev/null 2>&1 || need+=("$p")
 done
 # venv 는 패키지 이름이 여럿이라 (python3-venv, python3.10-venv) 되는지로 봄.
