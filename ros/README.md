@@ -144,7 +144,7 @@ ROS 없이 돌리는 `huphy-run` 한 번이 아래처럼 쪼개져 있음. **ROS
 | `huphy-run` 시작 = 토크 켜고 기준 자세로 가서 기다림 | `enable` (토크, 감쇠로 대기) -> `approach` (기준 자세로 3초, 도착하면 붙잡고 기다림) |
 | `huphy-run` 의 **Enter** -- 정책 시작 | `start_policy` |
 | `--teleop` -- pygame 창으로 조작 | `teleop.launch.py` -- 같은 창. R(기준 자세)·Enter(시작)·Esc(끔) |
-| `--cmd vx=0.2` | `ros2 topic pub /huphy/cmd_vel ...` |
+| `--cmd vx=0.2` | `ros2 topic pub /huphy/cmd_vel ...` (계단·경사는 `linear.x` 만) |
 | `--cmd h_star=0.80` / `--teleop` 의 ↑↓ | `ros2 topic pub /huphy/h_star ...` |
 | **Ctrl-Q** -- 감쇠 5초 후 토크 끔 | `stop_policy` -> `disable` (감쇠 5초 후 토크 끔). 또는 모션보드 런치에서 Ctrl-C |
 | (없음) | 토크 없이 정책 출력만 보기 -- `OBSERVE` 에서 `approach` -> `start_policy` |
@@ -350,6 +350,10 @@ ros2 launch huphy_ros gamepad.launch.py policy:=... \
 ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
   '{linear: {x: 0.2}, angular: {z: 0.0}}'
 
+# 계단·경사: 같은 토픽인데 linear.x 만 (0 ~ 2 m/s). angular.z 는 보내도 0 으로 잘림
+ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
+  '{linear: {x: 0.3}}'
+
 # 스쿼트: 골반 높이 (m). 0.70 ~ 0.891
 ros2 topic pub -r 20 /huphy/h_star std_msgs/msg/Float64 '{data: 0.80}'
 ```
@@ -357,6 +361,7 @@ ros2 topic pub -r 20 /huphy/h_star std_msgs/msg/Float64 '{data: 0.80}'
 | 명령 | 하는 일 | 기존으로 치면 |
 |---|---|---|
 | `topic pub cmd_vel` | 걷기 속도 명령 | `--cmd vx=0.2 wz=0` 또는 `--teleop` 의 W·S·A·D |
+| `topic pub cmd_vel` (계단·경사) | 전진 속도만. `angular.z` 는 무시됨 | `--cmd vx=0.3` 또는 `--teleop` 의 W·S |
 | `topic pub h_star` | 스쿼트 높이 명령 | `--cmd h_star=0.80` 또는 `--teleop` 의 ↑↓ |
 
 #### A-7. 멈춤 · 토크 끄기  `[작업 기계]` · 급하면 `[모션보드]`
@@ -495,6 +500,8 @@ ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/huphy
 ```bash
 ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
   '{linear: {x: 0.2}, angular: {z: 0.0}}'                      # 걷기 (= --cmd vx=0.2)
+ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
+  '{linear: {x: 0.3}}'                                         # 계단·경사 (= --cmd vx=0.3)
 ros2 topic pub -r 20 /huphy/h_star std_msgs/msg/Float64 '{data: 0.80}'   # 스쿼트 (= --cmd h_star=0.80)
 ```
 
