@@ -141,6 +141,19 @@ class EnterWatcher(QuitWatcher):
             self.motion.start()
 
 
+def _policy_names() -> "list[str]":
+    """`config/policies/` 안에서 계약 파일을 가진 폴더 이름들. `--policy` 도움말에 씀.
+
+    목록을 손으로 적어 두면 꾸러미를 넣고도 도움말에 안 나옴. 폴더가 없거나 읽을 수
+    없으면 빈 목록을 냄 -- 도움말을 찍다가 멈추면 안 되므로.
+    """
+    try:
+        return sorted(d.name for d in POLICIES_DIR.iterdir()
+                      if (d / deploy.CONTRACT_NAME).is_file())
+    except OSError:
+        return []
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="huphy-run",
@@ -158,7 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--policy", required=True, metavar="NAME|DIR",
         help=(
             f"정책 꾸러미 (필수). 이름이면 {POLICIES_DIR}/<이름>/, 폴더 경로도 됨. "
-            f"예: generalized_walk, huphy_squat"
+            f"여기 있는 것: {', '.join(_policy_names()) or '없음'}"
         ),
     )
     p.add_argument(

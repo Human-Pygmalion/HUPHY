@@ -26,6 +26,7 @@
 
 ```bash
 huphy-run --policy generalized_walk --cmd vx=0.5         # 걷기 (--policy 는 필수)
+huphy-run --policy stairs_slopes12 --cmd vx=0.5     # 계단·경사 (앞으로만)
 huphy-run --policy huphy_squat --cmd h_star=0.80    # 스쿼트
 ```
 
@@ -36,6 +37,10 @@ config/policies/
   generalized_walk/
     deploy_contract.json     이 저장소가 씀 (옛 generalized_walk.py 의 값 그대로)
     generalized_walk.pt      체크포인트 37400
+    generalized_walk_49999.pt  체크포인트 49999 (기본)
+  stairs_slopes12/
+    deploy_contract.json     학습 쪽 deploy.yaml 에서 옮겨 적음
+    stairs_slopes12_99998.pt  체크포인트 99998. 49999 에서 이어 학습
   huphy_squat/
     deploy_contract.json     학습 쪽 export_deploy.py 가 만든 것 그대로
     policy_5000.pt (기본)  policy_4500.pt  policy_4000.pt
@@ -59,7 +64,8 @@ config/policies/
 | `observations[]` | `terms` | `observation_vector()` 가 이 순서로 `OBSERVATIONS[func]` 을 불러 이어 붙임 |
 | `observations[].history_frames` | `Term.history` | `motor_encoder_rel` 의 프레임 수. `Runner.history` 가 쌓음 |
 | `h_star` (`height_command` 일 때) | `commands["h_star"]` | 범위·시작값. 속도 제한 0.1 m/s (`H_STAR_MAX_RATE`) |
-| `observations[].components` (`velocity_command`) | `commands["vx"]` 등 | 시작값 0, 제한 없음 |
+| `observations[].components` (`velocity_command`) | `commands["vx"]` 등 | 시작값 0 |
+| `observations[].ranges` (`velocity_command`) | `commands[이름].range` | ① `--cmd` 가 범위 밖이면 시작 전에 멈춤 ② `_command` 가 관찰에 넣기 전에 자름 ③ `teleop.make_axes` 가 상한을 맞추고, **범위가 한 점이면 축을 안 만듦** |
 | `control_rate_hz` | `hz` | 정책 주기. `held()` 의 안쪽 주기 |
 | `checkpoints.<번호>.pt` / `pt_sha256` / `golden` | `checkpoints` | `load_model()` 의 검사 |
 

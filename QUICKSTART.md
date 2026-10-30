@@ -67,10 +67,21 @@ Ctrl-Q 로 멈춤. 끝나면 실패 집계가 찍힘.
 | `--policy` | 무엇 | 명령 (`--cmd`) | 단위 | 체크포인트 |
 |---|---|---|---|---|
 | `generalized_walk` | 속도 명령으로 걷기 | `vx` 앞뒤<br>`wz` 돌기 | m/s<br>rad/s | `49999`(기본) `37400` |
+| `stairs_slopes12` | 계단·경사 걷기. **앞으로만** | `vx` 앞뒤 | m/s. **0~2** | `99998`(기본) |
 | `huphy_squat` | 골반 높이를 잡고 서기 | `h_star` 높이 | m. **0.70~0.891** | `5000`(기본) `4500` `4000` |
 
-둘 다 50Hz, 관절 12개. 명령을 안 주면 전부 0 — 걷기는 제자리, 스쿼트는 계약의
+셋 다 50Hz, 관절 12개. 명령을 안 주면 전부 0 — 걷기는 제자리, 스쿼트는 계약의
 기본 높이.
+
+**`stairs_slopes12` 는 `wz` 를 못 씀.** `generalized_walk` 의 49999 에서 이어
+50,000번 더 학습한 것인데, 그 동안 `wz` 를 늘 0 으로만 줬음 (경사 5~30도, 계단
+3~18cm 과정). 계약에 `wz` 범위가 `[0, 0]` 으로 적혀 있어서
+
+    --cmd wz=0.2      시작 전에 거부됨
+    --teleop 의 A/D   키가 아예 안 생김
+    패드 오른쪽 스틱  스틱이 아예 안 배정됨
+
+이고, 그래도 어딘가에서 0 이 아닌 값이 들어오면 관찰에 넣기 전에 0 으로 잘림.
 
 **명령 이름은 정책이 정함.** `config/policies/<이름>/deploy_contract.json` 에
 적혀 있고, 없는 이름을 주면 시작 전에 멈춤.
@@ -97,6 +108,7 @@ Ctrl-Q 로 멈춤. 끝나면 실패 집계가 찍힘.
 huphy-run --policy generalized_walk                       # 제자리
 huphy-run --policy generalized_walk --cmd vx=0.3          # 앞으로
 huphy-run --policy generalized_walk --cmd vx=0.3 --cmd wz=0.2
+huphy-run --policy stairs_slopes12 --cmd vx=0.5             # 계단·경사. 앞으로만
 huphy-run --policy huphy_squat --cmd h_star=0.80
 huphy-run --policy huphy_squat --checkpoint 4500
 huphy-run --policy generalized_walk --checkpoint 37400   # 예전 기본 (49999 는 37400 에서 이어 학습)

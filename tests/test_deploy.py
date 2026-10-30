@@ -2,9 +2,10 @@
 
     PYTHONPATH=src python3 -m pytest tests/test_deploy.py -q
 
-`config/policies/` 의 **진짜 꾸러미 둘**을 읽음.
+`config/policies/` 의 **진짜 꾸러미 셋**을 읽음.
 
     generalized_walk   계약을 이 저장소가 씀 (옛 generalized_walk.py 값 그대로)
+    stairs_slopes12    generalized_walk 49999 에서 이어 학습. 전진만 (wz 범위가 [0, 0])
     huphy_squat        학습 쪽 export_deploy.py 가 만든 계약 그대로. 참조 입출력 24쌍
 """
 
@@ -21,6 +22,7 @@ from huphy.sensors.base import ImuState
 
 POLICIES = Path(__file__).resolve().parent.parent / "config" / "policies"
 WALK = deploy.load(POLICIES / "generalized_walk")
+STAIRS = deploy.load(POLICIES / "stairs_slopes12")
 SQUAT = deploy.load(POLICIES / "huphy_squat")
 
 
@@ -86,6 +88,53 @@ class TestWalkContract:
         assert len(set(WALK.obs_names)) == 44
 
 
+class TestStairsContract:
+    """`generalized_walk` 49999 에서 이어 학습한 것. 관찰·행동은 같고 명령만 다름."""
+
+    def test_the_observation_and_action_layout_match_generalized_walk(self):
+        assert STAIRS.obs_dim == WALK.obs_dim == 44
+        assert STAIRS.order == WALK.order
+        assert STAIRS.hz == WALK.hz == 50.0
+        assert STAIRS.obs_names == WALK.obs_names
+
+    def test_the_default_pose_matches_generalized_walk(self):
+        """두 꾸러미의 deploy.yaml 이 소수점 자리수만 다름. 1e-4 도 안에서 같아야 함."""
+        for joint, value in WALK.default_pose_deg.items():
+            assert STAIRS.default_pose_deg[joint] == pytest.approx(value, abs=1e-4)
+
+    def test_the_joint_limits_match_generalized_walk(self):
+        for joint, (low, high) in WALK.limits_deg.items():
+            assert STAIRS.limits_deg[joint] == pytest.approx((low, high), abs=1e-4)
+
+    def test_yaw_is_pinned_to_zero(self):
+        """전진만 학습해서 wz 범위가 한 점임. 여기가 바뀌면 안 돌던 정책에 회전을 넣음."""
+        assert STAIRS.commands["wz"].range == (0.0, 0.0)
+        assert STAIRS.commands["vx"].range == (0.0, 2.0)
+
+    def _command_slots(self, **targets):
+        """`--cmd`/teleop 값을 넣고 신경망이 실제로 받은 42·43번 칸을 냄."""
+        seen = []
+        runner = STAIRS.runner(
+            lambda v: seen.append(v) or np.zeros(12),
+            commands=deploy.Commands(STAIRS.commands.values(), targets=targets),
+        )
+        runner.step(at_pose(STAIRS), FakeImu().read())
+        return seen[0][42], seen[0][43]
+
+    def test_a_yaw_command_is_zeroed_before_it_reaches_the_network(self):
+        vx, wz = self._command_slots(vx=0.4, wz=1.5)
+        assert vx == pytest.approx(0.4)
+        assert wz == 0.0
+
+    def test_a_forward_command_above_the_trained_range_is_clipped(self):
+        vx, _ = self._command_slots(vx=9.0)
+        assert vx == pytest.approx(2.0)
+
+    def test_a_backward_command_is_clipped_to_zero(self):
+        vx, _ = self._command_slots(vx=-1.0)
+        assert vx == 0.0
+
+
 class TestSquatContract:
     def test_shape(self):
         assert SQUAT.obs_dim == 43 and len(SQUAT.order) == 12 and SQUAT.hz == 50.0
@@ -119,8 +168,13 @@ class TestLoadModel:
         assert model.golden_max_diff < deploy.GOLDEN_TOL
 
     def test_default_checkpoint(self):
-        assert SQUAT.load_model().checkpoint == "5000"
-        assert WALK.load_model().checkpoint == "37400"
+        """계약의 `default_checkpoint` 가 실제로 실린 체크포인트여야 함.
+
+        번호를 여기 적어 두면 계약에 체크포인트를 더할 때마다 어긋남 (49999 를 넣고
+        기본을 옮겼을 때 실제로 그랬음). 계약에서 읽어 맞추는 것으로 바꿈.
+        """
+        for policy in (WALK, STAIRS, SQUAT):
+            assert policy.load_model().checkpoint == policy.default_checkpoint
 
     def _copy(self, tmp_path, name):
         dst = tmp_path / name
@@ -129,10 +183,17 @@ class TestLoadModel:
 
     def test_a_changed_weights_file_is_refused(self, tmp_path):
         folder = self._copy(tmp_path, "generalized_walk")
-        pt = folder / "generalized_walk.pt"
+        # 기본 체크포인트가 쓰는 파일을 건드려야 함. 이름을 적어 두면 기본이 다른
+        # 체크포인트로 옮겼을 때 안 읽는 파일을 망가뜨리고 지나감.
+        pt = folder / WALK.checkpoints[WALK.default_checkpoint]["pt"]
         pt.write_bytes(pt.read_bytes() + b"\0")
         with pytest.raises(deploy.ContractError, match="sha256"):
             deploy.load(folder).load_model()
+
+    def test_stairs_matches_the_release_golden(self):
+        """`policy.onnx` 로 만든 참조 입출력과 numpy 경로가 같아야 함."""
+        model = STAIRS.load_model()
+        assert model.golden_max_diff < deploy.GOLDEN_TOL
 
     def test_a_wrong_golden_is_refused(self, tmp_path):
         folder = self._copy(tmp_path, "huphy_squat")

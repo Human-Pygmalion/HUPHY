@@ -15,6 +15,7 @@ from huphy.control import deploy, teleop
 
 POLICIES = Path(__file__).resolve().parent.parent / "config" / "policies"
 WALK = deploy.load(POLICIES / "generalized_walk")
+STAIRS = deploy.load(POLICIES / "stairs_slopes12")
 SQUAT = deploy.load(POLICIES / "huphy_squat")
 
 
@@ -62,6 +63,22 @@ class TestAxes:
     def test_height_takes_only_accel(self):
         with pytest.raises(teleop.TeleopError, match="--accel 만"):
             teleop.make_axes(SQUAT.commands.values(), {"max": {"h_star": 0.8}})
+
+    def test_a_command_pinned_to_one_value_gets_no_axis(self):
+        """`stairs_slopes12` 는 전진만 학습해서 wz 범위가 [0, 0] 임. 바꿀 값이 없음."""
+        axes = {a.name: a for a in teleop.make_axes(STAIRS.commands.values())}
+        assert set(axes) == {"vx"}
+        assert axes["vx"].keys == ("w", "s")
+
+    def test_the_trained_range_still_caps_the_speed(self):
+        """vx 범위가 [0, 2] 라서 기본 상한 1.0 은 그대로 쓰임."""
+        axes = {a.name: a for a in teleop.make_axes(
+            STAIRS.commands.values(), {"max": {"vx": 5.0}})}
+        assert axes["vx"].max == 2.0
+
+    def test_overriding_a_pinned_command_is_refused(self):
+        with pytest.raises(teleop.TeleopError, match="한 점"):
+            teleop.make_axes(STAIRS.commands.values(), {"max": {"wz": 0.8}})
 
 
 # ===========================================================================

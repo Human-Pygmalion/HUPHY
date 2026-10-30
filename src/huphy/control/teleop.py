@@ -128,12 +128,22 @@ def make_axes(
 
     `overrides` 는 {"max": {"vx": 0.8}, "accel": {...}, "decel": {...}} 꼴.
     키가 없는 명령이면 멈춤 -- 조작할 수 없는 칸이 있다는 뜻임.
+
+    **학습 범위가 한 점인 명령은 축을 안 만들고 건너뜀.** `stairs_slopes12` 는 전진만
+    학습해서 `wz` 의 범위가 `[0, 0]` 임 -- 키를 줘도 바꿀 값이 없음.
     """
     overrides = overrides or {}
     axes: List[Axis] = []
     names = set()
+    fixed = set()
     for spec in specs:
         names.add(spec.name)
+        if spec.range is not None and spec.range[0] == spec.range[1]:
+            # 학습 범위가 한 점인 명령 (예: 전진만 학습한 정책의 wz 는 [0, 0]).
+            # 조작할 것이 없어 축을 안 만듦. 관찰에 들어가는 값은 `deploy._command`
+            # 가 범위로 자르므로 무엇을 보내도 그 한 점이 됨.
+            fixed.add(spec.name)
+            continue
         if spec.name in VELOCITY_KEYS:
             v = {k: float(overrides.get(k, {}).get(spec.name, d)) for k, d in VELOCITY_DEFAULTS.items()}
             if spec.range is not None:
@@ -157,6 +167,11 @@ def make_axes(
         unknown = sorted(set(table) - names)
         if unknown:
             raise TeleopError(f"--{kind}: 이 정책에 없는 명령 {unknown} (있는 것: {sorted(names)})")
+        pinned = sorted(set(table) & fixed)
+        if pinned:
+            raise TeleopError(
+                f"--{kind}: {pinned} 는 학습 범위가 한 점이라 조작할 수 없음 "
+                f"(이 정책은 그 칸을 늘 같은 값으로 씀)")
     if sum(a.kind == "height" for a in axes) > 1:
         raise TeleopError("높이 명령이 둘 이상이면 ↑/↓ 를 나눠 줄 수 없음")
     return axes
