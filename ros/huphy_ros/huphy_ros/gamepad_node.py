@@ -67,11 +67,19 @@ Series X 패드를 잘못 알아서 RB 가 안 잡히고 View 가 8번으로 나
 
 ## 끊겼을 때
 
-`/joy` 가 `joy_timeout_s`(기본 0.5초) 넘게 안 오면 (선이 빠짐, `joy_node` 가 죽음)
-스틱과 버튼을 전부 놓은 것으로 보고 속도 0 을 계속 냄. 이 노드까지 죽으면 `/huphy/cmd_vel`
-자체가 끊겨서 정책 노드가 `cmd_timeout_s`(0.5초) 뒤 속도를 0 으로 돌림.
+**패드가 끊기거나 이 노드가 죽으면 감쇠 후 토크가 꺼짐.**
 
-**속도만 0 이 됨. 토크는 안 꺼짐** -- 끄는 것은 B 또는 터미널에서 `/huphy/disable`.
+    패드가 끊김     /joy 가 `joy_timeout_s`(기본 0.5초) 넘게 안 옴 (선이 빠짐, 블루투스 끊김,
+                    joy_node 가 죽음) -> 이 노드가 명령(`cmd_vel`/`h_star`)을 **안 냄**
+    이 노드가 죽음  명령이 끊김 (Ctrl-C 포함 -- 속도 0 을 한 번 내고 끝남)
+
+둘 다 명령 토픽이 0.5초 넘게 끊긴 것으로 나타나고, `control_node` 가 CONTROL 을 멈춰 감쇠
+5초 뒤 토크를 끊음 (`stop_on_input_loss`). `policy_node` 도 정책을 끔 (`stop_on_cmd_loss`).
+속도만 0 으로 두고 토크를 남기면 B 를 누를 패드가 없어 멈출 수단이 없음 (2026-11-02).
+패드가 다시 붙으면 다시 냄.
+
+이 노드는 이상한 입력·거절 응답·콜백 예외로 죽지 않음 (`_swallow`) -- 죽으면 B 도 같이
+죽기 때문임. 범위 밖 버튼 번호는 안 눌린 것, NaN·범위 밖 스틱 값은 0 또는 ±1 로 봄.
 """
 
 from __future__ import annotations
@@ -343,6 +351,8 @@ class GamepadNode(Node):
             self._tick_body()
         except Exception as e:  # noqa: BLE001 - 죽지 않음. 이 주기는 속도 0
             self._swallow("주기 처리", e)
+            if self.joy is None:
+                return                  # 패드가 없으면 안 냄 (`_tick_body` 의 설명)
             try:
                 self._publish({**self.values, **{n: 0.0 for n in self.velocity_names}})
             except Exception:  # noqa: BLE001
@@ -350,6 +360,10 @@ class GamepadNode(Node):
 
     def _tick_body(self) -> None:
         if self.finished or self.stop_reason is not None:
+            # 멈추는 중(stop_policy -> disable, 몇 초)에도 살아 있다는 표시로 속도 0 을 계속
+            # 냄. 안 내면 control_node·policy_node 가 이 노드가 죽은 것으로 봄
+            # (`stop_on_input_loss`, `stop_on_cmd_loss`). 높이는 지금 값 그대로.
+            self._publish({**self.values, **{n: 0.0 for n in self.velocity_names}})
             return
         now = time.monotonic()
         dt, self.last_tick = now - self.last_tick, now
@@ -357,14 +371,21 @@ class GamepadNode(Node):
         if self.joy is not None and now - self.joy_at > self.joy_timeout_s:
             if not self.warned_joy:
                 self.warned_joy = True
-                self.get_logger().warning(
-                    f"/joy 가 {self.joy_timeout_s:g}초 넘게 안 옴 -> 속도 0. "
-                    f"패드 선과 joy_node 를 볼 것")
+                self.get_logger().error(
+                    f"/joy 가 {self.joy_timeout_s:g}초 넘게 안 옴 (패드가 끊김) -> 명령을 안 냄. "
+                    f"control_node 가 감쇠 후 토크를 끊음. 패드 선·블루투스와 joy_node 를 볼 것")
             self.joy = None
             self.pressed = {k: False for k in BUTTONS}
             self.enable_since, self.enable_sent = None, False
         elif self.joy is not None:
             self.warned_joy = False
+
+        if self.joy is None:
+            # 패드가 없으면(아직 안 붙었거나 끊김) **아무것도 안 냄.** 속도 0 을 내면 이
+            # 노드가 살아 있어서 control_node 가 조작이 이어지는 줄 알고 토크를 쥔 채로 둠
+            # -- 그런데 B 를 누를 패드가 없음. 안 내면 control_node·policy_node 가 0.5초 뒤
+            # 끊김으로 보고 감쇠 후 토크를 끊음. 패드가 다시 붙으면 다시 냄.
+            return
 
         held = self._button("deadman")
         for name in self.velocity_names:

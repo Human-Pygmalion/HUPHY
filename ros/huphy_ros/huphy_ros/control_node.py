@@ -29,6 +29,23 @@
 
 `CONTROL` 을 멈출 때는 `_exit` 가 `DAMPING_S`(5초) 동안 감쇠를 보냄. 그만큼 걸림.
 
+## 조작 노드가 끊기면 감쇠 후 토크 끔
+
+패드(`gamepad_node`)·teleop 창(`teleop_node`)은 명령 토픽(`/huphy/cmd_vel`,
+`/huphy/h_star`)을 20Hz 로 계속 냄. CONTROL 중에 그것을 받다가 `input_timeout_ms`
+(기본 500) 넘게 끊기면 **루프를 멈춤** -> `_exit` 가 감쇠 5초 뒤 토크를 끊고 OBSERVE 로.
+`/huphy/disable` 과 같은 길임.
+
+정책 노드도 같은 끊김을 보고 정책을 끄지만(`stop_on_cmd_loss`), 그것만으로는 정책이
+꺼져 있을 때(토크만 넣었거나 기준 자세로 가는 중) 힘이 그대로 남음. 힘을 쥔 쪽이 여기라
+여기서도 봄. 2026-11-02: 패드 노드가 정책 도중 예외로 죽고, 멈춤 버튼도 같이 죽어 정책이
+10초 혼자 돎.
+
+조작 노드 없이 쓰면(사람이 `ros2 topic pub` 으로 목표각을 직접 냄) 명령 토픽이 한 번도
+안 오므로 걸리지 않음. `/huphy/enable` 때마다 지난 기록을 지우고 새로 셈 -- 조작 노드가
+죽은 채로 서비스를 손으로 불러 토크를 넣어도 바로 꺼지지 않음.
+`stop_on_input_loss:=false` 로 끔.
+
 ## 토크는 명시해야 들어감
 
 기본이 `OBSERVE` 임. 파라미터를 빠뜨렸을 때 안 움직이는 쪽으로 떨어지게 함.
@@ -64,11 +81,12 @@ from typing import Optional
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from geometry_msgs.msg import Vector3Stamped
+from geometry_msgs.msg import Twist, Vector3Stamped
 from huphy_ros_interfaces.msg import ControlInfo, LatencyBatch
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import Imu, JointState
+from std_msgs.msg import Float64
 from std_srvs.srv import Trigger
 
 from huphy.config import ConfigError, load_robot
@@ -126,6 +144,8 @@ class ControlNode(Node):
         self.declare_parameter("drain_ms", 4.0)
         self.declare_parameter("send_mode", SEND_BURST)
         self.declare_parameter("target_stale_ms", CONTROL_TARGET_STALE_S * 1000.0)
+        self.declare_parameter("input_timeout_ms", 500.0)
+        self.declare_parameter("stop_on_input_loss", True)
         self.declare_parameter("allow_uncalibrated", False)
         self.declare_parameter("debug", False)
 
@@ -166,6 +186,13 @@ class ControlNode(Node):
         self.mode = Mode.OBSERVE
         self.stopped_by_stale = False
         """목표각이 끊겨서 멈춘 것인지. 상태 토픽에 적음."""
+        self.stop_on_input_loss = bool(self.get_parameter("stop_on_input_loss").value)
+        self.input_timeout_s = float(self.get_parameter("input_timeout_ms").value) / 1000.0
+        self._input_at: Optional[float] = None
+        """마지막 명령 토픽(`cmd_vel`/`h_star`)을 받은 시각 (monotonic). 조작 노드가 살아
+        있는지 봄. 없으면 조작 노드가 아직 없음 -- 멈추지 않음. `enable` 때 비움."""
+        self.stopped_by_input = False
+        """조작 노드가 끊겨서 멈춘 것인지. 상태 토픽에 적음."""
         self._swap = threading.Lock()
         self._stopping = False
         """`_stop_loop` 이 멈추는 중인지. 제어 스레드가 스스로 OBSERVE 로 돌아갈지
@@ -204,6 +231,9 @@ class ControlNode(Node):
         self.create_subscription(
             JointState, "/huphy/joint_targets", self._on_targets,
             qos_profile_sensor_data)
+        # 조작 노드가 살아 있는지만 봄. 값은 안 씀 -- 정책을 모름 (위 "정책을 모름").
+        self.create_subscription(Twist, "/huphy/cmd_vel", self._on_input, 10)
+        self.create_subscription(Float64, "/huphy/h_star", self._on_input, 10)
         self.create_service(Trigger, "/huphy/enable", self._on_enable)
         self.create_service(Trigger, "/huphy/disable", self._on_disable)
 
@@ -299,8 +329,9 @@ class ControlNode(Node):
         단계가 지금 자세에서 시작해도 튀지 않음. 이 주기의 응답은 `step` 의
         `collect` 가 받음.
         """
-        del loop, t
+        del t
         self.observation.put(self.robot.get_observation())
+        self._check_input(loop)
         if self.mode is Mode.CONTROL and self.targets.age() < 0:
             self.robot.send(self.robot.damp())
 
@@ -326,7 +357,31 @@ class ControlNode(Node):
             self.loop.stop()
         return None
 
+    def _check_input(self, loop) -> None:
+        """조작 노드가 끊겼으면 CONTROL 루프를 멈춤. **제어 스레드에서 돎.**
+
+        `loop.stop()` 은 플래그만 세움 -- 이 주기는 정상으로 끝나고, 다음에 `finally` 가
+        감쇠 5초 뒤 토크를 끊음. `_loop_body` 가 OBSERVE 로 돌려 놓음 (통신 두절과 같은 길).
+        한 번 멈추면 `_input_at` 을 비워 다시 알리지 않음.
+        """
+        at = self._input_at
+        if not self.stop_on_input_loss or at is None or self.mode is not Mode.CONTROL:
+            return
+        silent = time.monotonic() - at
+        if silent <= self.input_timeout_s:
+            return
+        self._input_at = None
+        self.stopped_by_input = True
+        self.get_logger().error(
+            f"조작 노드 명령(cmd_vel/h_star)이 {silent:.2f}초째 안 옴 -- 조작 노드가 죽었을 수 "
+            f"있음. 감쇠 후 토크를 끊음")
+        loop.stop()
+
     # ---- ROS 콜백 — 짧게 끝낼 것 -------------------------------------------
+    def _on_input(self, msg) -> None:
+        del msg
+        self._input_at = time.monotonic()
+
     def _on_targets(self, msg: JointState) -> None:
         try:
             self.targets.put(convert.arrays_to_targets(msg.name, msg.position))
@@ -352,6 +407,10 @@ class ControlNode(Node):
         self.targets.clear()
         """켜는 순간 직전 목표각이 한 주기 나가지 않게 비움."""
         self.stopped_by_stale = False
+        self.stopped_by_input = False
+        self._input_at = None
+        """조작 노드 끊김은 이번 CONTROL 부터 새로 셈. 지난 기록이 남아 있으면, 조작 노드가
+        죽은 뒤 서비스를 손으로 불러 토크를 넣었을 때 첫 주기에 바로 꺼짐."""
         self._run_loop(Mode.CONTROL)
 
         # 루프가 _enter 를 지나는 데 걸리는 시간. 여기서 죽으면 토크가 안 들어감.
@@ -442,6 +501,7 @@ class ControlNode(Node):
             "target_age_s": f"{self.targets.age():.3f}",
             "target_stale_count": str(self.targets.stale_count),
             "stopped_by_stale": str(self.stopped_by_stale),
+            "stopped_by_input": str(self.stopped_by_input),
         }
         if self.taps is not None:
             # 24 안쪽이 정상. MAX_EVENTS 에 붙어 있으면 발행이 밀려 오래된 사건을
@@ -463,7 +523,7 @@ class ControlNode(Node):
         status.name = "huphy/control"
         status.hardware_id = self.robot.id
         status.level = (
-            DiagnosticStatus.ERROR if self.stopped_by_stale
+            DiagnosticStatus.ERROR if (self.stopped_by_stale or self.stopped_by_input)
             else DiagnosticStatus.OK
         )
         status.message = self.mode.value

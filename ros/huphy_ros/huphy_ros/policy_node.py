@@ -54,6 +54,16 @@
 (teleop 창, `ros2 topic pub -r`)이 죽거나 끊겼는데 마지막 속도로 계속 걸어가면 안 됨.
 `huphy-run --teleop` 은 0.2초에 같은 일을 함. 높이(`h_star`)는 마지막 값을 유지함.
 
+**조작 노드가 죽으면 정책도 멈춤** (`stop_on_cmd_loss`, 기본 켬). 명령 토픽
+(`cmd_vel` 또는 `h_star`)을 한 번이라도 받은 뒤 `cmd_timeout_s` 넘게 아무것도 안 오면,
+접근·대기·정책 어느 단계든 `stop_policy` 와 같이 꺼짐 -> 목표각을 안 냄 -> 모션보드가
+100ms 뒤 감쇠 5초 후 토크를 끊음. 패드(`gamepad_node`)와 teleop 창은 20Hz 로 계속
+내므로 끊김 = 죽음임. 속도만 0 으로 두고 정책을 계속 돌리면, 패드의 B(멈춤)도 같이
+죽어서 멈출 수단이 없어짐 (2026-11-02: 패드가 예외로 죽은 뒤 정책이 10초 혼자 돎).
+
+명령을 `ros2 topic pub --once` 처럼 한 번만 보내는 쓰임이면 0.5초 뒤 멈춤 --
+`-r 20` 으로 계속 보내거나 `stop_on_cmd_loss:=false`.
+
 ## 기록 (`debug` 파라미터)
 
 `debug:=true` 면 추론 한 번을 `/huphy/debug/policy_row` 로 냄 -- `t`, 관찰 벡터,
@@ -127,6 +137,7 @@ class PolicyNode(Node):
         self.declare_parameter("state_stale_ms", POLICY_STATE_STALE_S * 1000.0)
         self.declare_parameter("approach_s", 3.0)
         self.declare_parameter("cmd_timeout_s", 0.5)
+        self.declare_parameter("stop_on_cmd_loss", True)
         self.declare_parameter("debug", False)
 
         folder = self.get_parameter("policy").value
@@ -146,7 +157,11 @@ class PolicyNode(Node):
         self.velocity_names = tuple(n for n in VELOCITY_COMMANDS if n in self.policy.commands)
         self._cmd_vel_at: Optional[float] = None
         """마지막 `cmd_vel` 을 받은 시각. 없으면 아직 한 번도 안 옴 (시작값 그대로)."""
+        self.stop_on_cmd_loss = bool(self.get_parameter("stop_on_cmd_loss").value)
         self._bad_cmd_warned: set = set()
+        self._cmd_at: Optional[float] = None
+        """마지막 명령 토픽(`cmd_vel` 또는 `h_star`)을 받은 시각. 조작 노드가 살아 있는지
+        보는 데 씀 (`_check_cmd_source`). 없으면 조작 노드가 아직 없음 -- 멈추지 않음."""
         stale_s = float(self.get_parameter("state_stale_ms").value) / 1000.0
         self.joints = Freshness(stale_s)
         self.imu = Freshness(stale_s)
@@ -218,7 +233,7 @@ class PolicyNode(Node):
 
     def _on_cmd(self, msg: Twist) -> None:
         # 정책에 있는 칸만 씀. walk 는 vy 칸이 없어서 linear.y 를 버림.
-        self._cmd_vel_at = self._now()
+        self._cmd_vel_at = self._cmd_at = self._now()
         self._set_commands(
             vx=float(msg.linear.x), vy=float(msg.linear.y), wz=float(msg.angular.z))
 
@@ -235,12 +250,33 @@ class PolicyNode(Node):
             self.get_logger().warning(
                 f"cmd_vel 이 {self.cmd_timeout_s:g}초 넘게 안 옴 -> 속도 {moving} 를 0 으로")
 
+    def _check_cmd_source(self) -> None:
+        """조작 노드가 죽었으면 정책을 멈춤. 감쇠·토크 차단은 모션보드가 함.
+
+        명령 토픽을 한 번이라도 받은 뒤 `cmd_timeout_s` 넘게 아무것도 안 오면 끊긴 것으로
+        봄. 꺼짐 단계면 할 일이 없음. 한 번 멈추면 `_cmd_at` 을 비워 다시 알리지 않음 --
+        조작 노드를 다시 띄우면 첫 메시지부터 다시 셈.
+        """
+        if not self.stop_on_cmd_loss or self._cmd_at is None or self.stage == OFF:
+            return
+        silent = self._now() - self._cmd_at
+        if silent <= self.cmd_timeout_s:
+            return
+        self._cmd_at = None
+        was = self.stage
+        self._stop()
+        self.get_logger().error(
+            f"명령 토픽(cmd_vel/h_star)이 {silent:.2f}초째 안 옴 -- 조작 노드가 죽었을 수 있음. "
+            f"정책 멈춤 ({was} -> off). 목표각을 안 냄 -> 모션보드가 감쇠 후 토크를 끊음")
+
     def _on_h_star(self, msg: Float64) -> None:
+        self._cmd_at = self._now()
         self._set_commands(h_star=float(msg.data))
 
     def _set_commands(self, **values) -> None:
         """정책에 있는 명령만 넣음. **NaN/Inf 는 버림** -- 관찰에 들어가면 추론이 예외로
-        멈춤 (`deploy.observation_vector`)."""
+        멈춤 (`deploy.observation_vector`). 조작 노드가 살아 있다는 표시(`_cmd_at`)는 이미
+        콜백에서 찍었으므로 값만 버림."""
         for name, value in values.items():
             if name not in self.policy.commands:
                 continue
@@ -303,12 +339,16 @@ class PolicyNode(Node):
         response.message = "정책 시작"
         return response
 
-    def _on_stop(self, request, response):
-        del request
+    def _stop(self) -> None:
+        """어느 단계든 꺼짐으로. 목표각을 안 내면 모션보드가 100ms 뒤 감쇠로 들어감."""
         self.stage = OFF
         self.approach_motion = None
         self.started_at = None
         self._publish_status()
+
+    def _on_stop(self, request, response):
+        del request
+        self._stop()
         response.success = True
         response.message = "멈춤. 목표각을 안 냄 -> 모션보드가 감쇠로 들어감"
         return response
@@ -316,6 +356,7 @@ class PolicyNode(Node):
     # ---- 20ms 타이머 -------------------------------------------------------
     def _tick(self) -> None:
         self._check_cmd_timeout()
+        self._check_cmd_source()
         if self.stage == OFF:
             return
 

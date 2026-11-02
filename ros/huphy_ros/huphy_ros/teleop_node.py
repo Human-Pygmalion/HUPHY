@@ -100,6 +100,8 @@ class TeleopNode(Node):
         self.velocity_names = [a.name for a in axes if a.kind == "velocity"]
         self.height_names = [a.name for a in axes if a.kind == "height"]
 
+        self._last: Dict[str, float] = {}
+        """마지막으로 낸 명령. 멈추는 중에도 같은 높이를 계속 내려고 둠 (`_tick`)."""
         self.cmd_vel_pub = (self.create_publisher(Twist, "/huphy/cmd_vel", 10)
                             if self.velocity_names else None)
         self.h_star_pub = (self.create_publisher(Float64, "/huphy/h_star", 10)
@@ -150,6 +152,10 @@ class TeleopNode(Node):
     # ---- 20Hz -------------------------------------------------------------
     def _tick(self) -> None:
         if self.finished or self.stop_reason is not None:
+            # 멈추는 중(stop_policy -> disable, 몇 초)에도 살아 있다는 표시로 속도 0 을 계속
+            # 냄. 안 내면 control_node·policy_node 가 이 노드가 죽은 것으로 봄
+            # (`stop_on_input_loss`, `stop_on_cmd_loss`). 높이는 마지막 값 그대로.
+            self._publish({**self._last, **{n: 0.0 for n in self.velocity_names}})
             return
         if self.pad.stop_requested():
             self.stop_reason = "창에서 멈춤 (Esc / 창 닫기)"
@@ -173,6 +179,7 @@ class TeleopNode(Node):
             self._call("start_policy")          # ready 가 아니면 정책 노드가 거절하고 이유를 줌
 
     def _publish(self, values: Dict[str, float]) -> None:
+        self._last = dict(values)
         if self.cmd_vel_pub is not None:
             msg = Twist()
             msg.linear.x = float(values.get("vx", 0.0))

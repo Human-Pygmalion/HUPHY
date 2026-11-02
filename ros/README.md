@@ -322,9 +322,10 @@ USB 번호를 쓰면 LB 가 "View" 였음). 고정하려면 `layout:=usb` / `lay
 패드 입력만 따로 보려면 `python3 tools/gamepad_viewer.py` -- ROS 없이 패드를 직접 읽어 버튼·축의
 번호와 이름(`View`, `RB` 등)을 브라우저에 실시간으로 보여 줌 (`tools/README.md`).
 
-**끊기면:** `/joy` 가 0.5초 넘게 안 오면 (선이 빠짐, `joy_node` 가 죽음) 전부 놓은 것으로 보고
-속도 0 을 냄. `gamepad_node` 까지 죽으면 `cmd_vel` 이 끊겨 정책 노드가 0.5초 뒤 0 으로 돌림.
-**둘 다 속도만 0 이고 토크는 안 꺼짐** -- 끄는 것은 B 또는 A-7 의 명령.
+**끊기면 감쇠 후 토크가 꺼짐:** 패드가 끊기거나(`/joy` 가 0.5초 넘게 안 옴 -- 선이 빠짐,
+블루투스 끊김, `joy_node` 가 죽음) `gamepad_node` 가 죽으면(Ctrl-C 포함) 명령 토픽이 끊기고,
+0.5초 뒤 `control_node` 가 감쇠 5초 후 토크를 끊음 (`stop_on_input_loss`). 정책 노드도 정책을 끔.
+속도만 0 으로 두면 B 를 누를 패드가 없어 멈출 수단이 없기 때문임. 다시 쓰려면 View 1초부터.
 
 축·버튼 번호는 드라이버마다 다름 (USB 의 `xpad` 와 블루투스의 `xpadneo` 가 다름). 안 맞으면
 `ros2 topic echo /joy` 로 실제 번호를 보고 덮어씀.
@@ -341,9 +342,10 @@ ros2 launch huphy_ros gamepad.launch.py policy:=... \
 명령으로 줄 때는 정책에 맞는 것 **하나**. `pub -r 20` 은 초당 20번 계속 보냄. 안 보내면 걷기는
 (0, 0) = 제자리, 스쿼트는 시작값 0.8914.
 
-**끊으면:** 속도(`cmd_vel`)는 **0.5초 뒤 0** 으로 돌아감 -- 보내던 쪽이 죽어도 마지막 속도로
-계속 걸어가지 않게 (`policy_node` 의 `cmd_timeout_s`. `--teleop` 은 0.2초). 높이(`h_star`)는
-마지막 값이 유지됨.
+**끊으면:** 0.5초 뒤(`policy_node` 의 `cmd_timeout_s`) **정책이 멈추고 모션보드가 감쇠 후
+토크를 끊음** (`stop_on_cmd_loss`). 보내던 쪽(패드·teleop·`pub -r`)이 죽었는데 정책이 계속
+돌면, 멈춤 버튼도 같이 죽어 멈출 수단이 없어짐. `--once` 로 한 번만 보낼 거면
+`stop_on_cmd_loss:=false` -- 그때는 속도만 0 으로 돌아가고 높이는 마지막 값이 유지됨.
 
 ```bash
 # 걷기: linear.x 앞뒤 (m/s), angular.z 돌기 (rad/s)
@@ -660,6 +662,8 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 | `drain_ms` | 4.0 | 응답을 기다리는 최대 시간. 다 오면 즉시 넘어가서 평소엔 안 씀. 2 면 마지막 응답 모터(ankle_b)가 가끔 무응답으로 잡혀 통신 두절로 멈췄음 |
 | `send_mode` | `burst` | 명령을 내는 방식. `burst` 는 모터마다 호스트 id 가 0xF0+id 여야 함 -- 시작할 때 확인하고 아니면 멈춤. 못 맞춘 모터가 있으면 `seq` (`docs/can_communication.md` 4절) |
 | `target_stale_ms` | 100.0 | 목표각이 이보다 안 오면 감쇠 |
+| `input_timeout_ms` | 500.0 | 조작 노드(패드·teleop)의 명령 토픽(`cmd_vel`/`h_star`)이 이보다 끊기면 CONTROL 을 멈춤 -> 감쇠 5초 후 토크 끔 |
+| `stop_on_input_loss` | true | 위를 켜고 끔. 명령 토픽을 한 번도 안 받았으면(조작 노드 없이 씀) 걸리지 않음. `enable` 때마다 새로 셈 |
 | `allow_uncalibrated` | false | 실측 전에도 토크를 넣음 |
 
 ### `policy_node`
@@ -672,6 +676,7 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 | `state_stale_ms` | 60.0 | 상태가 이보다 낡으면 목표각을 안 냄 |
 | `approach_s` | 3.0 | 기준 자세로 옮기는 시간 |
 | `cmd_timeout_s` | 0.5 | 속도 명령(`cmd_vel`)이 이만큼 안 오면 속도를 0 으로. 높이는 유지 |
+| `stop_on_cmd_loss` | true | 명령 토픽(`cmd_vel`/`h_star`)을 받다가 `cmd_timeout_s` 넘게 끊기면 **정책을 멈춤** -> 모션보드가 감쇠 후 토크 끔. 조작 노드(패드·teleop)가 죽었을 때 멈출 수단이 없어지는 것을 막음 |
 
 ### `teleop_node`
 
