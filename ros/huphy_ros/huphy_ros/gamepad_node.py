@@ -76,11 +76,13 @@ Series X 패드를 잘못 알아서 RB 가 안 잡히고 View 가 8번으로 나
 
 from __future__ import annotations
 
+import math
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
@@ -183,6 +185,8 @@ class GamepadNode(Node):
 
         self.velocity_names = [a.name for a in axes if a.kind == "velocity"]
         self.height_names = [a.name for a in axes if a.kind == "height"]
+        self._swallowed: set = set()
+        """이미 알린 예외 (`_swallow`). 같은 것을 매 주기 찍지 않으려고."""
         self.values: Dict[str, float] = {a.name: a.start for a in axes}
         """지금 내보내는 명령 값. 속도는 매 주기 스틱에서 다시 정하고, 높이는 쌓임."""
 
@@ -228,9 +232,12 @@ class GamepadNode(Node):
 
     # ---- 들어오는 것 -------------------------------------------------------
     def _on_joy(self, msg: Joy) -> None:
-        if len(msg.buttons) != self._buttons_n:
-            self._pick_layout(len(msg.buttons))
-        self.joy, self.joy_at = msg, time.monotonic()
+        try:
+            if len(msg.buttons) != self._buttons_n:
+                self._pick_layout(len(msg.buttons))
+            self.joy, self.joy_at = msg, time.monotonic()
+        except Exception as e:  # noqa: BLE001 - 이상한 /joy 하나로 노드가 죽으면 안 됨
+            self._swallow("/joy 처리", e)
 
     def _pick_layout(self, buttons_n: int) -> None:
         """버튼 수로 배치를 고름. 모르는 수면 `layout` 을 None 으로 -- 패드를 무시함.
@@ -280,17 +287,45 @@ class GamepadNode(Node):
 
     # ---- 패드 읽기 ---------------------------------------------------------
     def _axis(self, index: int) -> float:
-        """`Joy.axes[index]`. 칸이 없으면 0. 가운데 흔들림은 잘라냄."""
+        """`Joy.axes[index]`. 칸이 없거나 숫자가 아니면 0. 가운데 흔들림은 잘라냄.
+
+        [-1, 1] 밖이면 그 끝으로 자름 -- 명령이 `max` 를 넘지 않게. NaN/Inf 를 그대로
+        내보내면 정책 노드의 관찰에 들어가 추론이 멈춤.
+        """
         if self.joy is None or self.layout is None or not 0 <= index < len(self.joy.axes):
             return 0.0
-        v = float(self.joy.axes[index])
+        try:
+            v = float(self.joy.axes[index])
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(v):
+            return 0.0
+        v = min(max(v, -1.0), 1.0)
         return 0.0 if abs(v) < self.deadzone else v
 
     def _button(self, name: str) -> bool:
+        """버튼이 눌렸나. 번호가 없거나 범위 밖이면 안 눌린 것으로 봄."""
         if self.joy is None or self.layout is None:
             return False
-        index = self.button_index[name]
-        return index < len(self.joy.buttons) and bool(self.joy.buttons[index])
+        index = self.button_index.get(name, -1)
+        if not 0 <= index < len(self.joy.buttons):
+            return False
+        try:
+            return bool(self.joy.buttons[index])
+        except (TypeError, ValueError):
+            return False
+
+    def _swallow(self, where: str, e: Exception) -> None:
+        """콜백 안의 예외를 삼키고 **같은 내용은 한 번만** 알림. 노드는 계속 돎.
+
+        패드 노드가 죽으면 B(멈춤)도 같이 죽음. 그래서 무엇이 잘못돼도 죽지 않고, 그 주기는
+        속도 0 을 냄 (`_tick`). 로그는 늘 error 수준 하나로만 찍음 (rclpy 의 호출 자리별
+        수준 고정 때문).
+        """
+        key = f"{where}: {type(e).__name__}: {e}"
+        if key not in self._swallowed:
+            self._swallowed.add(key)
+            self.get_logger().error(f"{key} -- 무시하고 계속 돎 (같은 오류는 다시 안 알림)")
 
     def _edges(self) -> List[str]:
         """이번 주기에 **새로** 눌린 버튼 이름들. 누르고 있는 동안은 한 번만 남."""
@@ -304,6 +339,16 @@ class GamepadNode(Node):
 
     # ---- 20Hz -------------------------------------------------------------
     def _tick(self) -> None:
+        try:
+            self._tick_body()
+        except Exception as e:  # noqa: BLE001 - 죽지 않음. 이 주기는 속도 0
+            self._swallow("주기 처리", e)
+            try:
+                self._publish({**self.values, **{n: 0.0 for n in self.velocity_names}})
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _tick_body(self) -> None:
         if self.finished or self.stop_reason is not None:
             return
         now = time.monotonic()
@@ -388,8 +433,13 @@ class GamepadNode(Node):
             except Exception as e:  # noqa: BLE001
                 self.get_logger().warning(f"/huphy/{name} 실패: {e}")
                 return
-            log = self.get_logger().info if r.success else self.get_logger().warning
-            log(f"/huphy/{name}: {r.message}")
+            # 성공·실패를 **다른 줄**에서 찍음. rclpy 는 한 줄(호출 자리)에서 로그 수준을
+            # 바꾸면 ValueError 를 냄 -- 예전에는 info 로만 찍던 이 줄이 처음 거절
+            # 응답(정책 중 A -> approach 거절)을 warning 으로 찍다가 노드가 죽었음.
+            if r.success:
+                self.get_logger().info(f"/huphy/{name}: {r.message}")
+            else:
+                self.get_logger().warning(f"/huphy/{name} 거절: {r.message}")
 
         future.add_done_callback(done)
         return future
@@ -416,10 +466,17 @@ def main(argv=None) -> None:
     node = GamepadNode()
     try:
         while rclpy.ok() and not node.finished:
-            rclpy.spin_once(node, timeout_sec=0.1)
-            if node.stop_reason is not None:
-                node.finish(node.stop_reason)
-    except KeyboardInterrupt:
+            # 콜백(서비스 응답 등)에서 새어 나온 예외는 spin_once 가 다시 던짐. 여기서
+            # 받아 넘김 -- 노드가 죽으면 B(멈춤)도 같이 죽음.
+            try:
+                rclpy.spin_once(node, timeout_sec=0.1)
+                if node.stop_reason is not None:
+                    node.finish(node.stop_reason)
+            except (KeyboardInterrupt, ExternalShutdownException):
+                raise
+            except Exception as e:  # noqa: BLE001
+                node._swallow("spin", e)
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.close()

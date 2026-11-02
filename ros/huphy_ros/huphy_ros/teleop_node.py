@@ -196,8 +196,13 @@ class TeleopNode(Node):
             except Exception as e:  # noqa: BLE001
                 self.get_logger().warning(f"/huphy/{name} 실패: {e}")
                 return
-            log = self.get_logger().info if r.success else self.get_logger().warning
-            log(f"/huphy/{name}: {r.message}")
+            # 성공·실패를 **다른 줄**에서 찍음. rclpy 는 한 줄(호출 자리)에서 로그 수준을
+            # 바꾸면 ValueError 를 냄 -- 예전에는 info 로만 찍던 이 줄이 처음 거절
+            # 응답(정책 중 A -> approach 거절)을 warning 으로 찍다가 노드가 죽었음.
+            if r.success:
+                self.get_logger().info(f"/huphy/{name}: {r.message}")
+            else:
+                self.get_logger().warning(f"/huphy/{name} 거절: {r.message}")
 
         future.add_done_callback(done)
         return future

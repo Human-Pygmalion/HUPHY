@@ -146,6 +146,7 @@ class PolicyNode(Node):
         self.velocity_names = tuple(n for n in VELOCITY_COMMANDS if n in self.policy.commands)
         self._cmd_vel_at: Optional[float] = None
         """마지막 `cmd_vel` 을 받은 시각. 없으면 아직 한 번도 안 옴 (시작값 그대로)."""
+        self._bad_cmd_warned: set = set()
         stale_s = float(self.get_parameter("state_stale_ms").value) / 1000.0
         self.joints = Freshness(stale_s)
         self.imu = Freshness(stale_s)
@@ -238,9 +239,17 @@ class PolicyNode(Node):
         self._set_commands(h_star=float(msg.data))
 
     def _set_commands(self, **values) -> None:
+        """정책에 있는 명령만 넣음. **NaN/Inf 는 버림** -- 관찰에 들어가면 추론이 예외로
+        멈춤 (`deploy.observation_vector`)."""
         for name, value in values.items():
-            if name in self.policy.commands:
-                self.runner.commands.set(name, value)
+            if name not in self.policy.commands:
+                continue
+            if not math.isfinite(value):
+                if name not in self._bad_cmd_warned:
+                    self._bad_cmd_warned.add(name)
+                    self.get_logger().warning(f"명령 {name}={value} 는 숫자가 아님 -- 버림")
+                continue
+            self.runner.commands.set(name, value)
 
     # ---- 서비스 -----------------------------------------------------------
     def _on_approach(self, request, response):
