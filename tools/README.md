@@ -3,6 +3,7 @@
 ```
 tools/
 ├── policy_viewer.html    정책 입출력 기록을 재생하듯 봄
+├── robot_viewer.py       같은 기록을 3D 로봇으로 재생 (실측·목표 겹쳐서)
 ├── latency_viewer.html   관절별 응답 지연 히스토그램
 │   (실시간 뷰어)          huphy-test / huphy-run --live -- 도는 동안 목표·실측
 ├── imu_viewer.py         정책이 받는 IMU 값을 실시간으로 보고 단위·좌표계를 검사
@@ -13,7 +14,7 @@ tools/
 └── rs_ota.py             RobStride 펌웨어 업데이트 (CAN, private 프로토콜)
 ```
 
-**셋 다 외부 라이브러리가 없음.** 제어 보드에서 인터넷 없이 열려야 해서임. html 은
+**`robot_viewer.py` 말고는 외부 라이브러리가 없음.** 제어 보드에서 인터넷 없이 열려야 해서임. html 은
 브라우저로 열고 파일을 끌어다 놓거나 "파일 열기" 로 고름. 기록 파일은 `huphy-run --log`
 과 `huphy-test --log` 이 `logs/` 에 남김.
 
@@ -28,6 +29,36 @@ huphy-test --robot --hz 50 --drain-ms 4 zero --log
 #   logs/track/<월일>_track_zero[_<인자>].json      -> policy_viewer.html (목표·실측만)
 #   logs/latency/<월일>_latency_zero[_<인자>].json  -> latency_viewer.html
 ```
+
+---
+
+## `robot_viewer.py` -- 기록을 3D 로봇으로
+
+```bash
+python3 tools/robot_viewer.py                                        # http://127.0.0.1:8790 , 화면 위에서 기록을 고름
+python3 tools/robot_viewer.py logs/policy/1102_policy_huphy_squat.json
+python3 tools/robot_viewer.py --host 0.0.0.0                         # 같은 망의 노트북에서도
+```
+
+`logs/`, `ros/logs/` 의 policy·track 기록을 고르면 3D 로봇이 그대로 움직임. ROS 는 안 씀.
+
+| 보이는 것 | 뜻 |
+|---|---|
+| 회색 로봇 | 실측 (`pos/`) |
+| 분홍 반투명 로봇 | 목표 (`tgt/`) -- 둘이 벌어지면 그만큼 못 따라간 것 |
+| 몸통이 공중에 고정 | 몸통 위치·자세는 기록에 없음 |
+
+- 모델은 RViz 와 같음 (`ros/huphy_ros/urdf/huphy.urdf`, `meshes/`).
+- 기록에는 모터 12개만 있어서, 발과 발목 막대는 `ros/huphy_ros/huphy_ros/linkage.py` 로 풀어서 그림.
+  기록을 고르면 몇 초 "발목 푸는 중" 이 뜸 (25초 기록에 5초 남짓).
+- 그리기는 three.js 를 CDN 에서 받음 -- **브라우저에 인터넷이 있어야 함.**
+
+| 키 | |
+|---|---|
+| `Space` | 재생 / 정지 |
+| `←` `→` / `Shift+←` `→` | 한 프레임 / 1초 |
+| `Home` `End` | 처음 / 끝 |
+| 마우스 | 왼쪽 끌기 돌리기, 휠 확대, 오른쪽 끌기 옮기기 |
 
 ---
 
