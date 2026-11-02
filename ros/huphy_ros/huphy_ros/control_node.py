@@ -50,12 +50,15 @@
 
 기본이 `OBSERVE` 임. 파라미터를 빠뜨렸을 때 안 움직이는 쪽으로 떨어지게 함.
 
-## 기록 (`debug` 파라미터)
+## 기록
 
-`debug:=true` 면 두 가지를 냄.
+켤 것이 없음 -- `log_node` 를 띄우면 기록됨. 두 가지를 냄.
 
-    /huphy/debug/control_info   시작할 때 한 번. 주기·수거 대기·관절 이름·가동범위
-    /huphy/debug/latency        100Hz. 송신·수신 사건 묶음
+    /huphy/debug/control_info   시작할 때 한 번 (transient_local). 주기·수거 대기·관절 이름·가동범위
+    /huphy/debug/latency        100Hz. 송신·수신 사건 묶음. **구독자가 있을 때만** 냄
+
+구독자가 없으면 사건을 큐에서 비우기만 하고 메시지를 안 만듦. 사건 수집(`latency_tap`)은
+늘 붙어 있음 -- 주기 안에서 시각을 한 번 더 재는 정도라 제어에 안 보임.
 
 **파일은 안 씀.** 쓰는 것은 `log_node` 임 -- 기계가 둘이라(`ros/README.md` 결정 13)
 여기서 쓰면 지연 기록만 모션보드에 남고 정책 기록은 작업 기계에 남음.
@@ -147,7 +150,6 @@ class ControlNode(Node):
         self.declare_parameter("input_timeout_ms", 500.0)
         self.declare_parameter("stop_on_input_loss", True)
         self.declare_parameter("allow_uncalibrated", False)
-        self.declare_parameter("debug", False)
 
         path = self.get_parameter("config").value
         if not path:
@@ -207,27 +209,23 @@ class ControlNode(Node):
         self.status_pub = self.create_publisher(
             DiagnosticArray, "/huphy/loop_status", 10)
 
-        # 기록용. debug 를 안 켜면 버스에 붙지도 않음 -- 안 붙으면 버스가 시각을
-        # 재지도 않음 (`motors/robstride/bus.py` 의 `latency`).
-        self.taps = None
-        self.batch_pub = None
-        if bool(self.get_parameter("debug").value):
-            self.taps = latency_tap.TapSet(self.robot)
-            self.batch_pub = self.create_publisher(
-                LatencyBatch, "/huphy/debug/latency", qos_profile_sensor_data)
-            limits = joint_limits(self.robot)
-            info_pub = self.create_publisher(
-                ControlInfo, "/huphy/debug/control_info", INFO_QOS)
-            info_pub.publish(ControlInfo(
-                robot=self.robot.id,
-                hz=self.hz,
-                drain_ms=float(self.get_parameter("drain_ms").value),
-                send_mode=send_mode,
-                joint_names=list(self.taps.joints),
-                limit_lo_deg=[float(limits.get(j, (nan, nan))[0]) for j in self.taps.joints],
-                limit_hi_deg=[float(limits.get(j, (nan, nan))[1]) for j in self.taps.joints],
-            ))
-            self.info_pub = info_pub
+        # 기록용. 늘 붙여 두고, log_node 가 구독할 때만 _publish_latency 가 냄.
+        self.taps = latency_tap.TapSet(self.robot)
+        self.batch_pub = self.create_publisher(
+            LatencyBatch, "/huphy/debug/latency", qos_profile_sensor_data)
+        limits = joint_limits(self.robot)
+        info_pub = self.create_publisher(
+            ControlInfo, "/huphy/debug/control_info", INFO_QOS)
+        info_pub.publish(ControlInfo(
+            robot=self.robot.id,
+            hz=self.hz,
+            drain_ms=float(self.get_parameter("drain_ms").value),
+            send_mode=send_mode,
+            joint_names=list(self.taps.joints),
+            limit_lo_deg=[float(limits.get(j, (nan, nan))[0]) for j in self.taps.joints],
+            limit_hi_deg=[float(limits.get(j, (nan, nan))[1]) for j in self.taps.joints],
+        ))
+        self.info_pub = info_pub
         self.create_subscription(
             JointState, "/huphy/joint_targets", self._on_targets,
             qos_profile_sensor_data)
@@ -483,8 +481,8 @@ class ControlNode(Node):
         if self.batch_pub is None or self.taps is None:
             return
         events = self.taps.drain()
-        if not events:
-            return
+        if not events or self.batch_pub.get_subscription_count() == 0:
+            return                      # 기록 노드가 없으면 비우기만 함
         msg = LatencyBatch()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.t = [e[0] for e in events]

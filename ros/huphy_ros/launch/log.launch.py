@@ -5,12 +5,8 @@
 
 **정책을 시작하기 전에 띄워 둘 것.** 그 전에 흘러간 줄은 못 받음.
 
-내는 쪽도 켜야 함 -- `control.launch.py` 와 `policy.launch.py` 에 `debug:=true`.
-`local.launch.py` 는 셋을 한 번에 띄우고 `debug` 를 양쪽에 넘김.
-
-    ros2 launch huphy_ros control.launch.py debug:=true     # 모션보드
-    ros2 launch huphy_ros policy.launch.py  debug:=true     # 작업 기계
-    ros2 launch huphy_ros log.launch.py                     # 아무 기계
+**이것만 띄우면 됨.** 제어·정책 노드에 따로 켤 것이 없음 -- 이 노드가 구독하는 것을
+보고 두 노드가 기록용 토픽을 내기 시작함. 한 기계든 두 기계든 같음.
 
 끝나면 두 파일이 나옴 (`<log>` 아래).
 

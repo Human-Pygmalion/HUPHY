@@ -163,6 +163,25 @@ ROS 없이 돌리는 `huphy-run` 한 번이 아래처럼 쪼개져 있음. **ROS
 두 기계의 `ROS_DOMAIN_ID` 가 같아야 함 (설치 스크립트가 7 로 넣음). 다르면 에러 없이 서로
 안 보임.
 
+#### 띄울 것 한눈에
+
+런치 하나가 터미널 하나를 차지함. **위에서부터 순서대로** 띄움. 정책은 걷기 예시 --
+`generalized_walk` 자리를 `stairs_slopes12` / `huphy_squat` 로 바꾸면 됨. 정책·창·패드에는
+**같은 정책**을 줌.
+
+| 터미널 | 기계 | 띄울 것 |
+|---|---|---|
+| 1 | 모션보드 | `huphy-can up` 후 `ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml` |
+| 2 | 작업 기계 | `ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk` |
+| 3 | 작업 기계 | 조작 하나: 창 `teleop.launch.py policy:=...` / 패드 `gamepad.launch.py policy:=...` / 명령 `ros2 topic pub ...` (A-6) |
+| 4 | 작업 기계 | **기록할 때만** `ros2 launch huphy_ros log.launch.py` -- 정책 시작 전에 |
+
+- **기록은 터미널 4 하나로 끝남.** 1·2 에 붙일 것 없음 -- 기록 노드가 뜨면 두 노드가 알아서
+  기록용 토픽을 내기 시작하고, 안 뜨면 안 냄.
+- 기록 파일은 터미널 4 를 띄운 기계의 `~/HUPHY/ros/logs/policy/`, `.../latency/` 에 생김.
+  `stop_policy` (Esc, 패드 B 포함) 한 번에 한 쌍. 자세한 것은 [기록](#기록).
+- 토크 켜기·기준 자세·정책 시작·멈춤은 런치가 아니라 서비스임 -- A-3 부터.
+
 #### A-1. CAN 올리고 제어 노드 띄우기  `[모션보드]`
 
 ```bash
@@ -170,8 +189,7 @@ huphy-can up
 ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml
 ```
 
-기록을 남길 거면 `debug:=true` 를 붙임. 작업 기계에서도 같이 켜야 하고 기록 노드를
-따로 띄워야 함 (아래 [기록](#기록)).
+기록은 여기서 켤 것 없음 -- 작업 기계에서 `log.launch.py` 하나 (위 [띄울 것 한눈에](#띄울-것-한눈에)).
 
 | 명령 | 하는 일 | 기존으로 치면 |
 |---|---|---|
@@ -302,7 +320,7 @@ ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/huph
 | **RB** | 누르고 있는 동안에만 명령이 먹음. 떼면 속도 0, 높이는 마지막 값 유지 |
 | **A** | 기준 자세로 (`approach`). **토크가 켜져 있을 때만** |
 | **RB + Menu** | 정책 시작 (`start_policy`). **RB 를 누르고 있어야 나감** |
-| **B** | 정책 끔 -> 토크 끔 (`stop_policy` -> `disable`), 노드도 끝남 |
+| **B** | 정책 끔 -> 토크 끔 (`stop_policy` -> `disable`). 노드는 계속 돎 -- 다시 View 1초부터. 노드 종료는 Ctrl-C |
 | **View 1초** | 토크 넣기 (`enable`). **1초 계속 눌러야** 한 번 나감 |
 
 **창(teleop)과 다른 점은 `enable` 이 패드에 있다는 것뿐임.** 토크가 들어가는 순간이 가장
@@ -432,6 +450,16 @@ ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔
 **모든 명령을 CAN·IMU 가 붙은 그 기계 하나에서** 침. 노드 둘을 런치 하나로 같이 띄우는 것만
 다르고, 그 뒤 서비스·토픽은 A 와 같음. 런치 뒤 명령은 새 터미널에서.
 
+#### 띄울 것 한눈에 (한 기계)
+
+| 터미널 | 띄울 것 |
+|---|---|
+| 1 | `huphy-can up` 후 `ros2 launch huphy_ros local.launch.py config:=$HOME/HUPHY/config/robot.yaml policy:=$HOME/HUPHY/config/policies/generalized_walk` |
+| 2 | 조작 하나: 창 `teleop.launch.py policy:=...` / 패드 `gamepad.launch.py policy:=...` / 명령 `ros2 topic pub ...` (B-5) |
+
+- **기록할 때만** 다른 터미널에서 `ros2 launch huphy_ros log.launch.py` -- 정책 시작 전에.
+- 기록 파일은 `~/HUPHY/ros/logs/policy/`, `.../latency/`. `stop_policy` 한 번에 한 쌍.
+
 #### B-1. CAN 올리고 노드 둘 띄우기
 
 ```bash
@@ -448,11 +476,7 @@ ros2 launch huphy_ros local.launch.py \
 
 로그 끝에 `approach 를 기다림` 과 `OBSERVE 로 시작` 이 나오면 된 것임.
 
-기록까지 남기려면 `debug:=true` 를 붙임 -- 기록 노드도 같이 뜸 (위 [기록](#기록)).
-
-```bash
-ros2 launch huphy_ros local.launch.py debug:=true
-```
+기록은 다른 터미널에서 `ros2 launch huphy_ros log.launch.py` (아래 [기록](#기록)).
 
 로봇 없이 점검할 때는 `huphy-can up` 대신 가짜 채널을 올리고 `config:=/tmp/robot_vcan.yaml`
 -- [`without_robot.md`](without_robot.md).
@@ -495,6 +519,12 @@ ros2 service call /huphy/start_policy std_srvs/srv/Trigger   # ready -> running 
 ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk   # 걷기 W/S/A/D
 ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/stairs_slopes12    # 계단·경사 W/S
 ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat        # 스쿼트 ↑/↓
+```
+
+패드로 -- A-6 의 패드와 같음 (RB 데드맨, View 1초 토크, A 기준 자세, RB+Menu 시작, B 끔):
+
+```bash
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk
 ```
 
 명령으로 -- 정책에 맞는 것 하나. 끊으면 속도는 0.5초 뒤 0, 높이는 유지.
@@ -768,22 +798,15 @@ JSON 두 파일을 ROS 로 돌릴 때도 남기는 것임.
 
 ### 켜는 법
 
-노드 셋이 필요함. 내는 쪽 둘에 `debug:=true`, 받아 쓰는 쪽 하나.
+**기록 노드 하나만 띄우면 됨.** 제어·정책 노드는 평소대로 띄우고 따로 켤 것 없음.
 
 ```bash
-# 모션보드
-ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml debug:=true
-
-# 작업 기계
-ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk debug:=true
-ros2 launch huphy_ros log.launch.py
+ros2 launch huphy_ros log.launch.py      # 아무 기계 (보통 작업 기계)
 ```
 
-한 기계면 한 줄임.
-
-```bash
-ros2 launch huphy_ros local.launch.py debug:=true
-```
+두 노드는 기록용 토픽(`/huphy/debug/*`)을 **구독자가 있을 때만** 냄 -- 기록 노드가 없으면
+50Hz·100Hz 메시지를 만들지도 않음. 시작할 때 한 번 내는 설명 두 개(`policy_info`,
+`control_info`)는 늘 내 두고 `transient_local` 이라 기록 노드를 나중에 띄워도 받음.
 
 **`log_node` 를 정책 시작 전에 띄울 것.** 그 전에 흘러간 줄은 못 받음. 시작할 때
 어디에 쓸 것인지가 로그에 찍힘.
@@ -848,10 +871,10 @@ $HOME/HUPHY/ros/logs/latency/<월일>_latency_<정책>.json   tools/latency_view
 |---|---|
 | 파일이 안 생김 | `stop_policy` 를 안 불렀거나 `running` 구간이 없었음. `ros2 topic echo /huphy/policy_status --once` 로 단계 확인 |
 | `log_node` 가 "정책 줄 N개를 못 받음" | 정책이 시작한 뒤에 띄웠음. 먼저 띄울 것 |
-| 지연 파일만 안 생김 | `control.launch.py` 에 `debug:=true` 를 안 줬음 |
-| 정책 파일만 안 생김 | `policy.launch.py` 에 `debug:=true` 를 안 줬음 |
+| 지연 파일만 안 생김 | 모션보드와 기록 노드 기계가 서로 안 보임 (`ROS_DOMAIN_ID`). `ros2 topic info /huphy/debug/latency` 의 구독자 수 확인 |
+| 정책 파일만 안 생김 | 정책 노드가 기록 노드를 못 봄. `ros2 topic info /huphy/debug/policy_row` 의 구독자 수 확인 |
 | `loop_status` 의 `latency_pending` 이 계속 큼 | 발행이 밀림. 24 안쪽이 정상. `ros/huphy_ros/huphy_ros/latency_tap.py` 의 `MAX_EVENTS` 를 넘으면 오래된 사건이 버려짐 |
-| `limits` 칸이 빈 파일 | `control_info` 를 못 받았음. `control_node` 가 `debug:=true` 로 떠 있는지 확인 |
+| `limits` 칸이 빈 파일 | `control_info` 를 못 받았음. `control_node` 가 떠 있는지, 두 기계가 서로 보이는지 확인 |
 
 ---
 
@@ -1031,8 +1054,8 @@ policy_node
           /huphy/imu                  각속도·가속도
           /huphy/gravity              중력방향 3칸
           /huphy/loop_status          주기·밀림·무응답
-          /huphy/debug/control_info   주기·수거 대기·관절 이름·가동범위 (debug, 1회)
-          /huphy/debug/latency        송신·수신 사건 (debug, 100Hz)
+          /huphy/debug/control_info   주기·수거 대기·관절 이름·가동범위 (1회)
+          /huphy/debug/latency        송신·수신 사건 (100Hz, 기록 노드가 있을 때만)
 ```
 
 **정책을 모름.** 목표각을 누가 보냈는지도 모름 (결정 8).
@@ -1047,8 +1070,8 @@ policy_node
           /huphy/approach, /start_policy, /stop_policy   서비스
 보냄      /huphy/joint_targets        관절 목표각 12개
           /huphy/policy_status        단계·상태 나이·멈춘 이유
-          /huphy/debug/policy_info    열 이름·관절 순서·체크포인트 (debug, 1회)
-          /huphy/debug/policy_row     추론 한 번 (debug, 50Hz)
+          /huphy/debug/policy_info    열 이름·관절 순서·체크포인트 (1회)
+          /huphy/debug/policy_row     추론 한 번 (50Hz, 기록 노드가 있을 때만)
 ```
 
 **CAN 을 모름.** 모터가 몇 개인지, id 가 뭔지 모름.
@@ -1105,7 +1128,7 @@ rqt_plot /huphy/joint_states/position[3]
 | `/huphy/debug/control_info` | `huphy_ros_interfaces/ControlInfo` | control | 1회 | transient_local |
 | `/huphy/debug/latency` | `huphy_ros_interfaces/LatencyBatch` | control | 100Hz | sensor_data |
 
-`debug:=true` 일 때만 나감. 쓰는 쪽은 `log_node` 하나임 -- 아래 [기록](#기록).
+`policy_row` · `latency` 는 구독자(`log_node`)가 있을 때만 나감. 쓰는 쪽은 `log_node` 하나임 -- 아래 [기록](#기록).
 
 ### 4-0. 기록용 토픽만 직접 정의한 이유
 

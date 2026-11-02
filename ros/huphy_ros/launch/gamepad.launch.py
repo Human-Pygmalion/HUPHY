@@ -11,7 +11,7 @@
     RB       누르고 있는 동안만 명령이 먹음 (데드맨). 떼면 속도 0
     A        기준 자세로 (/huphy/approach) -- 토크가 켜져 있을 때만
     RB+Menu  정책 시작 (/huphy/start_policy)
-    B        정책·토크 끔 (/huphy/stop_policy -> /huphy/disable)
+    B        정책·토크 끔 (/huphy/stop_policy -> /huphy/disable). 노드는 계속 돎
     View 1초 토크 넣기 (/huphy/enable)
 
 버튼 번호는 USB 와 블루투스가 다름. gamepad_node 가 /joy 의 버튼 수로 고름

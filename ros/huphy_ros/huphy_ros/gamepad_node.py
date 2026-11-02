@@ -17,7 +17,7 @@
     RB  누르고 있는 동안만 속도가 나감 (데드맨). 떼면 0
     A        /huphy/approach        기준 자세로 -- 토크가 켜져 있을 때만 보냄
     RB+Menu  /huphy/start_policy    정책 시작 -- RB 를 누르고 있는 동안에만
-    B        /huphy/stop_policy -> /huphy/disable, 그리고 이 노드도 끝남
+    B        /huphy/stop_policy -> /huphy/disable. 노드는 계속 돎 -- 다시 View 1초부터
     View 1초 /huphy/enable          토크 넣기
 
 
@@ -76,10 +76,14 @@ Series X 패드를 잘못 알아서 RB 가 안 잡히고 View 가 8번으로 나
 둘 다 명령 토픽이 0.5초 넘게 끊긴 것으로 나타나고, `control_node` 가 CONTROL 을 멈춰 감쇠
 5초 뒤 토크를 끊음 (`stop_on_input_loss`). `policy_node` 도 정책을 끔 (`stop_on_cmd_loss`).
 속도만 0 으로 두고 토크를 남기면 B 를 누를 패드가 없어 멈출 수단이 없음 (2026-11-02).
-패드가 다시 붙으면 다시 냄.
+패드가 다시 붙으면 다시 내므로 View 1초부터 다시 시작함.
 
 이 노드는 이상한 입력·거절 응답·콜백 예외로 죽지 않음 (`_swallow`) -- 죽으면 B 도 같이
 죽기 때문임. 범위 밖 버튼 번호는 안 눌린 것, NaN·범위 밖 스틱 값은 0 또는 ±1 로 봄.
+
+B 는 정책과 토크만 끄고 이 노드는 그대로 둠 -- 창이 없어 다시 띄우기 번거롭기 때문임
+(`teleop_node` 의 Esc 는 창을 닫으며 노드도 끝냄). 멈추는 몇 초 동안에도 속도 0 을 계속
+내서 끊김으로 잘못 보이지 않게 함.
 """
 
 from __future__ import annotations
@@ -227,8 +231,7 @@ class GamepadNode(Node):
         }
         self.stop_reason: Optional[str] = None
         """B 를 받으면 채움. 끄는 절차는 메인 루프가 함 -- 콜백 안에서 서비스 응답을
-        기다리면 같은 실행기가 막힘."""
-        self.finished = False
+        기다리면 같은 실행기가 막힘. 끝나면 비우고 다시 패드를 받음."""
         self.last_tick = time.monotonic()
 
         self.create_timer(1.0 / PUBLISH_HZ, self._tick)
@@ -359,7 +362,7 @@ class GamepadNode(Node):
                 pass
 
     def _tick_body(self) -> None:
-        if self.finished or self.stop_reason is not None:
+        if self.stop_reason is not None:
             # 멈추는 중(stop_policy -> disable, 몇 초)에도 살아 있다는 표시로 속도 0 을 계속
             # 냄. 안 내면 control_node·policy_node 가 이 노드가 죽은 것으로 봄
             # (`stop_on_input_loss`, `stop_on_cmd_loss`). 높이는 지금 값 그대로.
@@ -465,15 +468,18 @@ class GamepadNode(Node):
         future.add_done_callback(done)
         return future
 
-    def finish(self, why: str) -> None:
-        """정책 끔 -> 토크 끔 -> 속도 0 -> 끝냄. **메인 루프에서만** 부름."""
-        self.finished = True
+    def stop_all(self, why: str) -> None:
+        """속도 0 -> 정책 끔 -> 토크 끔. 노드는 안 끝냄. **메인 루프에서만** 부름."""
         self.get_logger().info(f"{why} -> stop_policy, disable")
         self._publish({n: 0.0 for n in self.velocity_names})
         for name in ("stop_policy", "disable"):
             future = self._call(name)
             if future is not None:
                 rclpy.spin_until_future_complete(self, future, timeout_sec=8.0)
+        self.enable_since, self.enable_sent = None, False
+        self.last_tick = time.monotonic()
+        self.stop_reason = None
+        self.get_logger().info("멈춤 끝. 다시 쓰려면 View 1초 -> A -> RB+Menu")
 
     def close(self) -> None:
         try:
@@ -486,13 +492,13 @@ def main(argv=None) -> None:
     rclpy.init(args=argv)
     node = GamepadNode()
     try:
-        while rclpy.ok() and not node.finished:
+        while rclpy.ok():
             # 콜백(서비스 응답 등)에서 새어 나온 예외는 spin_once 가 다시 던짐. 여기서
             # 받아 넘김 -- 노드가 죽으면 B(멈춤)도 같이 죽음.
             try:
                 rclpy.spin_once(node, timeout_sec=0.1)
                 if node.stop_reason is not None:
-                    node.finish(node.stop_reason)
+                    node.stop_all(node.stop_reason)
             except (KeyboardInterrupt, ExternalShutdownException):
                 raise
             except Exception as e:  # noqa: BLE001

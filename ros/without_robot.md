@@ -48,14 +48,11 @@ ros2 launch huphy_ros local.launch.py \
 
 한 기계에서 둘 다 띄우는 런치임. `OBSERVE` 로 시작하므로 토크 경로를 안 탐.
 
-기록까지 확인하려면 `debug:=true` 를 붙임 — 기록 노드가 같이 뜨고 파일이
+기록까지 확인하려면 다른 터미널에서 기록 노드를 띄움 — 파일이
 `$HOME/HUPHY/ros/logs/` 에 남음 (`log:=` 로 바꿈).
 
 ```bash
-ros2 launch huphy_ros local.launch.py \
-  config:=/tmp/robot_vcan.yaml \
-  policy:=$HOME/HUPHY/config/policies/generalized_walk \
-  debug:=true
+ros2 launch huphy_ros log.launch.py
 ```
 
 가짜 CAN 은 아무도 응답하지 않으므로 **지연 기록은 전부 유실로 남음.** 보이는 것은
@@ -66,13 +63,13 @@ ros2 launch huphy_ros local.launch.py \
 ## 4. ROS 쪽 확인
 
 ```bash
-ros2 node list                          # /huphy_control, /huphy_policy (debug 면 /huphy_log)
+ros2 node list                          # /huphy_control, /huphy_policy (기록 노드를 띄웠으면 /huphy_log)
 ros2 topic hz   /huphy/joint_states     # 100 근처
 ros2 topic echo /huphy/joint_states --once
 ros2 topic echo /huphy/loop_status --once
 ```
 
-`debug:=true` 로 띄웠으면 기록 토픽도 봄.
+기록 토픽도 봄. `latency` 는 기록 노드가 떠 있을 때만 나옴.
 
 ```bash
 ros2 topic echo /huphy/debug/control_info --once   # 관절 이름·가동범위
@@ -124,12 +121,12 @@ ros2 topic echo /huphy/policy_status --once  # vx 가 0.200
 ```
 
 ```bash
-ros2 topic hz /huphy/debug/policy_row        # 50 근처 (debug:=true 일 때)
+ros2 topic hz /huphy/debug/policy_row        # 50 근처 (기록 노드가 떠 있을 때)
 ```
 
 여기까지 되면 **ROS 배선은 전부 맞는 것임.** 남은 것은 모터뿐.
 
-## 7. 기록 확인 (`debug:=true` 일 때)
+## 7. 기록 확인 (기록 노드를 띄웠을 때)
 
 ```bash
 ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 한 실행의 끝

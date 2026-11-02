@@ -64,9 +64,10 @@
 명령을 `ros2 topic pub --once` 처럼 한 번만 보내는 쓰임이면 0.5초 뒤 멈춤 --
 `-r 20` 으로 계속 보내거나 `stop_on_cmd_loss:=false`.
 
-## 기록 (`debug` 파라미터)
+## 기록
 
-`debug:=true` 면 추론 한 번을 `/huphy/debug/policy_row` 로 냄 -- `t`, 관찰 벡터,
+켤 것이 없음 -- `log_node` 를 띄우면 기록됨. **구독자가 있을 때만** 추론 한 번을
+`/huphy/debug/policy_row` 로 냄 -- `t`, 관찰 벡터,
 모델 출력 날값, 관절 목표각, 실측 관절각. `telemetry/policy_log.py` 기록의 한 줄과
 같은 내용임.
 
@@ -138,7 +139,6 @@ class PolicyNode(Node):
         self.declare_parameter("approach_s", 3.0)
         self.declare_parameter("cmd_timeout_s", 0.5)
         self.declare_parameter("stop_on_cmd_loss", True)
-        self.declare_parameter("debug", False)
 
         folder = self.get_parameter("policy").value
         if not folder:
@@ -183,21 +183,19 @@ class PolicyNode(Node):
         self.status_pub = self.create_publisher(
             DiagnosticArray, "/huphy/policy_status", 10)
 
-        # 기록용. debug 를 안 켜면 만들지 않고, _tick 이 None 을 보고 건너뜀.
-        self.row_pub = None
-        if bool(self.get_parameter("debug").value):
-            self.info_pub = self.create_publisher(
-                PolicyInfo, "/huphy/debug/policy_info", INFO_QOS)
-            self.row_pub = self.create_publisher(
-                PolicyRow, "/huphy/debug/policy_row", qos_profile_sensor_data)
-            self.info_pub.publish(PolicyInfo(
-                policy=self.policy.name,
-                checkpoint=str(checkpoint or self.policy.default_checkpoint),
-                hz=self.hz,
-                approach_s=self.approach_s,
-                obs_names=list(self.policy.obs_names),
-                joint_names=list(self.policy.order),
-            ))
+        # 기록용. 늘 만들고, log_node 가 구독할 때만 _tick 이 줄을 냄.
+        self.info_pub = self.create_publisher(
+            PolicyInfo, "/huphy/debug/policy_info", INFO_QOS)
+        self.row_pub = self.create_publisher(
+            PolicyRow, "/huphy/debug/policy_row", qos_profile_sensor_data)
+        self.info_pub.publish(PolicyInfo(
+            policy=self.policy.name,
+            checkpoint=str(checkpoint or self.policy.default_checkpoint),
+            hz=self.hz,
+            approach_s=self.approach_s,
+            obs_names=list(self.policy.obs_names),
+            joint_names=list(self.policy.order),
+        ))
         self.create_subscription(
             JointState, "/huphy/joint_states", self._on_joints, qos_profile_sensor_data)
         self.create_subscription(
@@ -384,7 +382,7 @@ class PolicyNode(Node):
         targets = self._infer(observation)
         if targets is not None:
             self._emit(targets)
-            if self.row_pub is not None:
+            if self.row_pub is not None and self.row_pub.get_subscription_count() > 0:
                 self._publish_row(targets, observation)
 
     def _publish_row(self, targets, observation) -> None:
