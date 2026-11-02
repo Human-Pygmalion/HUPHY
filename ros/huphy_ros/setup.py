@@ -14,6 +14,10 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
+        # view.launch.py 가 읽음. 메시는 URDF 안에서 package://huphy_ros/meshes/ 로 찾음
+        ("share/" + package_name + "/urdf", glob("urdf/*.urdf")),
+        ("share/" + package_name + "/meshes", glob("meshes/*.stl")),
+        ("share/" + package_name + "/rviz", glob("rviz/*.rviz")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -29,6 +33,7 @@ setup(
             "teleop_node = huphy_ros.teleop_node:main",
             "gamepad_node = huphy_ros.gamepad_node:main",
             "log_node = huphy_ros.log_node:main",
+            "linkage_node = huphy_ros.linkage_node:main",
         ],
     },
 )

@@ -20,6 +20,10 @@
   <!-- camera.launch.py 가 인텔 공식 카메라 노드를 띄움. 빌드에는 안 씀.
        카메라를 안 쓰면 없어도 다른 런치 파일은 다 돎 (README "D455 설치"). -->
   <exec_depend>realsense2_camera</exec_depend>
+  <!-- view.launch.py 가 띄움. 빌드에는 안 씀. rviz2 는 화면 있는 기계에만 깔면 됨 -->
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>rviz2</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

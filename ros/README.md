@@ -24,6 +24,7 @@ D455 를 쓸 때는 노드가 하나 더 돎. **그건 우리가 만든 것이 �
 | 노드 | 하는 일 | 어디서 | 누가 만든 것 |
 |---|---|---|---|
 | `realsense2_camera_node` | D455 를 열어 깊이·색·IMU 를 토픽으로 냄 | 카메라가 USB 로 꽂힌 기계 | 인텔 (`realsense2_camera`) |
+| `robot_state_publisher` · `rviz2` | 관절각으로 3D 모델을 움직여 보여 줌 ([3D 로 보기](#3d-로-보기-rviz)) | 화면 있는 기계 | ROS 기본 |
 
 그림은 [`ros.drawio`](ros.drawio). 설계 근거는 **아래쪽 "아래는 설계"** 부터.
 
@@ -69,6 +70,16 @@ ros/install.sh
 
 `ROS_DOMAIN_ID` 는 7 로 들어감. **두 기계가 같은 값이어야 함** — 다르면 에러 없이
 서로 안 보임. 바꾸려면 `HUPHY_DOMAIN_ID=9 ros/install.sh`.
+
+### 따로 까는 것
+
+`install.sh` 는 **안 깖.** 쓰는 기계에서만 깔면 됨 -- 모션보드에는 보통 필요 없음.
+
+| 쓸 때 | 어느 기계 | 명령 |
+|---|---|---|
+| RViz 로 3D 보기 | 화면 있는 기계 (작업 기계) | `sudo apt install ros-humble-rviz2` |
+| 로그를 걸러 보기 (rqt_console) | 보는 기계 | `sudo apt install ros-humble-rqt-console` |
+| D455 카메라 | 카메라가 꽂힌 기계 | [카메라 (D455)](#카메라-d455) |
 
 ### 다시 빌드할 때
 
@@ -762,6 +773,53 @@ ROS 1(Noetic)이 같이 깔려 있으면 **같은 셸에서 둘 다 `source` 하
 
 ---
 
+## 3D 로 보기 (RViz)
+
+로봇이 실물 관절각대로 RViz 에서 움직임. **화면이 있는 기계**(보통 작업 기계)에서 띄움.
+`control_node` 가 떠 있으면 됨 -- OBSERVE 면 충분하니 토크 없이 손으로 다리를 움직여 봄.
+
+처음 한 번 (화면 있는 기계):
+
+```bash
+sudo apt install ros-humble-rviz2
+```
+
+```bash
+ros2 launch huphy_ros view.launch.py
+```
+
+| 보이는 것 | 뜻 |
+|---|---|
+| 몸통이 공중에 고정, 다리만 움직임 | 정상. 몸통 위치·자세를 추정하는 것이 없어 `world -> base_link` 를 0 으로 박음 |
+| 막대 끝이 발에서 떨어짐 | 크랭크각이 모델 범위 밖이라 못 풀었음. launch 화면에 `발목 링키지를 못 풂` 경고가 뜨고 직전 자세로 그림 |
+| 로봇이 아예 안 움직임 | `ros2 topic hz /huphy/joint_states` 부터. 두 기계면 `ROS_DOMAIN_ID` 확인 |
+| 한 관절만 안 움직임 | URDF 관절 이름이 다름. robot_state_publisher 는 **모르는 이름을 경고 없이 버림** |
+| 실물과 반대로 돎 | 0점·방향이 학습 모델과 다름 -- 캘리브레이션 문제 (`config/README.md`) |
+
+URDF 는 학습 레포(Human-Pygmalion/HuphyChan-dev) 의 `LegOnly_..._v30_proxyfix_loop.urdf` 를
+이름만 바꾼 사본임 (`urdf/huphy.urdf`, 메시는 `meshes/`). 원본이 바뀌면 다시 만듦:
+
+```bash
+A=<원본 레포>/pygmalion_locomotion/assets/pygmalion_v2/LegOnly_prototype-tempmass-motormeasured-armfix_v30_proxyfix_loop
+python3 ros/huphy_ros/urdf/make_urdf.py $A.urdf $A.xml <원본 레포>/tools/robot_model/fusion_snapshots/v30_inspection/meshes_armfix
+rm -rf ~/ros2_ws/build/huphy_ros/meshes ~/ros2_ws/install/huphy_ros/share/huphy_ros/meshes  # 메시 이름이 바뀌면 옛 링크가 남아 빌드가 실패함
+ros/install.sh      # 새 파일을 설치 폴더에 넣음
+```
+
+정강이·발은 원본 URDF 의 메시 대신 MJCF 가 쓰는 `*_noloop.stl` 을 씀. 원본 메시에는 크랭크·막대가
+0 자세로 붙어 있어서, 그대로 쓰면 움직이는 막대 옆에 고정된 막대가 하나 더 보임.
+
+**발목.** URDF 는 크랭크 -> 막대 -> 발 고리를 못 적어서 발(`ankle_pitch/roll`)과 막대가 따로
+매달려 있음. `joint_states` 에는 크랭크각(`ankle_a/b`)만 있으므로, `view.launch.py` 가 같이
+띄우는 `linkage_node` 가 **URDF 치수로** 발 자세와 막대 각도를 풀어 붙임
+(`/huphy/joint_states_view`). RViz 는 계산을 안 하고 받은 각도대로 그리기만 함.
+
+`huphy` 의 `kinematics/ankle.py` 값을 안 쓰는 이유: 그쪽 링키지 치수가 학습 모델과 달라서
+(크랭크 반지름 40mm 대 약 65mm 등) 그 발 자세를 URDF 에 넣으면 막대 끝이 발에서 수 mm ~
+2cm 어긋남.
+
+---
+
 ## 로그
 
 노드 메시지와 `huphy` 라이브러리(CAN·모터·루프) 메시지가 **같은 ROS 로그**로 나감.
@@ -1307,6 +1365,8 @@ control_node 가 목표각을 100ms 넘게 못 받음
 | `huphy_ros/control_node.py` | `ControlLoop` 를 자기 스레드에서. CAN | 씀 |
 | `huphy_ros/policy_node.py` | 20ms 타이머 추론. 접근 단계 | 씀 |
 | `huphy_ros/logbridge.py` | 파이썬 `logging` → ROS 로그. 노드 시작 때 붙임 | 씀 |
+| `huphy_ros/linkage.py` | 크랭크각 -> 발 자세·막대 각도 (URDF 치수). RViz 용 | **안 씀** |
+| `huphy_ros/linkage_node.py` · `launch/view.launch.py` · `urdf/` · `meshes/` · `rviz/` | RViz 로 보기. URDF 는 `urdf/make_urdf.py` 로 만듦 | 씀 |
 
 앞의 둘이 `rclpy` 를 안 쓰는 것이 의도임. 거기 있는 판단(단위, 이름, 낡음)이 틀리면
 로봇이 잘못 움직이는데 **틀려도 길이와 자릿수가 그대로라 코드로는 안 잡힘.** ROS 가
@@ -1535,7 +1595,6 @@ GIL 문제는 안 생김. CPU 와 대역은 남음.
 | | 왜 |
 |---|---|
 | `ros2_control` | 발목이 크랭크 두 개로 두 축을 만드는 링키지라 기성 컨트롤러에 그 변환이 없음. 커스텀 컨트롤러를 C++ 로 써야 해서 기성품을 쓰는 이점이 사라짐 |
-| URDF / `robot_state_publisher` | rviz 로 보고 싶어질 때. 제어에는 안 쓰임 |
 | 정책 교체 서비스 | 결정 5 |
 | 액션 | 오래 걸리는 것이 접근 단계뿐이고 `policy_node` 안에서 끝남 |
 
@@ -1545,6 +1604,7 @@ GIL 문제는 안 생김. CPU 와 대역은 남음.
 |---|---|
 | 한 기계에서 실물로 B 확인 1·2 (상태 100Hz, IMU, 토크 없이 목표각) | 토크 넣기·기준 자세·정책 시작 (A-3~A-5 / B-2~B-4) — **ROS 로 토크를 넣어 본 적 없음** |
 | 로봇 없이 가짜 CAN 으로 노드 둘 ([`without_robot.md`](without_robot.md)) | **두 기계** 구성 |
+| RViz 보기 — robot_state_publisher 가 URDF 를 읽는 것까지 | RViz 화면을 실물과 같이 띄워 본 적 없음. **발목 pitch/roll 방향**이 URDF 와 맞는지 모름 |
 | 기록(`--log`)을 `log_node` 로 옮김 — 코드만, **실물에서 안 돌려 봄** | `huphy-run` 에만 있는 것: 실시간 그래프(`--live`), `--profile`, `--gain-scale` |
 
 두 기계 사이 왕복 지연도 안 쟀음. 6-2 의 60ms / 100ms 는 제안값이고, 재고 나서 다시
