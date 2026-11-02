@@ -17,6 +17,9 @@ JSON 을 읽음. **실측(`pos/`)은 진하게, 목표(`tgt/`)는 반투명**으
 기록에는 모터 12개 각도만 있음 (발목은 크랭크 `ankle_a/b`). 발과 막대는 여기서 URDF 치수로
 풀어서 그림. 몸통은 공중에 고정 (몸통 위치·자세는 기록에 없음).
 
+사람이 준 명령(`obs/cmd/`)은 **오른쪽 위**에 그 프레임 값으로 띄움 -- 걷기는 `vx`·`wz`,
+스쿼트는 `h_star`. 정책이 정한 이름을 그대로 쓰므로 여기에 이름을 박아 두지 않음.
+
 ## 화면
 
     Space        재생 / 정지
@@ -49,6 +52,10 @@ LOG_DIRS = (REPO / "logs", REPO / "ros" / "logs")
 FPS = 30.0
 """화면 프레임. 기록은 50~100Hz 지만 다 풀 필요가 없음 -- 발목 풀이가 한 번에 수 ms."""
 ROS_SEP = "__"  # URDF 관절 이름 (right_leg__knee) -- huphy_ros/convert.py 와 같음
+CMD_PREFIX = "obs/cmd/"
+"""사람이 준 명령이 실린 열의 머리. 뒤에 붙는 이름은 정책이 정함."""
+CMD_UNITS = {"vx": "m/s", "vy": "m/s", "wz": "rad/s", "h_star": "m"}
+"""화면에 붙일 단위. 모르는 이름이면 단위 없이 숫자만 띄움."""
 
 
 def _load_linkage():
@@ -163,6 +170,12 @@ def frames(path: Path, make_kin, progress) -> dict:
     if not kinds:
         raise ValueError("pos/ · tgt/ 관절 열이 없음 -- policy·track 기록이어야 함")
 
+    # 사람이 준 명령. 정책마다 다름 -- 걷기는 vx·wz, 스쿼트는 h_star. 이름을 박지
+    # 않고 `obs/cmd/` 뒤에 붙은 것을 그대로 씀. 계약의 단위가 m/s · rad/s · m 라
+    # 배율 없이 그대로 보여줌 (deploy_contract.json 의 velocity_command).
+    cmd_cols = [(i, c[len(CMD_PREFIX):])
+                for i, c in enumerate(cols) if c.startswith(CMD_PREFIX)]
+
     # 화면 주기로 줄을 고름
     picked, next_t = [], -1.0
     for r in rows:
@@ -174,9 +187,11 @@ def frames(path: Path, make_kin, progress) -> dict:
 
     # 실측·목표를 따로 풂 -- 발목 풀이가 직전 해에서 시작하므로 둘이 섞이면 느리고 튐
     kins = {k: make_kin() for k in kinds}
-    out = {"t": [], **{k: [] for k in kinds}}
+    out = {"t": [], **{k: [] for k in kinds}, "cmd": []}
     for n, r in enumerate(picked):
         out["t"].append(round(float(r[ti]), 4))
+        out["cmd"].append([None if r[i] is None else round(float(r[i]), 3)
+                           for i, _ in cmd_cols])
         for k, cols_k in kinds.items():
             q = {}
             for i, name in cols_k:
@@ -190,6 +205,8 @@ def frames(path: Path, make_kin, progress) -> dict:
     out["run"] = d.get("run", {})
     out["worst_mm"] = round(max(k.linkage.worst_m for k in kins.values()) * 1000, 3)
     out["kinds"] = list(kinds)
+    out["cmd_names"] = [n for _, n in cmd_cols]
+    out["cmd_units"] = [CMD_UNITS.get(n, "") for _, n in cmd_cols]
     return out
 
 
@@ -317,6 +334,10 @@ PAGE = r"""<!doctype html>
   #seek{flex:1;min-width:200px}
   select,button{background:#333;color:#ddd;border:1px solid #555;border-radius:4px;padding:3px 8px}
   #msg{color:#fc6}
+  /* 명령은 오른쪽 끝. margin-left:auto 가 flex 에서 남은 자리를 다 밀어냄 */
+  #cmd{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap}
+  #cmd b{color:#9f9;font-weight:600}
+  #cmd i{color:#888;font-style:normal}
   label{white-space:nowrap}
   .pos{color:#9cf}.tgt{color:#f9a}
 </style>
@@ -329,6 +350,7 @@ PAGE = r"""<!doctype html>
   <label class="pos"><input type="checkbox" id="showPos" checked> 실측</label>
   <label class="tgt"><input type="checkbox" id="showTgt" checked> 목표</label>
   <span id="run"></span><span id="msg"></span>
+  <span id="cmd"></span>
 </div>
 <div id="bar">
   <button id="play">▶</button>
@@ -410,6 +432,11 @@ function apply(){
       g.quaternion.set(f[o+3], f[o+4], f[o+5], f[o+6]);
     });
   }
+  // 사람이 준 명령. 이름은 기록이 들고 옴 (걷기 vx·wz, 스쿼트 h_star)
+  const c = data.cmd && data.cmd[idx];
+  $("cmd").innerHTML = !c ? "" : data.cmd_names.map((nm, i) =>
+    c[i] === null ? "" :
+    `${nm} <b>${c[i].toFixed(2)}</b> <i>${data.cmd_units[i]}</i>`).filter(Boolean).join("&nbsp;&nbsp; ");
   const t = data.t, n = t.length;
   $("seek").value = idx;
   $("time").textContent = `${(t[idx]-t[0]).toFixed(2)} / ${(t[n-1]-t[0]).toFixed(2)} s`;
@@ -420,7 +447,7 @@ function seekTime(dt){ if (!data) return; const want = data.t[idx] + dt; let i =
 
 async function open(rel){
   if (!rel) return;
-  playing = false; $("play").textContent = "▶"; data = null;
+  playing = false; $("play").textContent = "▶"; data = null; $("cmd").textContent = "";
   location.hash = rel; $("logs").value = rel;
   while (true){
     const res = await fetch("/frames?log=" + encodeURIComponent(rel));
