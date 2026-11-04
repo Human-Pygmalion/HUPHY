@@ -931,11 +931,19 @@ class Leg(Robot):
         self._update_ankle_pose()
         return tuple(missing)
 
-    def collect(self) -> Tuple[int, ...]:
-        """응답을 수거함. **직전에 명령한 모터만** 기다림."""
+    def collect(self, *, deadline: Optional[float] = None) -> Tuple[int, ...]:
+        """응답을 수거함. **직전에 명령한 모터만** 기다림.
+
+        `deadline` 은 `time.monotonic()` 기준 마감 시각. 주면 그때까지만 기다림
+        (이미 지났어도 쌓여 있는 응답은 꺼냄). 안 주면 버스의 `drain_s` 만큼.
+        `Biped` 가 여러 다리에 같은 마감을 줌 -- 다리마다 새로 잡으면 최악 대기가
+        다리 수만큼 곱해짐.
+        """
         if self.send_mode == SEND_SEQ:
             return self._seq_finish()
-        missing = self.bus.collect(expect=len(self._awaiting) + self._reads_sent)
+        timeout_s = None if deadline is None else max(0.0, deadline - time.monotonic())
+        missing = self.bus.collect(
+            expect=len(self._awaiting) + self._reads_sent, timeout_s=timeout_s)
         self._reads_sent = 0
         self._note_link(missing)
         self._update_ankle_pose()

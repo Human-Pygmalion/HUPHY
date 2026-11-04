@@ -130,10 +130,10 @@ class TestComposite:
         text = failures.report(self.robot(left_missed={"knee": 2}), stats())
         assert "left_leg/knee" in text
 
-    def test_drain_is_counted_per_leg(self):
-        """다리마다 따로 기다려서 최악 두 배임."""
+    def test_drain_is_not_multiplied_by_legs(self):
+        """다리들이 마감 하나를 같이 써서 최악은 대기 한 번임."""
         text = failures.report(self.robot(), stats())
-        assert "x 2다리 = 최악 4ms" in text
+        assert "다리 = 최악" not in text
 
 
 class TestDrainLine:
@@ -143,11 +143,11 @@ class TestDrainLine:
     def test_warns_when_it_eats_most_of_the_period(self):
         assert "크게 잡음" in failures.drain_line(0.009, 100.0)
 
-    def test_two_legs_double_it(self):
-        assert "크게 잡음" in failures.drain_line(0.005, 100.0, legs=2)
+    def test_default_is_quiet_at_200hz(self):
+        assert "크게 잡음" not in failures.drain_line(0.004, 200.0)
 
-    def test_default_is_quiet_on_two_legs(self):
-        assert "크게 잡음" not in failures.drain_line(0.004, 100.0, legs=2)
+    def test_warns_past_the_ratio_at_200hz(self):
+        assert "크게 잡음" in failures.drain_line(0.0045, 200.0)
 
     def test_quiet_when_small(self):
         assert "크게 잡음" not in failures.drain_line(0.002, 100.0)

@@ -63,13 +63,14 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, Iterable, Optional, Sequence, Tuple
 
 from ..config.schema import SafetyConfig
 from ..motors.robstride.bus import PASSIVE
 from ..sensors.group import ImuGroup
 from .base import Action, Commands, Observation, Robot
-from .leg import SEND_SEQ
+from .leg import SEND_SEQ, Leg
 
 logger = logging.getLogger(__name__)
 
@@ -392,10 +393,18 @@ class Biped(Robot):
 
         **하나가 실패해도 나머지를 수거함.** 여기서 멈추면 멀쩡한 다리의 상태가
         직전 주기 값에 머물러, 가드가 옛 위치로 점프를 판정함.
+
+        **마감은 한 번만 잡고 모든 다리가 같이 씀.** 다리마다 `drain_s` 를 새로
+        잡으면, 앞 다리가 응답 하나를 못 받아 마감까지 기다린 뒤 뒤 다리도 처음부터
+        또 기다려 최악이 `drain_s x 다리 수` 가 됨. 뒤 다리의 응답은 수신 스레드가
+        그동안 받아 두므로, 같은 마감이면 최악이 `drain_s` 한 번임.
         """
         if self._all_seq():
             return self._gather("_seq_finish")
-        return self._gather("collect")
+        drains = [p.bus.drain_s for p in self.parts
+                  if isinstance(p, Leg) and p.send_mode != SEND_SEQ]
+        deadline = time.monotonic() + max(drains) if drains else None
+        return self._gather("collect", deadline=deadline)
 
     def refresh(self) -> Tuple[Any, ...]:
         if self._all_seq():
@@ -435,7 +444,7 @@ class Biped(Robot):
                     logger.warning("%s 수거 실패 (무응답으로 셈): %s", part.id, e)
         return sum(len(part._seq_pending) for part in self.parts)
 
-    def _gather(self, method: str) -> Tuple[Any, ...]:
+    def _gather(self, method: str, *, deadline: Optional[float] = None) -> Tuple[Any, ...]:
         """팔다리를 돌며 수거함. **실패한 팔다리는 전부 무응답으로 셈.**
 
         예외를 올리지 않는 이유: 여기서 멈추면 뒤 팔다리를 수거하지 못해, 멀쩡한
@@ -443,13 +452,15 @@ class Biped(Robot):
         옛 위치 기준으로 점프를 판정함.
 
         수거 실패는 무응답과 같은 신호로 위에 올라감 — 이어지면 정지 판정에 걸림.
+
+        `deadline` 은 `Leg` 에만 넘김 (`collect` 참조).
         """
         missing = []
         for part in self.parts:
             try:
-                missing.extend(
-                    join_name(part.id, str(m)) for m in getattr(part, method)()
-                )
+                fn = getattr(part, method)
+                got = fn(deadline=deadline) if deadline is not None and isinstance(part, Leg) else fn()
+                missing.extend(join_name(part.id, str(m)) for m in got)
             except Exception as e:  # noqa: BLE001 - 나머지 팔다리를 마저 수거해야 함
                 logger.warning("%s %s 실패 (무응답으로 셈): %s", part.id, method, e)
                 missing.extend(join_name(part.id, str(m)) for m in _motor_ids(part))

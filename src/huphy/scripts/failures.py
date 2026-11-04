@@ -74,11 +74,11 @@ LOST_WARN_FLOOR = 32
 """이 개수 이하는 비율과 무관하게 정상으로 봄. 정지 절차에서 나가는 몫."""
 
 DRAIN_WARN_RATIO = 0.8
-"""수거 대기(양다리면 두 배)가 주기의 이 비율을 넘으면 경고함.
+"""수거 대기가 주기의 이 비율을 넘으면 경고함. 계산할 시간도 남아야 함.
 
-양다리는 다리마다 따로 기다려서 최악 두 배가 되고, 계산할 시간도 남아야 함. 0.5 였다가
-기본 대기를 4ms 로 올리면서 0.8 로 (100Hz 양다리 최악 8ms = 80%, 계산에 2ms 남음).
-최악은 두 다리가 **같은 주기에** 다 늦을 때뿐이라 그 정도는 버팀.
+다리가 여럿이어도 마감 하나를 같이 써서 최악은 대기 한 번임 (`Biped.collect`).
+예전에는 다리마다 마감을 새로 잡아 최악이 다리 수만큼 곱해졌고, 그 기준(100Hz 양다리
+최악 8ms = 80%)으로 0.8 을 잡음. 지금은 200Hz 에서 4ms 가 딱 80% 임.
 """
 
 
@@ -92,15 +92,12 @@ def _name(robot: Any, part: Any, motor: str) -> str:
     return f"{part.id}/{motor}" if getattr(robot, "parts", None) else motor
 
 
-def drain_line(drain_s: float, hz: float, *, legs: int = 1) -> str:
+def drain_line(drain_s: float, hz: float) -> str:
     """수거 대기 한 줄. 주기 대비 비율과, 넘치면 경고를 같이 냄."""
     period_ms = 1000.0 / hz if hz > 0 else 0.0
     drain_ms = drain_s * 1000.0
-    worst_ms = drain_ms * legs
-    ratio = worst_ms / period_ms if period_ms > 0 else 0.0
+    ratio = drain_ms / period_ms if period_ms > 0 else 0.0
     text = f"{drain_ms:g}ms"
-    if legs > 1:
-        text += f" x {legs}다리 = 최악 {worst_ms:g}ms"
     text += f"  (주기 {period_ms:.1f}ms 의 {ratio * 100:.0f}%)"
     if ratio > DRAIN_WARN_RATIO:
         text += "  ** 크게 잡음. 응답이 늦으면 주기가 밀림 **"
@@ -125,7 +122,7 @@ def report(robot: Any, stats: Any, *, drain_s: Optional[float] = None) -> str:
     )
     lines.append(
         "  수거 대기  "
-        + drain_line(drain_s, stats.target_hz or stats.mean_hz, legs=len(legs))
+        + drain_line(drain_s, stats.target_hz or stats.mean_hz)
     )
     share = (stats.missing_cycles / stats.cycles * 100.0) if stats.cycles else 0.0
     lines.append(f"  무응답     {stats.missing_cycles}주기 ({share:.1f}%)")
