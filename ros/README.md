@@ -698,7 +698,7 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 |---|---|---|
 | `config` | 없음. **필수** | `robot.yaml` 경로 |
 | `limb` | 빈 값 = 양다리 | 다리 하나만 돌릴 때 |
-| `hz` | 100.0 | 제어 주기 |
+| `hz` | 100.0 | 제어 주기. **런치 인자 이름은 `motor_hz`** (아래 [런치 인자 이름](#런치-인자-이름)) |
 | `state_hz` | 100.0 | 상태 발행 주기 |
 | `drain_ms` | 4.0 | 응답을 기다리는 최대 시간. 다 오면 즉시 넘어가서 평소엔 안 씀. 2 면 마지막 응답 모터(ankle_b)가 가끔 무응답으로 잡혀 통신 두절로 멈췄음 |
 | `send_mode` | `burst` | 명령을 내는 방식. `burst` 는 모터마다 호스트 id 가 0xF0+id 여야 함 -- 시작할 때 확인하고 아니면 멈춤. 못 맞춘 모터가 있으면 `seq` (`docs/can_communication.md` 4절) |
@@ -713,7 +713,7 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 |---|---|---|
 | `policy` | 없음. **필수** | 정책 꾸러미 폴더 (`config/policies/<이름>`) |
 | `checkpoint` | 빈 값 = 계약의 기본값 | 꾸러미 안의 다른 체크포인트 번호 (예: 스쿼트 `4500`, 걷기 `37400` -- 걷기 기본은 `49999`). `local.launch.py` 에도 같은 인자 |
-| `hz` | 0 = 계약의 `control_rate_hz` | 추론 주기. 보통 비워 둠 |
+| `hz` | 0 = 계약의 `control_rate_hz` | 추론 주기. 보통 비워 둠. **런치 인자 이름은 `policy_hz`** (아래 [런치 인자 이름](#런치-인자-이름)) |
 | `state_stale_ms` | 60.0 | 상태가 이보다 낡으면 목표각을 안 냄 |
 | `approach_s` | 3.0 | 기준 자세로 옮기는 시간 |
 | `cmd_timeout_s` | 0.5 | 속도 명령(`cmd_vel`)이 이만큼 안 오면 속도를 0 으로. 높이는 유지 |
@@ -730,6 +730,26 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 `config/calibration/*.json` 이 유일한 출처임. 파라미터로 또 받으면 어긋났을 때 어느
 쪽이 진짜인지 알 수 없음 — 실제로 그 실수를 한 적이 있음(커밋 `4dbdfa2`, 무릎 kp 가
 설정의 값 대신 코드 상수로 나감).
+
+### 런치 인자 이름
+
+위 표는 **노드 파라미터** 이름임. 런치 인자는 `hz` 두 개만 이름이 다름.
+
+| 런치 | 런치 인자 | 노드 파라미터 |
+|---|---|---|
+| `control.launch.py` | `motor_hz:=` | `hz` |
+| `policy.launch.py` | `policy_hz:=` | `hz` |
+
+**`local.launch.py` 때문임.** `IncludeLaunchDescription` 은 런치 설정 범위를 새로
+안 만들고, `DeclareLaunchArgument` 는 **이미 있는 이름에 기본값을 안 넣음.** 그래서
+두 런치가 같은 이름을 쓰면 먼저 include 한 쪽 값이 뒤쪽 노드에 그대로 들어감.
+
+둘 다 `hz` 였을 때 `local.launch.py` 로 띄우면 `control.launch.py` 의 100 이
+`policy_node` 에 들어가, **인자를 하나도 안 줘도 정책이 계약의 50 이 아니라 100Hz
+로 돌았음** (11-02 기록 다섯 개가 그 상태임 -- `run.hz` 가 100, 줄 간격 9.99ms).
+제어가 정책 사이를 메우는 구조가 아니라 두 타이머가 같은 주기로 따로 돈 것임.
+
+인자를 더할 때 두 파일에 같은 이름을 쓰지 말 것.
 
 ---
 

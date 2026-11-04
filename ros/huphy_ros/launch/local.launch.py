@@ -21,6 +21,10 @@ from launch.substitutions import (
 from launch_ros.substitutions import FindPackageShare
 
 
+# include 는 런치 설정 범위를 새로 안 만들고, DeclareLaunchArgument 는 이미
+# 있는 이름에 기본값을 안 넣음. 그래서 아래 두 런치의 인자 이름이 겹치면 먼저
+# include 한 쪽 값이 뒤쪽 노드에 들어감 (`motor_hz` / `policy_hz` 를 따로 둔
+# 이유). 인자를 더할 때 두 파일에 같은 이름을 쓰지 말 것.
 def _include(name, arguments):
     return IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution(

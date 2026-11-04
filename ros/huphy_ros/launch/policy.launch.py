@@ -26,7 +26,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "policy", default_value="config/policies/generalized_walk"),
         DeclareLaunchArgument("checkpoint", default_value=""),
-        DeclareLaunchArgument("hz", default_value="0.0"),
+        # `control.launch.py` 의 `motor_hz` 와 마찬가지로 런치 인자 이름을
+        # 노드 파라미터 이름(`hz`)과 다르게 둠 -- 둘을 같은 문맥에 include 하는
+        # `local.launch.py` 에서 이름이 겹치면 먼저 선언된 쪽 값이 들어감.
+        DeclareLaunchArgument("policy_hz", default_value="0.0"),
         DeclareLaunchArgument("state_stale_ms", default_value="60.0"),
         DeclareLaunchArgument("approach_s", default_value="3.0"),
         DeclareLaunchArgument("cmd_timeout_s", default_value="0.5"),
@@ -39,7 +42,7 @@ def generate_launch_description():
                 # 숫자만 주면(checkpoint:=49999) ROS 가 정수로 읽어서 문자열로 선언한
                 # 파라미터와 타입이 안 맞아 노드가 죽음. 늘 문자열로 넘김.
                 "checkpoint": ParameterValue(LaunchConfiguration("checkpoint"), value_type=str),
-                "hz": LaunchConfiguration("hz"),
+                "hz": LaunchConfiguration("policy_hz"),
                 "state_stale_ms": LaunchConfiguration("state_stale_ms"),
                 "approach_s": LaunchConfiguration("approach_s"),
                 "cmd_timeout_s": LaunchConfiguration("cmd_timeout_s"),

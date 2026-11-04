@@ -1,6 +1,7 @@
 """모션보드에서 띄움. 모터를 모는 쪽.
 
     ros2 launch huphy_ros control.launch.py
+    ros2 launch huphy_ros control.launch.py motor_hz:=50.0        # 제어 주기를 낮춰 볼 때
 
 **토크는 안 들어감.** OBSERVE 로 시작하고 /huphy/enable 서비스를 받아야 들어감.
 
@@ -18,7 +19,12 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("config", default_value="config/robot.yaml"),
-        DeclareLaunchArgument("hz", default_value="100.0"),
+        # 런치 인자 이름이 `hz` 가 아니라 `motor_hz` 임. `local.launch.py` 가
+        # 이 런치와 policy.launch.py 를 **같은 문맥에** include 하고,
+        # DeclareLaunchArgument 는 이미 있는 이름에 기본값을 안 넣음 -- 이름이
+        # 같으면 먼저 선언된 쪽 값이 뒤쪽 노드에 그대로 들어감. 노드 파라미터
+        # 이름은 `hz` 그대로임.
+        DeclareLaunchArgument("motor_hz", default_value="100.0"),
         DeclareLaunchArgument("state_hz", default_value="100.0"),
         DeclareLaunchArgument("drain_ms", default_value="4.0"),
         DeclareLaunchArgument("send_mode", default_value="burst"),
@@ -30,7 +36,7 @@ def generate_launch_description():
             name="huphy_control",
             parameters=[{
                 "config": LaunchConfiguration("config"),
-                "hz": LaunchConfiguration("hz"),
+                "hz": LaunchConfiguration("motor_hz"),
                 "state_hz": LaunchConfiguration("state_hz"),
                 "drain_ms": LaunchConfiguration("drain_ms"),
                 "send_mode": LaunchConfiguration("send_mode"),
