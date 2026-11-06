@@ -23,6 +23,7 @@
     /huphy/debug/policy_row    PolicyRow     50Hz
     /huphy/debug/control_info  ControlInfo   transient_local, 1회
     /huphy/debug/latency       LatencyBatch  100Hz
+    /huphy/debug/motor_extra   MotorExtra    100Hz, control_node 의 extra 가 1 이상일 때만
     /huphy/policy_status       DiagnosticArray  5Hz + 단계 전이 직후
 
 두 `*Info` 가 `transient_local` 이라 **이 노드를 나중에 띄워도 받음.** 설정 파일은
@@ -64,13 +65,14 @@ from typing import Optional
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray
-from huphy_ros_interfaces.msg import ControlInfo, LatencyBatch, PolicyInfo, PolicyRow
+from huphy_ros_interfaces.msg import (
+    ControlInfo, LatencyBatch, MotorExtra, PolicyInfo, PolicyRow)
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 
 from huphy.telemetry import latency_log, policy_log, run_name
 
-from . import latency_tap, logbridge
+from . import convert, latency_tap, logbridge
 
 INFO_QOS = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 """`*Info` 구독에 쓰는 QoS. 내는 쪽과 같아야 함 -- 다르면 아예 안 붙음."""
@@ -99,6 +101,14 @@ class LogNode(Node):
         self.control_info: Optional[ControlInfo] = None
         self.policy: Optional[policy_log.PolicyLog] = None
         self.latency: Optional[latency_log.LatencyLog] = None
+        self.extra_latest: Optional[MotorExtra] = None
+        """마지막으로 받은 `MotorExtra`. 정책 줄이 올 때 그 줄에 넣음.
+
+        전기값은 `control_node` 가 100Hz 로 내고 정책 줄은 50Hz 로 와서, 줄마다
+        가장 최근 값을 씀. 두 기계 시계를 안 맞추므로 시각으로 짝지을 수 없음
+        (`freshness.py`). `iq`·`vbus` 는 그보다 느리게 갱신되어 (`extra=2` 면 약
+        17Hz) 연속 두세 줄에 같은 값이 기록됨.
+        """
         self.stage = ""
         self.policy_name = ""
         self.dropped_rows = 0
@@ -113,6 +123,8 @@ class LogNode(Node):
             PolicyRow, "/huphy/debug/policy_row", self._on_row, qos_profile_sensor_data)
         self.create_subscription(
             LatencyBatch, "/huphy/debug/latency", self._on_batch, qos_profile_sensor_data)
+        self.create_subscription(
+            MotorExtra, "/huphy/debug/motor_extra", self._on_extra, qos_profile_sensor_data)
         self.create_subscription(
             DiagnosticArray, "/huphy/policy_status", self._on_status, 10)
 
@@ -140,7 +152,8 @@ class LogNode(Node):
             self._new_policy_log()
         self.get_logger().info(
             f"로봇 {msg.robot}  관절 {len(msg.joint_names)}  {msg.hz:.0f}Hz  "
-            f"수거 {msg.drain_ms:g}ms  {msg.send_mode}")
+            f"수거 {msg.drain_ms:g}ms  {msg.send_mode}  "
+            f"전기값 {'끔' if not msg.extra else f'읽기 {msg.extra}개/주기'}")
 
     def _limits(self) -> dict:
         """`{관절: (하한, 상한)}`. 가동범위가 없는 관절(NaN)은 뺌.
@@ -157,12 +170,37 @@ class LogNode(Node):
                 out[name] = (lo, hi)
         return out
 
+    def _extra_motors(self) -> Optional[list]:
+        """전기값 열을 미리 만들 모터 이름. `extra` 가 0 이거나 설명이 없으면 `None`.
+
+        `None` 이면 `PolicyLog` 가 첫 줄의 전기값으로 열을 정함. `ControlInfo` 가
+        먼저 오면 그 전에 열을 박아 둬야 함 -- 첫 정책 줄이 첫 `MotorExtra` 보다
+        먼저 오면 빈 열로 굳어 이후 전기값이 다 버려짐.
+        """
+        info = self.control_info
+        if info is None or not info.extra:
+            return None
+        return list(info.joint_names)
+
+    def _extra_row(self) -> dict:
+        """마지막 `MotorExtra` -> `extra/<모터>/<값>` 사전. 아직 못 받았으면 빈 사전.
+
+        이름과 순서는 `ControlInfo.joint_names` 임 -- `control_node` 가 그 순서로
+        배열을 만듦. `telemetry/track_log.py` 의 `extra_values` 와 같은 모양이어야
+        `huphy-run --extra` 기록과 열 이름이 같음.
+        """
+        msg, info = self.extra_latest, self.control_info
+        if msg is None or info is None:
+            return {}
+        return convert.extra_to_columns(info.joint_names, msg.iq, msg.vbus, msg.temp)
+
     def _new_policy_log(self) -> None:
         info = self.policy_info
         if info is None:
             return
         self.policy = policy_log.PolicyLog(
-            info.obs_names, info.joint_names, limits=self._limits())
+            info.obs_names, info.joint_names, limits=self._limits(),
+            extra_motors=self._extra_motors())
 
     def _new_latency_log(self) -> None:
         info = self.control_info
@@ -179,7 +217,8 @@ class LogNode(Node):
             self.dropped_rows += 1
             return
         try:
-            self.policy.add_row(msg.t, msg.obs, msg.action, msg.target_deg, msg.measured_deg)
+            self.policy.add_row(msg.t, msg.obs, msg.action, msg.target_deg,
+                                msg.measured_deg, self._extra_row())
         except ValueError as e:
             # 길이가 안 맞으면 열이 밀림. 그 줄만 버리고 한 번만 알림.
             self.policy.errors += 1
@@ -198,6 +237,10 @@ class LogNode(Node):
                 self.latency.note_sent(joint)
             else:
                 self.latency.add_sample(t, joint, ms, kind == latency_tap.LATE)
+
+    def _on_extra(self, msg: MotorExtra) -> None:
+        """전기값·온도. **마지막 것만 둠.** 정책 줄이 올 때 그 줄에 넣음."""
+        self.extra_latest = msg
 
     # ---- 단계 ---------------------------------------------------------------
     def _on_status(self, msg: DiagnosticArray) -> None:
@@ -265,6 +308,8 @@ class LogNode(Node):
             motor_hz=c.hz if c else None,
             drain_ms=c.drain_ms if c else None,
             send_mode=c.send_mode if c else None,
+            # 0 이면 안 적음 -- huphy-run 기록도 --extra 를 안 켰으면 이 칸이 없음
+            extra=c.extra if (c and c.extra) else None,
             teleop=True,
         )
 

@@ -108,6 +108,22 @@ EXTRA_FIELDS = ("iq", "vbus")
 """관찰에서 `extra/` 열로 옮기는 필드. `Leg.EXTRA_PARAMS` 와 같은 이름."""
 
 
+EXTRA_VALUE_ORDER = ("iq", "temp", "vbus")
+"""`extra/<모터>/<값>` 의 값 순서. `extra_values` 가 넣는 순서와 같아야 함 --
+`extra_columns` 로 열을 미리 만드는 쪽과 `extra_values` 로 값을 만드는 쪽이
+어긋나면 열이 밀림."""
+
+
+def extra_columns(motors: Sequence[str]) -> Tuple[str, ...]:
+    """모터 이름 목록 -> `extra/<모터>/<값>` 열 이름. `extra_values` 와 같은 순서.
+
+    `extra_values` 는 관찰에 값이 들어 있을 때만 열을 만들 수 있음. ROS `log_node`
+    는 첫 정책 줄이 전기값보다 먼저 올 수 있어서, 열을 미리 정해 두는 길이 필요함
+    (`PolicyLog(extra_motors=...)`).
+    """
+    return tuple(f"extra/{m}/{f}" for m in motors for f in EXTRA_VALUE_ORDER)
+
+
 def extra_values(observation: Mapping[str, Any]) -> Dict[str, float]:
     """`extra/<모터>/<값>` -> 값. 추가 값이 꺼져 있으면 빈 사전.
 

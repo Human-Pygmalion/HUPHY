@@ -2,6 +2,7 @@
 
     ros2 launch huphy_ros control.launch.py
     ros2 launch huphy_ros control.launch.py motor_hz:=50.0        # 제어 주기를 낮춰 볼 때
+    ros2 launch huphy_ros control.launch.py extra:=2               # 전류·전압도 기록할 때
 
 **토크는 안 들어감.** OBSERVE 로 시작하고 /huphy/enable 서비스를 받아야 들어감.
 
@@ -30,6 +31,10 @@ def generate_launch_description():
         DeclareLaunchArgument("send_mode", default_value="burst"),
         DeclareLaunchArgument("target_stale_ms", default_value="100.0"),
         DeclareLaunchArgument("allow_uncalibrated", default_value="false"),
+        # 0 = 전류·전압을 안 읽음. 1 이상이면 한 주기에 다리마다 그만큼 파라미터
+        # 읽기 요청을 보냄. 모터 6개 x 값 2개 = 12칸을 돌므로 2 면 값 하나가
+        # 약 17Hz 로 갱신됨 (100Hz 기준). 그만큼 CAN 프레임이 늘어남.
+        DeclareLaunchArgument("extra", default_value="0"),
         Node(
             package="huphy_ros",
             executable="control_node",
@@ -42,6 +47,7 @@ def generate_launch_description():
                 "send_mode": LaunchConfiguration("send_mode"),
                 "target_stale_ms": LaunchConfiguration("target_stale_ms"),
                 "allow_uncalibrated": LaunchConfiguration("allow_uncalibrated"),
+                "extra": LaunchConfiguration("extra"),
             }],
             output="screen",
             emulate_tty=True,

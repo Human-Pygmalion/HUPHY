@@ -85,7 +85,7 @@ from typing import Optional
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import Twist, Vector3Stamped
-from huphy_ros_interfaces.msg import ControlInfo, LatencyBatch
+from huphy_ros_interfaces.msg import ControlInfo, LatencyBatch, MotorExtra
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import Imu, JointState
@@ -150,6 +150,7 @@ class ControlNode(Node):
         self.declare_parameter("input_timeout_ms", 500.0)
         self.declare_parameter("stop_on_input_loss", True)
         self.declare_parameter("allow_uncalibrated", False)
+        self.declare_parameter("extra", 0)
 
         path = self.get_parameter("config").value
         if not path:
@@ -162,12 +163,26 @@ class ControlNode(Node):
         send_mode = str(self.get_parameter("send_mode").value)
         if send_mode not in SEND_MODES:
             raise SystemExit(f"send_mode 는 {SEND_MODES} 중 하나 (받은 값 {send_mode!r})")
+        # 0 이면 파라미터 읽기 요청을 안 보냄. 1 이상이면 한 주기에 다리마다
+        # 그만큼 보내 전류·전압을 받음 (`Leg._next_reads`). burst 에서만 됨 --
+        # 읽기 응답에 모터 id 가 없어서 CAN id 로 가름 (`Leg.__init__` 이 검사함).
+        extra = int(self.get_parameter("extra").value)
+        if extra < 0:
+            raise SystemExit(f"extra 는 0 이상이어야 함 (받은 값 {extra})")
+        if extra and send_mode != SEND_BURST:
+            # Leg 생성자도 같은 것을 막지만 ValueError 로 역추적이 찍힘. 띄울 때
+            # 고칠 값이라 여기서 한 줄로 끝냄.
+            raise SystemExit(
+                f"extra 는 send_mode 가 burst 일 때만 됨 -- 읽기 응답에 모터 id 가 "
+                f"없어서 CAN id 로 가름 (받은 값 extra={extra}, send_mode={send_mode!r})")
         options = dict(
             allow_uncalibrated=bool(self.get_parameter("allow_uncalibrated").value),
             drain_s=float(self.get_parameter("drain_ms").value) / 1000.0,
             # burst 면 연결할 때 모터마다 호스트 id(0xF0 + id)를 확인함 (build_leg)
             send_mode=send_mode,
+            extra=extra,
         )
+        self.extra = extra
         self.allow_uncalibrated = bool(options["allow_uncalibrated"])
         limb = self.get_parameter("limb").value
         if limb:
@@ -216,11 +231,14 @@ class ControlNode(Node):
         limits = joint_limits(self.robot)
         info_pub = self.create_publisher(
             ControlInfo, "/huphy/debug/control_info", INFO_QOS)
+        self.extra_pub = self.create_publisher(
+            MotorExtra, "/huphy/debug/motor_extra", qos_profile_sensor_data)
         info_pub.publish(ControlInfo(
             robot=self.robot.id,
             hz=self.hz,
             drain_ms=float(self.get_parameter("drain_ms").value),
             send_mode=send_mode,
+            extra=self.extra,
             joint_names=list(self.taps.joints),
             limit_lo_deg=[float(limits.get(j, (nan, nan))[0]) for j in self.taps.joints],
             limit_hi_deg=[float(limits.get(j, (nan, nan))[1]) for j in self.taps.joints],
@@ -449,6 +467,7 @@ class ControlNode(Node):
         msg.name, msg.position, msg.velocity, msg.effort = (
             names, position, velocity, effort)
         self.joints.publish(msg)
+        self._publish_extra(observation, stamp)
 
         states = self.robot.imu_states()
         for imu in self.imus:
@@ -490,6 +509,29 @@ class ControlNode(Node):
         msg.latency_ms = [e[2] for e in events]
         msg.kind = [e[3] for e in events]
         self.batch_pub.publish(msg)
+
+    def _publish_extra(self, observation, stamp) -> None:
+        """모터 전기값·온도를 냄. **`_publish` 안에서 부름 -- executor 스레드임.**
+
+        값은 `Leg.get_observation` 이 관찰 사전에 넣어 둔 것을 꺼내 쓰기만 함.
+        제어 스레드가 할 일이 없음.
+
+        `iq`·`vbus` 는 `extra` 파라미터가 0 이면 관찰에 아예 없어서, 그때는 토픽을
+        안 냄. `temp` 는 상태 응답 프레임에 있어 늘 있지만 둘을 한 메시지로 두므로
+        같이 멈춤 -- 열이 중간부터 생기면 기록의 열 수가 줄마다 달라짐.
+
+        배열 자리는 `ControlInfo.joint_names`(= `taps.joints`) 와 같음. 그 이름이
+        `robot.yaml` 의 모터 이름이라 관찰 키를 그 이름으로 찾음.
+        """
+        if not self.extra or self.taps is None:
+            return
+        if self.extra_pub.get_subscription_count() == 0:
+            return                      # 기록 노드가 없으면 만들지도 않음
+        msg = MotorExtra()
+        msg.header.stamp = stamp
+        msg.iq, msg.vbus, msg.temp = convert.observation_to_extra(
+            observation, self.taps.joints)
+        self.extra_pub.publish(msg)
 
     def _publish_status(self) -> None:
         loop, stats = self.loop, getattr(self.loop, "stats", None)

@@ -41,7 +41,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 import numpy as np
 
 from . import run_name
-from .track_log import extra_values, joint_limits
+from .track_log import extra_columns, extra_values, joint_limits
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ class PolicyLog:
         *,
         robot: Any = None,
         limits: Optional[Mapping[str, Sequence[float]]] = None,
+        extra_motors: Optional[Sequence[str]] = None,
     ) -> None:
         self.obs_names = tuple(obs_names)
         self.limits = (
@@ -76,8 +77,14 @@ class PolicyLog:
             + tuple(f"tgt/{j}" for j in self.order)
             + tuple(f"pos/{j}" for j in self.order)
         )
-        self.extra_cols: Optional[tuple] = None
-        """`extra/...` 열. 첫 줄의 관찰로 정해짐 -- `--extra` 를 안 켰으면 빈 것."""
+        self.extra_cols: Optional[tuple] = (
+            extra_columns(extra_motors) if extra_motors is not None else None)
+        """`extra/...` 열. `None` 이면 첫 줄의 `extra` 로 정해짐.
+
+        `extra_motors` 를 주면 그 모터 목록으로 **미리 정함.** ROS `log_node` 는
+        전기값을 다른 토픽으로 받아서 첫 정책 줄이 전기값보다 먼저 올 수 있고,
+        그때 첫 줄로 정하면 빈 열로 굳어 이후 값이 다 버려짐.
+        """
         self.rows: List[List[float]] = []
         self.errors = 0
         self._t0: Optional[float] = None
@@ -162,7 +169,8 @@ class PolicyLog:
         row += [float(extra.get(c, float("nan"))) for c in self.extra_cols]
         self.rows.append(row)
 
-    def add_row(self, t: float, obs, action, target_deg, measured_deg) -> None:
+    def add_row(self, t: float, obs, action, target_deg, measured_deg,
+                extra: Mapping[str, float] = {}) -> None:
         """완성된 한 줄을 그대로 넣음. **감싸는 것 없이 밖에서 넣는 입구.**
 
         `wrap_model`/`wrap_motion` 은 모델과 motion 호출을 가로채 줄을 만드는데,
@@ -177,8 +185,12 @@ class PolicyLog:
             target_deg    `order` 개수. 관절 목표각 (도)
             measured_deg  `order` 개수. 실측 관절각 (도)
 
+            extra         `extra/<모터>/<값>` -> 값. 빈 사전이면 그 줄의 전기값
+                          칸이 전부 `null` 이 됨. 열은 `extra_motors` 로 미리
+                          정해 두거나 첫 줄의 이 사전으로 정해짐
+
         길이가 다르면 멈춤 -- 그대로 넣으면 열이 밀려 뷰어가 다른 관절의 그래프를
-        그림. `extra/` 는 이 길로는 안 들어감 (`--extra` 가 ROS 쪽에 없음).
+        그림.
         """
         n_obs, n_act = len(self.obs_names), len(self.order)
         sizes = ((obs, n_obs, "obs"), (action, n_act, "action"),
@@ -186,7 +198,7 @@ class PolicyLog:
         bad = [f"{name} {len(v)}/{want}" for v, want, name in sizes if len(v) != want]
         if bad:
             raise ValueError(f"기록 칸이 안 맞음: {', '.join(bad)}")
-        self._append(t, obs, action, target_deg, measured_deg, {})
+        self._append(t, obs, action, target_deg, measured_deg, extra)
 
     def _fail(self, e: Exception) -> None:
         self.errors += 1

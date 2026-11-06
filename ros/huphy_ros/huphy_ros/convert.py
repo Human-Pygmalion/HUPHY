@@ -41,6 +41,57 @@ def to_huphy_name(name: str) -> str:
     return name.replace(ROS_SEP, SEP)
 
 
+def observation_to_extra(
+    observation: Mapping[str, float],
+    names: Sequence[str],
+) -> Tuple[List[float], List[float], List[float]]:
+    """관찰 사전 -> `MotorExtra` 세 배열 `(iq, vbus, temp)`. `names` 는 huphy 이름.
+
+        iq     A    (변환 없음)
+        vbus   V    (변환 없음)
+        temp   C    (변환 없음)
+
+    없는 항목은 `NaN` 으로 채움. `JointState` 와 달리 0 으로 안 채움 -- 0A/0V 는
+    그럴 법한 값이라 "못 받음" 과 구별이 안 됨. 기록의 `extra/` 열은 `NaN` 을
+    `null` 로 쓰므로 구별이 남음.
+
+    `iq`·`vbus` 는 `control_node` 의 `extra` 파라미터가 0 이면 관찰에 아예 없음
+    (`robots/leg.py` 의 `get_observation`). `temp` 는 상태 응답 프레임에 있어 늘
+    있음.
+    """
+    nan = float("nan")
+    return (
+        [float(observation.get(f"{n}.iq", nan)) for n in names],
+        [float(observation.get(f"{n}.vbus", nan)) for n in names],
+        [float(observation.get(f"{n}.temp", nan)) for n in names],
+    )
+
+
+def extra_to_columns(
+    names: Sequence[str],
+    iq: Sequence[float],
+    vbus: Sequence[float],
+    temp: Sequence[float],
+) -> Dict[str, float]:
+    """`MotorExtra` 세 배열 -> `extra/<모터>/<값>` 사전. `log_node` 가 줄에 넣음.
+
+    `telemetry/track_log.py` 의 `extra_values` 와 **같은 열 이름과 같은 순서**를
+    내야 함 -- `huphy-run --extra` 기록과 열이 같아야 같은 뷰어로 봄. 순서는
+    모터마다 `iq`, `temp`, `vbus` (`track_log.EXTRA_VALUE_ORDER`).
+
+    배열이 `names` 보다 짧으면 **거기서 멈춤.** 짧은 쪽을 0 으로 채우면 그 모터
+    값이 0A 로 기록됨.
+    """
+    out: Dict[str, float] = {}
+    for i, name in enumerate(names):
+        if i >= len(iq) or i >= len(vbus) or i >= len(temp):
+            break
+        out[f"extra/{name}/iq"] = float(iq[i])
+        out[f"extra/{name}/temp"] = float(temp[i])
+        out[f"extra/{name}/vbus"] = float(vbus[i])
+    return out
+
+
 def joint_names(observation: Mapping[str, float]) -> Tuple[str, ...]:
     """관찰 사전에서 관절 이름을 뽑음. **huphy 이름**, 나온 순서대로.
 

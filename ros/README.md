@@ -706,6 +706,7 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 | `input_timeout_ms` | 500.0 | 조작 노드(패드·teleop)의 명령 토픽(`cmd_vel`/`h_star`)이 이보다 끊기면 CONTROL 을 멈춤 -> 감쇠 5초 후 토크 끔 |
 | `stop_on_input_loss` | true | 위를 켜고 끔. 명령 토픽을 한 번도 안 받았으면(조작 노드 없이 씀) 걸리지 않음. `enable` 때마다 새로 셈 |
 | `allow_uncalibrated` | false | 실측 전에도 토크를 넣음 |
+| `extra` | 0 | 한 주기에 다리마다 보낼 파라미터 읽기 요청 수. 0 이면 전류·전압을 안 읽고 `motor_extra` 토픽도 안 냄. `burst` 에서만 됨 (아래 [모터 전류·전압·온도](#모터-전류전압온도)) |
 
 ### `policy_node`
 
@@ -750,6 +751,10 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 제어가 정책 사이를 메우는 구조가 아니라 두 타이머가 같은 주기로 따로 돈 것임.
 
 인자를 더할 때 두 파일에 같은 이름을 쓰지 말 것.
+
+`local.launch.py` 가 선언해서 `control.launch.py` 로 넘기는 이름(`config`, `extra`)
+은 다름. 부모가 `launch_arguments` 로 값을 직접 주므로 선언 순서와 무관하게 그 값이
+들어감. 금지되는 것은 **include 되는 두 파일이 같은 이름을 각자 선언하는 것**임.
 
 ---
 
@@ -918,14 +923,49 @@ $HOME/HUPHY/ros/logs/latency/<월일>_latency_<정책>.json   tools/latency_view
 
 | 파일 | 열 |
 |---|---|
-| `policy` | `t`, `obs/...`(정규화 전), `act/...`(모델 출력 날값), `tgt/...`(도), `pos/...`(도) |
+| `policy` | `t`, `obs/...`(정규화 전), `act/...`(모델 출력 날값), `tgt/...`(도), `pos/...`(도), `extra/...`(전류·전압·온도. `extra` 를 켰을 때만) |
 | `latency` | `t`, `joint`, `latency_ms`, `status`(제때/늦음/유실) |
 
 `run` 칸에 `source: "ros"` 가 들어감 -- `huphy-run` 기록과 한 폴더에 섞여도
 구별됨. 게인 배율은 ROS 에 파라미터가 없어 안 들어감.
 
-`extra/...`(모터 전류·전압·온도)는 안 들어감. `--extra` 에 해당하는 파라미터가
-없음.
+### 모터 전류·전압·온도
+
+`control.launch.py` 의 `extra` 인자로 켬. 기본값은 0 (끔) 이라 안 켜면 명령이
+그대로임.
+
+```bash
+ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml extra:=2
+ros2 launch huphy_ros local.launch.py config:=... policy:=... extra:=2
+```
+
+값은 **한 주기에 다리마다 보낼 파라미터 읽기 요청 수**임. 전류·전압은 상태 응답
+프레임에 없어서 따로 요청해야 함. 한 다리가 읽을 항목이 모터 6개 x 값 2개 =
+12개이므로 `extra:=2` 면 6주기에 한 바퀴 -- 100Hz 기준 값 하나가 **약 17Hz** 로
+갱신됨. 올리면 빨라지고 그만큼 CAN 프레임이 늘어남.
+
+온도는 상태 응답 프레임에 있어서 매 주기 갱신됨. 다만 세 값을 한 메시지로 두므로
+`extra` 가 0 이면 온도도 안 나감 -- 열이 중간부터 생기면 줄마다 열 수가 달라짐.
+
+주기는 이렇게 흐름.
+
+| 무엇 | 주기 |
+|---|---|
+| `control_node` 가 `/huphy/debug/motor_extra` 발행 | `state_hz` (기본 100Hz) |
+| `log_node` 가 구독 | 100Hz. 마지막 메시지만 둠 |
+| 파일에 기록 | 정책 줄 주기 (50Hz). 줄이 올 때 마지막 값을 넣음 |
+| `iq`·`vbus` 값 갱신 | `extra:=2` 면 약 17Hz. 연속 두세 줄에 같은 값이 기록됨 |
+| `temp` 값 갱신 | 100Hz |
+
+파일의 열 이름은 `huphy-run --extra` 와 같음 (`extra/<모터>/iq`, `/temp`, `/vbus`).
+같은 뷰어로 봄. `run` 칸에 `extra` 값이 들어감.
+
+**`send_mode` 가 `burst` 여야 함.** 읽기 응답에 모터 id 가 없어서 CAN id 로 가름.
+`seq` 로 띄우면 `control_node` 가 시작할 때 멈춤.
+
+구독자가 없으면 `control_node` 가 이 토픽을 안 냄. 다만 **CAN 읽기 요청은 `extra`
+파라미터로 켜는 것이라 `log_node` 가 없어도 보냄.** 안 보내려면 `extra:=0` 으로
+띄울 것.
 
 ### 어느 구간이 담기나
 
@@ -1134,6 +1174,8 @@ policy_node
           /huphy/loop_status          주기·밀림·무응답
           /huphy/debug/control_info   주기·수거 대기·관절 이름·가동범위 (1회)
           /huphy/debug/latency        송신·수신 사건 (100Hz, 기록 노드가 있을 때만)
+          /huphy/debug/motor_extra    전류·전압·온도 (100Hz, extra 가 1 이상이고
+                                      기록 노드가 있을 때만)
 ```
 
 **정책을 모름.** 목표각을 누가 보냈는지도 모름 (결정 8).
@@ -1159,7 +1201,7 @@ policy_node
 ```
 하는 일   토픽을 받아 huphy-run --log 과 같은 JSON 두 파일을 씀. 제어도 추론도 안 함
 받음      /huphy/debug/policy_info, /policy_row
-          /huphy/debug/control_info, /latency
+          /huphy/debug/control_info, /latency, /motor_extra
           /huphy/policy_status        단계. running 인 동안만 쌓음
 보냄      없음
 ```
@@ -1205,8 +1247,9 @@ rqt_plot /huphy/joint_states/position[3]
 | `/huphy/debug/policy_row` | `huphy_ros_interfaces/PolicyRow` | policy | 50Hz | sensor_data |
 | `/huphy/debug/control_info` | `huphy_ros_interfaces/ControlInfo` | control | 1회 | transient_local |
 | `/huphy/debug/latency` | `huphy_ros_interfaces/LatencyBatch` | control | 100Hz | sensor_data |
+| `/huphy/debug/motor_extra` | `huphy_ros_interfaces/MotorExtra` | control | 100Hz | sensor_data |
 
-`policy_row` · `latency` 는 구독자(`log_node`)가 있을 때만 나감. 쓰는 쪽은 `log_node` 하나임 -- 아래 [기록](#기록).
+`policy_row` · `latency` · `motor_extra` 는 구독자(`log_node`)가 있을 때만 나감. 쓰는 쪽은 `log_node` 하나임 -- 아래 [기록](#기록).
 
 ### 4-0. 기록용 토픽만 직접 정의한 이유
 

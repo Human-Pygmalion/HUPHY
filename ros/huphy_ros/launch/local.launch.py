@@ -39,8 +39,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "policy", default_value="config/policies/generalized_walk"),
         DeclareLaunchArgument("checkpoint", default_value=""),
+        DeclareLaunchArgument("extra", default_value="0"),
         _include("control.launch.py",
-                 [("config", LaunchConfiguration("config"))]),
+                 [("config", LaunchConfiguration("config")),
+                  ("extra", LaunchConfiguration("extra"))]),
         _include("policy.launch.py",
                  [("policy", LaunchConfiguration("policy")),
                   ("checkpoint", LaunchConfiguration("checkpoint"))]),

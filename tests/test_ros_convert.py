@@ -191,3 +191,68 @@ class TestLoop:
         got = convert.arrays_to_targets(names, position)
         for name in WALK.order:
             assert got[name] == pytest.approx(wanted[name], abs=1e-9)
+
+
+# ===========================================================================
+# 모터 전기값 (MotorExtra)
+# ===========================================================================
+class TestExtra:
+    """`control_node` -> `MotorExtra` -> `log_node` -> 기록 열.
+
+    고정하는 것은 **열 이름과 순서**임. 틀려도 열 수가 같아서 코드로는 안 잡히고,
+    뷰어가 다른 모터의 그래프를 그림.
+    """
+
+    OBS = {
+        "right_leg/knee.iq": 2.5,
+        "right_leg/knee.vbus": 48.1,
+        "right_leg/knee.temp": 31.0,
+        "left_leg/knee.iq": -1.5,
+        "left_leg/knee.vbus": 47.9,
+        "left_leg/knee.temp": 33.0,
+    }
+    NAMES = ("right_leg/knee", "left_leg/knee")
+
+    def test_arrays_follow_the_given_order(self):
+        iq, vbus, temp = convert.observation_to_extra(self.OBS, self.NAMES)
+        assert iq == pytest.approx([2.5, -1.5])
+        assert vbus == pytest.approx([48.1, 47.9])
+        assert temp == pytest.approx([31.0, 33.0])
+
+    def test_missing_values_are_nan_not_zero(self):
+        """`extra` 가 0 이면 관찰에 `iq`·`vbus` 가 없음. 0 으로 채우면 0A 로 기록됨."""
+        obs = {"right_leg/knee.temp": 31.0}
+        iq, vbus, temp = convert.observation_to_extra(obs, ("right_leg/knee",))
+        assert math.isnan(iq[0]) and math.isnan(vbus[0])
+        assert temp == pytest.approx([31.0])
+
+    def test_columns_match_the_non_ros_recording(self):
+        """`huphy-run --extra` 기록과 열 이름·순서가 같아야 같은 뷰어로 봄."""
+        from huphy.telemetry.track_log import extra_columns, extra_values
+
+        iq, vbus, temp = convert.observation_to_extra(self.OBS, self.NAMES)
+        got = convert.extra_to_columns(self.NAMES, iq, vbus, temp)
+        assert tuple(got) == extra_columns(self.NAMES)
+        assert got == pytest.approx(extra_values(self.OBS))
+
+    def test_short_arrays_stop_instead_of_filling_with_zero(self):
+        from huphy.telemetry.track_log import extra_columns
+
+        got = convert.extra_to_columns(self.NAMES, [2.5], [48.1], [31.0])
+        assert tuple(got) == extra_columns(self.NAMES[:1])
+
+    def test_a_row_keeps_its_width_when_the_columns_are_fixed_up_front(self):
+        """`log_node` 가 열을 미리 박는 길. 첫 줄에 전기값이 없어도 줄 폭이 같아야 함."""
+        from huphy.telemetry.policy_log import PolicyLog
+
+        log = PolicyLog(("obs/a",), self.NAMES, limits={}, extra_motors=self.NAMES)
+        log.add_row(0.00, [1.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0])
+        iq, vbus, temp = convert.observation_to_extra(self.OBS, self.NAMES)
+        log.add_row(0.02, [1.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0],
+                    convert.extra_to_columns(self.NAMES, iq, vbus, temp))
+
+        assert len(log.columns) == 1 + 1 + 2 * 3 + 2 * 3
+        assert all(len(r) == len(log.columns) for r in log.rows)
+        i = log.columns.index("extra/right_leg/knee/iq")
+        assert math.isnan(log.rows[0][i])
+        assert log.rows[1][i] == pytest.approx(2.5)
