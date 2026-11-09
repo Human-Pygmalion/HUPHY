@@ -483,7 +483,7 @@ ros2 launch huphy_ros local.launch.py \
 | 명령 | 하는 일 | 기존으로 치면 |
 |---|---|---|
 | `huphy-can up` | CAN 채널을 1 Mbps 로 올림 | 같음 |
-| `local.launch.py` | 제어 노드(`OBSERVE`, 토크 없음)와 정책 노드(불러만 둠)를 **한 번에** 띄움. 정책은 `policy:=` 로 고름 -- `generalized_walk` / `stairs_slopes12` / `huphy_squat` | `huphy-test --robot watch` 상태 + `huphy-run --policy <이름>` 의 불러오기 |
+| `local.launch.py` | 제어 노드(`OBSERVE`, 토크 없음)와 정책 노드(불러만 둠)를 **한 번에** 띄움. 정책은 `policy:=` 로 고름 -- `generalized_walk` / `stairs_slopes12` / `huphy_squat`. **기록 노드는 안 띄움** | `huphy-test --robot watch` 상태 + `huphy-run --policy <이름>` 의 불러오기 |
 
 로그 끝에 `approach 를 기다림` 과 `OBSERVE 로 시작` 이 나오면 된 것임.
 
@@ -940,6 +940,13 @@ ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml ex
 ros2 launch huphy_ros local.launch.py config:=... policy:=... extra:=2
 ```
 
+**`extra` 는 읽기만 켬. 기록 노드를 띄우지 않음.** 파일에 남기려면 다른 터미널에서
+`log.launch.py` 를 정책 시작 전에 띄울 것 (위 [켜는 법](#켜는-법)).
+
+```bash
+ros2 launch huphy_ros log.launch.py      # 터미널 2
+```
+
 값은 **한 주기에 다리마다 보낼 파라미터 읽기 요청 수**임. 전류·전압은 상태 응답
 프레임에 없어서 따로 요청해야 함. 한 다리가 읽을 항목이 모터 6개 x 값 2개 =
 12개이므로 `extra:=2` 면 6주기에 한 바퀴 -- 100Hz 기준 값 하나가 **약 17Hz** 로
@@ -968,8 +975,9 @@ ros2 launch huphy_ros local.launch.py config:=... policy:=... extra:=2
 
 ```
 power/<모터>/copper_w   그 모터의 구리 손실 (W)
+power/<모터>/dc_a_lo    그 모터의 DC 전류 하한 (A) = 그 모터의 구리 손실 / 그 모터의 vbus
 power/copper_w          모터 전부의 합 (W)
-power/dc_a_lo           DC 전류 하한 (A)
+power/dc_a_lo           DC 전류 하한 합 (A) = 합 / vbus 평균
 ```
 
     P_cu = 1.5 * iq**2 * R_phase

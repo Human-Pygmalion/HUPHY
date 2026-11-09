@@ -44,6 +44,8 @@ class TestColumns:
         assert power.power_columns(MOTORS) == (
             "power/right_leg/knee/copper_w",
             "power/right_leg/hip_yaw/copper_w",
+            "power/right_leg/knee/dc_a_lo",
+            "power/right_leg/hip_yaw/dc_a_lo",
             "power/copper_w",
             "power/dc_a_lo",
         )
@@ -72,6 +74,11 @@ class TestValues:
         got = power.power_values(MOTORS, IQ, VBUS, R)
         assert got["power/dc_a_lo"] == pytest.approx(13.17 / 49.0)
 
+    def test_each_motor_dc_current_uses_its_own_voltage(self):
+        got = power.power_values(MOTORS, IQ, VBUS, R)
+        assert got["power/right_leg/knee/dc_a_lo"] == pytest.approx(12.0 / 48.0)
+        assert got["power/right_leg/hip_yaw/dc_a_lo"] == pytest.approx(1.17 / 50.0)
+
 
 class TestMissing:
     def test_a_motor_without_a_current_makes_the_total_nan(self):
@@ -90,6 +97,14 @@ class TestMissing:
         got = power.power_values(MOTORS, IQ, {}, R)
         assert got["power/copper_w"] == pytest.approx(13.17)
         assert math.isnan(got["power/dc_a_lo"])
+        assert math.isnan(got["power/right_leg/knee/dc_a_lo"])
+
+    def test_a_motor_without_a_voltage_is_nan_only_for_itself(self):
+        """전압 하나를 못 받아도 그 모터만 NaN. 합은 나머지 전압 평균으로 나옴."""
+        got = power.power_values(MOTORS, IQ, {"right_leg/knee": 48.0}, R)
+        assert got["power/right_leg/knee/dc_a_lo"] == pytest.approx(12.0 / 48.0)
+        assert math.isnan(got["power/right_leg/hip_yaw/dc_a_lo"])
+        assert got["power/dc_a_lo"] == pytest.approx(13.17 / 48.0)
 
 
 class TestRecording:

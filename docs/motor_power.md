@@ -230,7 +230,7 @@ DC 전류 하한   1.10 A
 ## 4. 지금 코드에서 어떻게 나오나
 
 ROS `log_node` 가 구리 손실을 계산해 기록 열로 냄. 기계 출력과 나머지 손실은
-안 들어감 -- 그래서 기록의 `power/dc_a_lo` 는 하한임. 3절의 53.3 W 는 기계 출력까지
+안 들어감 -- 그래서 기록의 `dc_a_lo` (모터별·합) 는 하한임. 3절의 53.3 W 는 기계 출력까지
 넣어 손으로 낸 값이고, 그것도 하한임.
 
 ### 값이 오는 경로
@@ -300,8 +300,9 @@ log_node       MotorExtra 를 구독해 마지막 것만 보관
 
 ```
 power/<모터>/copper_w   그 모터의 구리 손실 (W)
+power/<모터>/dc_a_lo    그 모터의 DC 전류 하한 (A) = 그 모터의 구리 손실 / 그 모터의 vbus
 power/copper_w          모터 전부의 합 (W)
-power/dc_a_lo           DC 전류 하한 (A) = 합 / 그 줄 vbus 평균
+power/dc_a_lo           DC 전류 하한 합 (A) = 합 / 그 줄 vbus 평균
 ```
 
 계산은 [`telemetry/power.py`](../src/huphy/telemetry/power.py) 에 있고 `rclpy` 를
