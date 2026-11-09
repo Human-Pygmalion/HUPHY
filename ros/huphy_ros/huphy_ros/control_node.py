@@ -233,6 +233,7 @@ class ControlNode(Node):
             ControlInfo, "/huphy/debug/control_info", INFO_QOS)
         self.extra_pub = self.create_publisher(
             MotorExtra, "/huphy/debug/motor_extra", qos_profile_sensor_data)
+        models = convert.motor_models(self.robot)
         info_pub.publish(ControlInfo(
             robot=self.robot.id,
             hz=self.hz,
@@ -240,6 +241,7 @@ class ControlNode(Node):
             send_mode=send_mode,
             extra=self.extra,
             joint_names=list(self.taps.joints),
+            motor_models=[models.get(j, "") for j in self.taps.joints],
             limit_lo_deg=[float(limits.get(j, (nan, nan))[0]) for j in self.taps.joints],
             limit_hi_deg=[float(limits.get(j, (nan, nan))[1]) for j in self.taps.joints],
         ))

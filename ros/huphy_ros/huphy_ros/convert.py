@@ -41,6 +41,26 @@ def to_huphy_name(name: str) -> str:
     return name.replace(ROS_SEP, SEP)
 
 
+def motor_models(robot) -> Dict[str, str]:
+    """로봇 -> `{모터 이름: 벤더 모델명}`. 이름은 `latency_tap.TapSet.joints` 와 같음.
+
+    `ControlInfo.motor_models` 를 채우는 데 씀 -- `log_node` 가 모델별 상저항으로
+    전력 열을 계산함 (`telemetry/power.py`). 모터가 다른 기계에 있어서 설정 파일을
+    못 읽는 쪽이 모델을 아는 유일한 경로임.
+
+    `TapSet` 과 같은 방식으로 이름을 만듦 (`<팔다리 id>/<관절>`). CAN id 에
+    관절이 안 붙어 있으면 빈 문자열을 넣음 -- 그 모터의 전력이 NaN 이 됨.
+    """
+    out: Dict[str, str] = {}
+    for part in getattr(robot, "parts", None) or (robot,):
+        config = part.config
+        for mid in part.bus.motor_ids:
+            joint = config.joint_of(mid)
+            name = f"{part.id}/{joint or mid}"
+            out[name] = str(config.motors[joint].model) if joint else ""
+    return out
+
+
 def observation_to_extra(
     observation: Mapping[str, float],
     names: Sequence[str],

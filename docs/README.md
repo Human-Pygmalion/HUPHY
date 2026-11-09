@@ -14,6 +14,7 @@ motor_setup.md     출하 상태 모터 세팅. 보낼 프레임까지
 candlelight.md     USB-CAN 어댑터를 slcan 에서 candleLight(gs_usb) 로 전환
 can_communication.md  CAN 통신 진단 기록. 무엇이 문제였고 지금 어떻게 보내고 세나
 monitoring.md      무엇을 왜 보는가
+motor_power.md     모터 전류·전압·전력. 무엇이 읽히고 무엇을 계산해야 하나
 ```
 
 ---

@@ -13,5 +13,7 @@ int32     extra           # 한 주기에 다리마다 보낼 파라미터 읽�
 
 # LatencyBatch.joint 의 색인이 이 배열의 자리임. bus.motor_ids 순서.
 string[]  joint_names     # 관절 수. huphy 이름
+string[]  motor_models    # 관절 수. 벤더 모델명 ("RS04"). 전력 열의 상저항을 가름.
+                          # 모델을 못 찾으면 빈 문자열 -- 그 모터 전력이 NaN 이 됨
 float64[] limit_lo_deg    # 관절 수. 가동범위 하한 (도)
 float64[] limit_hi_deg    # 관절 수. 가동범위 상한 (도)

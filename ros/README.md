@@ -960,6 +960,31 @@ ros2 launch huphy_ros local.launch.py config:=... policy:=... extra:=2
 파일의 열 이름은 `huphy-run --extra` 와 같음 (`extra/<모터>/iq`, `/temp`, `/vbus`).
 같은 뷰어로 봄. `run` 칸에 `extra` 값이 들어감.
 
+#### 전력 열
+
+`extra` 를 켜면 `log_node` 가 받은 상전류로 구리 손실을 계산해 열을 더 만듦. 따로
+켜는 인자는 없음.
+
+```
+power/<모터>/copper_w   그 모터의 구리 손실 (W)
+power/copper_w          모터 전부의 합 (W)
+power/dc_a_lo           DC 전류 하한 (A)
+```
+
+    P_cu = 1.5 * iq**2 * R_phase
+
+`R_phase` 는 모델별 사양값임. `control_node` 가 `control_info` 에 모델명
+(`motor_models`, `robot.yaml` 의 `model`) 을 실어 보내고 `log_node` 가 상수로 바꿈
+-- 모터가 다른 기계에 있어서 설정 파일을 못 읽음.
+
+**`dc_a_lo` 는 하한임.** 모터가 DC 전류도 전력도 안 내서(매뉴얼의 읽기 가능 항목이
+네 개뿐임) 구리 손실만 계산함. 기계 출력·철손·인버터 손실·감속기 손실이 빠져 있음
+([docs/motor_power.md](../docs/motor_power.md)).
+
+한 모터라도 상전류를 아직 못 받았으면 그 줄의 합이 `null` 임 -- 일부만 더한 값을
+전체 합으로 읽지 않게 함. 사양을 안 넣은 모델(RS00·RS02)뿐이면 열을 아예 안 만듦.
+`huphy-run --extra` 기록에는 이 열이 없음.
+
 **`send_mode` 가 `burst` 여야 함.** 읽기 응답에 모터 id 가 없어서 CAN id 로 가름.
 `seq` 로 띄우면 `control_node` 가 시작할 때 멈춤.
 
@@ -1172,7 +1197,7 @@ policy_node
           /huphy/imu                  각속도·가속도
           /huphy/gravity              중력방향 3칸
           /huphy/loop_status          주기·밀림·무응답
-          /huphy/debug/control_info   주기·수거 대기·관절 이름·가동범위 (1회)
+          /huphy/debug/control_info   주기·수거 대기·관절 이름·모델명·가동범위 (1회)
           /huphy/debug/latency        송신·수신 사건 (100Hz, 기록 노드가 있을 때만)
           /huphy/debug/motor_extra    전류·전압·온도 (100Hz, extra 가 1 이상이고
                                       기록 노드가 있을 때만)

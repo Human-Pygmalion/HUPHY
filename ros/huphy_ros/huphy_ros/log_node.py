@@ -61,7 +61,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray
@@ -70,7 +70,8 @@ from huphy_ros_interfaces.msg import (
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 
-from huphy.telemetry import latency_log, policy_log, run_name
+from huphy.motors.robstride import tables
+from huphy.telemetry import latency_log, policy_log, power, run_name
 
 from . import convert, latency_tap, logbridge
 
@@ -101,6 +102,13 @@ class LogNode(Node):
         self.control_info: Optional[ControlInfo] = None
         self.policy: Optional[policy_log.PolicyLog] = None
         self.latency: Optional[latency_log.LatencyLog] = None
+        self.r_phase: Dict[str, float] = {}
+        """모터 이름 -> 상저항 (ohm). `ControlInfo.motor_models` 에서 만듦.
+
+        전력 열을 계산하는 데 씀 (`telemetry/power.py`). 모터가 다른 기계에 있어서
+        설정 파일을 못 읽으므로 모델명을 토픽으로 받아 여기서 상수로 바꿈. 사양을
+        안 넣은 모델은 NaN 이 되고 그 모터의 전력 열이 NaN 이 됨.
+        """
         self.extra_latest: Optional[MotorExtra] = None
         """마지막으로 받은 `MotorExtra`. 정책 줄이 올 때 그 줄에 넣음.
 
@@ -144,6 +152,10 @@ class LogNode(Node):
     def _on_control_info(self, msg: ControlInfo) -> None:
         """관절 이름·가동범위·수거 대기. 가동범위는 모션보드에만 있는 값임."""
         self.control_info = msg
+        self.r_phase = {
+            name: tables.phase_resistance_ohm(model)
+            for name, model in zip(msg.joint_names, msg.motor_models)
+        }
         self._new_latency_log()
         # limits 를 채워 다시 만듦. 다만 **이미 쌓인 줄이 있으면 안 바꿈** --
         # control_node 를 정책이 도는 중에 다시 띄우면 이 메시지가 늦게 올 수
@@ -183,16 +195,41 @@ class LogNode(Node):
         return list(info.joint_names)
 
     def _extra_row(self) -> dict:
-        """마지막 `MotorExtra` -> `extra/<모터>/<값>` 사전. 아직 못 받았으면 빈 사전.
+        """마지막 `MotorExtra` -> 한 줄의 `extra/...` 와 `power/...` 사전.
+
+        아직 못 받았으면 빈 사전임 (그 줄의 칸이 다 `null` 이 됨).
 
         이름과 순서는 `ControlInfo.joint_names` 임 -- `control_node` 가 그 순서로
-        배열을 만듦. `telemetry/track_log.py` 의 `extra_values` 와 같은 모양이어야
-        `huphy-run --extra` 기록과 열 이름이 같음.
+        배열을 만듦. `extra/` 는 `telemetry/track_log.py` 의 `extra_values` 와 같은
+        모양이어야 `huphy-run --extra` 기록과 열 이름이 같음.
+
+        `power/` 는 받은 상전류로 여기서 계산함 (`telemetry/power.py`) -- 모터가
+        DC 전류도 전력도 안 냄. `huphy-run` 쪽에는 이 열이 없음.
         """
         msg, info = self.extra_latest, self.control_info
         if msg is None or info is None:
             return {}
-        return convert.extra_to_columns(info.joint_names, msg.iq, msg.vbus, msg.temp)
+        names = list(info.joint_names)
+        out = convert.extra_to_columns(names, msg.iq, msg.vbus, msg.temp)
+        if self._power_motors() is not None:
+            out.update(power.power_values(
+                names, dict(zip(names, msg.iq)), dict(zip(names, msg.vbus)), self.r_phase))
+        return out
+
+    def _power_motors(self) -> Optional[list]:
+        """전력 열을 만들 모터 이름. 못 만들면 `None`.
+
+        전기값을 읽을 때(`extra` 가 0 이 아님)만 만듦 -- 전력은 받은 상전류로
+        계산한 값임. 상저항을 아는 모터가 하나도 없으면 안 만듦 -- `control_node`
+        가 `motor_models` 를 안 보냈거나(예전 판 메시지) 사양을 안 넣은
+        모델(RS00·RS02)뿐인 경우임. 열을 만들면 전부 `null` 이 됨.
+        """
+        info = self.control_info
+        if info is None or not info.extra:
+            return None
+        if not any(v == v for v in self.r_phase.values()):      # 전부 NaN
+            return None
+        return list(info.joint_names)
 
     def _new_policy_log(self) -> None:
         info = self.policy_info
@@ -200,7 +237,7 @@ class LogNode(Node):
             return
         self.policy = policy_log.PolicyLog(
             info.obs_names, info.joint_names, limits=self._limits(),
-            extra_motors=self._extra_motors())
+            extra_motors=self._extra_motors(), power_motors=self._power_motors())
 
     def _new_latency_log(self) -> None:
         info = self.control_info

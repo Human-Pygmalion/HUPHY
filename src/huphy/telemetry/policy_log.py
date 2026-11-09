@@ -6,6 +6,7 @@
     tgt/<관절>         관절 목표각 (도). 실제로 루프에 넘긴 것
     pos/<관절>         그 순간의 실측 관절각 (도)
     extra/<모터>/<값>  추가 값 (iq A, temp C, vbus V). `--extra` 를 켰을 때만 (`track_log`)
+    power/<모터>/...   전력 (W, A). 전기값을 읽는 ROS `log_node` 에서만 (`power`)
 
 `tools/policy_viewer.html` 로 열면 재생하듯 볼 수 있음. 파일 모양은 `run_name.write`
 가 정함 -- `columns` 에 열 이름, `rows` 에 한 주기 한 줄, `limits` 에 관절 가동범위,
@@ -41,6 +42,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 import numpy as np
 
 from . import run_name
+from .power import power_columns
 from .track_log import extra_columns, extra_values, joint_limits
 
 logger = logging.getLogger(__name__)
@@ -57,6 +59,7 @@ class PolicyLog:
         robot: Any = None,
         limits: Optional[Mapping[str, Sequence[float]]] = None,
         extra_motors: Optional[Sequence[str]] = None,
+        power_motors: Optional[Sequence[str]] = None,
     ) -> None:
         self.obs_names = tuple(obs_names)
         self.limits = (
@@ -77,14 +80,21 @@ class PolicyLog:
             + tuple(f"tgt/{j}" for j in self.order)
             + tuple(f"pos/{j}" for j in self.order)
         )
-        self.extra_cols: Optional[tuple] = (
-            extra_columns(extra_motors) if extra_motors is not None else None)
-        """`extra/...` 열. `None` 이면 첫 줄의 `extra` 로 정해짐.
+        self.extra_cols: Optional[tuple] = None
+        """`extra/...` 와 `power/...` 열. `None` 이면 첫 줄의 `extra` 로 정해짐.
 
         `extra_motors` 를 주면 그 모터 목록으로 **미리 정함.** ROS `log_node` 는
         전기값을 다른 토픽으로 받아서 첫 정책 줄이 전기값보다 먼저 올 수 있고,
         그때 첫 줄로 정하면 빈 열로 굳어 이후 값이 다 버려짐.
+
+        `power_motors` 는 전력 열(`power/...`)을 전기값 열 뒤에 붙임
+        (`telemetry/power.py`). 전력은 받은 상전류로 계산한 값이라 전기값을 읽는
+        쪽(`extra_motors`)에서만 줌.
         """
+        if extra_motors is not None:
+            self.extra_cols = extra_columns(extra_motors)
+            if power_motors is not None:
+                self.extra_cols += power_columns(power_motors)
         self.rows: List[List[float]] = []
         self.errors = 0
         self._t0: Optional[float] = None

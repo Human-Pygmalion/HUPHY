@@ -256,3 +256,71 @@ class TestExtra:
         i = log.columns.index("extra/right_leg/knee/iq")
         assert math.isnan(log.rows[0][i])
         assert log.rows[1][i] == pytest.approx(2.5)
+
+
+# ===========================================================================
+# 모터 모델명 (ControlInfo.motor_models)
+# ===========================================================================
+class TestMotorModels:
+    """`log_node` 가 전력 열의 상저항을 가르는 값.
+
+    이름이 `latency_tap.TapSet.joints` 와 같아야 함 -- 어긋나면 `log_node` 가
+    상저항을 못 찾아 전력 열이 전부 `null` 이 됨.
+    """
+
+    class _Motor:
+        def __init__(self, model):
+            self.model = model
+
+    class _Config:
+        def __init__(self, motors, ids):
+            self.motors = motors
+            self._ids = ids
+
+        def joint_of(self, mid):
+            return self._ids.get(mid)
+
+    class _Bus:
+        def __init__(self, ids):
+            self.motor_ids = tuple(ids)
+
+    class _Part:
+        def __init__(self, part_id, motors, ids):
+            self.id = part_id
+            self.bus = TestMotorModels._Bus(ids)
+            self.config = TestMotorModels._Config(motors, ids)
+
+    def _leg(self, part_id):
+        motors = {"knee": self._Motor("RS04"), "hip_yaw": self._Motor("RS03")}
+        return self._Part(part_id, motors, {10: "knee", 9: "hip_yaw"})
+
+    def test_names_are_prefixed_with_the_limb_id(self):
+        got = convert.motor_models(self._leg("right_leg"))
+        assert got == {"right_leg/knee": "RS04", "right_leg/hip_yaw": "RS03"}
+
+    def test_both_legs_are_collected(self):
+        class Biped:
+            pass
+
+        robot = Biped()
+        robot.parts = (self._leg("right_leg"), self._leg("left_leg"))
+        got = convert.motor_models(robot)
+        assert set(got) == {
+            "right_leg/knee", "right_leg/hip_yaw",
+            "left_leg/knee", "left_leg/hip_yaw",
+        }
+
+    def test_a_can_id_without_a_joint_is_left_empty(self):
+        """관절이 안 붙은 모터. 빈 문자열이면 `log_node` 에서 상저항이 NaN 이 됨."""
+        part = self._Part("right_leg", {"knee": self._Motor("RS04")}, {10: "knee"})
+        part.bus.motor_ids = (10, 99)
+        part.config._ids = {10: "knee"}
+        got = convert.motor_models(part)
+        assert got == {"right_leg/knee": "RS04", "right_leg/99": ""}
+
+    def test_the_model_resolves_to_a_phase_resistance(self):
+        from huphy.motors.robstride import tables
+
+        got = convert.motor_models(self._leg("right_leg"))
+        assert tables.phase_resistance_ohm(got["right_leg/knee"]) == pytest.approx(0.08)
+        assert tables.phase_resistance_ohm(got["right_leg/hip_yaw"]) == pytest.approx(0.195)

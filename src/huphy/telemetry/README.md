@@ -10,6 +10,7 @@ telemetry/
 ├── live.py         같은 값을 브라우저로 실시간. huphy-test / huphy-run --live
 ├── live_viewer.html  live.py 가 내주는 화면
 ├── latency_log.py  관절별 응답 지연 (송신 -> 도착). huphy-run / huphy-test --log
+├── power.py        읽어 온 상전류로 구리 손실. ROS log_node 가 씀
 └── run_name.py     위 셋의 파일 이름·`run` 칸·JSON 쓰기
 ```
 
@@ -336,6 +337,7 @@ UDP 는 실시간으로 보는 것이고, 이쪽은 **끝나고 나서 되돌아
     tgt/<관절>        관절 목표각 (도). 루프에 실제로 넘긴 것
     pos/<관절>        그 순간의 실측 관절각 (도)
     extra/<모터>/<값> 추가 값. `--extra` 를 켰을 때만 (`track_log` 와 같은 열)
+    power/<모터>/...  전력. ROS `log_node` 에서 전기값을 읽을 때만 (`power.py`)
 
 파일은 JSON 하나임 (`run_name.write`). `columns` 에 위 열 이름을, `rows` 에 한 주기
 한 줄씩, `limits` 에 관절 가동범위를, `run` 에 이 실행의 인자를 담음.
@@ -397,6 +399,28 @@ UDP 는 실시간으로 보는 것이고, 이쪽은 **끝나고 나서 되돌아
   씀. 녹화 중에 끝나면 `LiveServer.stop()` 이 거기까지 저장함
 - **주기가 빠듯하면 끄고 돌릴 것.** HTTP 스레드도 GIL 을 잠깐씩 잡음 -- 끝 집계의
   밀림으로 확인
+
+---
+
+## `power.py`
+
+읽어 온 상전류로 구리 손실을 계산해 열을 만듦. 전기값(`extra/`)을 읽는 쪽에서만
+쓰임 -- 지금은 ROS `log_node` 뿐임 (`huphy-run --extra` 는 열을 안 만듦. 모델별
+상저항을 꺼내는 길이 없음).
+
+    power/<모터>/copper_w   그 모터의 구리 손실 (W)
+    power/copper_w          모터 전부의 합 (W)
+    power/dc_a_lo           DC 전류 **하한** (A)
+
+    P_cu = 1.5 * iq**2 * R_phase
+
+`R_phase` 는 모델별 사양값임 (`motors/robstride/tables.phase_resistance_ohm`).
+모터는 DC 전류도 전력도 안 냄 -- 매뉴얼의 읽기 가능 항목이 네 개뿐임
+(docs/motor_power.md 1절).
+
+**하한인 이유:** 구리 손실만 계산함. 기계 출력(토크·속도가 기록 열에 없음), 철손,
+인버터 손실, 감속기 손실의 상수가 없음. 한 모터라도 상전류를 못 받았으면 합이
+`NaN` 임 -- 일부만 더한 값을 전체 합으로 읽지 않게.
 
 ---
 

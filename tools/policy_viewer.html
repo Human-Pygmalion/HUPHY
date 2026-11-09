@@ -118,6 +118,9 @@ const IMU_TITLE = { att: ["자세", "deg"], gyro: ["각속도", "deg/s"], grav: 
   acc: ["가속도", "m/s²"], age: ["수신 나이", "ms"] };
 // 추가 값 열(extra/<모터>/<값>). huphy-run / huphy-test 를 --extra 로 돌렸을 때만 있음.
 const EXTRA_TITLE = { iq: ["추가 값 · 전류 iq", "A"], temp: ["추가 값 · 온도", "°C"], vbus: ["추가 값 · 전압 VBUS", "V"] };
+// 전력 열(power/<모터>/copper_w, power/copper_w, power/dc_a_lo). ROS log_node 가 전기값을
+// 읽을 때만 있음. 구리 손실만 넣은 값이라 dc_a_lo 는 하한임 (docs/motor_power.md).
+const POWER_TITLE = { copper_w: ["전력 · 구리 손실 합", "W"], dc_a_lo: ["전력 · DC 전류 하한", "A"] };
 const UNITS = { gyro: "rad/s", grav: "", q: "rad (기본자세 기준)", q_prev: "rad (기본자세 기준)",
   pos: "rad", vel: "rad/s", last_act: "모델 출력", cmd: "", phase: "" };
 
@@ -216,12 +219,22 @@ function load(name, text) {
       const kind = p[p.length - 1], [title, unit] = EXTRA_TITLE[kind];
       const g = add("extra/" + kind, title + " — 모터별", unit, false); g.extra = true; g.cols.push(i);
     }
+    else if (p[0] === "power" && p.length === 2 && POWER_TITLE[p[1]]) {
+      const [title, unit] = POWER_TITLE[p[1]];
+      add("power/" + p[1], title, unit, false).cols.push(i);
+    }
+    else if (p[0] === "power" && p[p.length - 1] === "copper_w") {
+      // 모터마다 한 선. 범례는 extra/ 와 같은 길로 뽑힘 (앞 6자가 "power/")
+      const g = add("power/motor", "전력 · 구리 손실 — 모터별", "W", false);
+      g.extra = true; g.cols.push(i);
+    }
     else if (p[0] === "err") groups.get("err").cols.push(i);
   });
   S.panels = [...groups.values()];
   const defaults = ["each", "err", "obs/gyro", "obs/grav"];
   S.shown = new Set(S.panels.map((p) => p.key).filter((k) =>
-    defaults.includes(k) || k === "extra/iq" || /^imu\/[^/]+\/(att|gyro)$/.test(k)));
+    defaults.includes(k) || k === "extra/iq" || k === "power/copper_w"
+    || /^imu\/[^/]+\/(att|gyro)$/.test(k)));
 
   const dur = S.t[n - 1] - S.t[0];
   $("meta").textContent = `가동범위 ${S.limitSrc} · ${name} · ${n}줄 · ${dur.toFixed(1)} s · 평균 ${((n - 1) / dur).toFixed(1)} Hz`;
