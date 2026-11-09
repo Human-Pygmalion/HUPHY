@@ -919,11 +919,12 @@ $HOME/HUPHY/ros/logs/latency/<월일>_latency_<정책>.json   tools/latency_view
 ### 무엇이 담기나
 
 `huphy-run --log` 과 **같은 모양임.** 같은 코드가 씀
-(`src/huphy/telemetry/policy_log.py`, `latency_log.py`).
+(`src/huphy/telemetry/policy_log.py`, `latency_log.py`). 다른 것은 `power/` 열
+하나임 -- 이쪽에만 있음 (아래 [전력 열](#전력-열)).
 
 | 파일 | 열 |
 |---|---|
-| `policy` | `t`, `obs/...`(정규화 전), `act/...`(모델 출력 날값), `tgt/...`(도), `pos/...`(도), `extra/...`(전류·전압·온도. `extra` 를 켰을 때만) |
+| `policy` | `t`, `obs/...`(정규화 전), `act/...`(모델 출력 날값), `tgt/...`(도), `pos/...`(도), `extra/...`(전류·전압·온도. `extra` 를 켰을 때만), `power/...`(구리 손실·DC 전류 하한. `extra` 를 켰을 때만. **`huphy-run` 기록에는 없음**) |
 | `latency` | `t`, `joint`, `latency_ms`, `status`(제때/늦음/유실) |
 
 `run` 칸에 `source: "ros"` 가 들어감 -- `huphy-run` 기록과 한 폴더에 섞여도
@@ -1231,8 +1232,9 @@ policy_node
 보냄      없음
 ```
 
-**설정 파일을 안 읽음.** 열 이름·관절 순서·가동범위·주기가 전부 두 `*Info` 토픽으로
-옴 (`transient_local` 이라 늦게 띄워도 받음).
+**설정 파일을 안 읽음.** 열 이름·관절 순서·가동범위·주기·모터 모델명이 전부 두
+`*Info` 토픽으로 옴 (`transient_local` 이라 늦게 띄워도 받음). 모델명은 전력 열의
+상저항을 가르는 데 씀 (`ControlInfo.motor_models`).
 
 따로 있는 이유와 파일 경로는 위 [기록](#기록).
 
@@ -1578,7 +1580,7 @@ targets = self.runner.step(observation, imu_state)     # 20ms 타이머
 |---|---|
 | `control_node` | `config.load_robot`, `scripts.bringup.build_biped`, `control.ControlLoop`, `control.Mode`, `telemetry.track_log.joint_limits` |
 | `policy_node` | `control.deploy` 의 `load`·`DeployPolicy.load_model`·`runner`·`default_pose`·`order`, `scripts.selftest.approach` |
-| `log_node` | `telemetry` 의 `policy_log.PolicyLog`·`latency_log.LatencyLog`·`run_name` |
+| `log_node` | `telemetry` 의 `policy_log.PolicyLog`·`latency_log.LatencyLog`·`run_name`·`power`, `motors.robstride.tables.phase_resistance_ohm` |
 
 ### 기록을 위해 더한 것
 
@@ -1589,7 +1591,8 @@ targets = self.runner.step(observation, imu_state)     # 20ms 타이머
 | 어디 | 무엇 | 왜 |
 |---|---|---|
 | `control/deploy.py` | `Runner.last_vector` | 모델에 넣은 관찰 벡터. `last_action` 은 이미 있었음. 모델을 감싸지 않고 읽으려는 것 |
-| `telemetry/policy_log.py` | `add_row(...)`, 생성자 `limits=` | 완성된 줄을 넣음. `limits` 는 로봇 객체 없이 받음 (모터가 다른 기계에 있음) |
+| `telemetry/policy_log.py` | `add_row(...)`, 생성자 `limits=`·`extra_motors=`·`power_motors=` | 완성된 줄을 넣음. `limits` 는 로봇 객체 없이 받음 (모터가 다른 기계에 있음). 두 `*_motors` 는 열을 미리 박음 -- 첫 정책 줄이 첫 `MotorExtra` 보다 먼저 올 수 있음 |
+| `telemetry/power.py` | 새 모듈 | 받은 상전류로 구리 손실. `huphy-run` 쪽은 안 씀 (모델별 상저항을 꺼내는 길이 없음) |
 | `telemetry/latency_log.py` | `set_joints`·`note_sent`·`add_sample` | 버스 없이 사건을 넣음. `_BusSink` 도 이 셋을 거쳐 가게 바꿈 |
 
 **기록 형식을 `log_node` 안에 베끼지 않은 이유:** 열 순서, `NaN -> null`, 유실
