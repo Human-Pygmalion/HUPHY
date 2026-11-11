@@ -9,7 +9,7 @@
 | `policy_node` | 갈 자세를 냄. **속도 명령** 정책 (`vx`·`wz`·`h*`). 50Hz | 작업 기계 (사람이 쓰는 쪽) |
 | `motion_node` | 갈 자세를 냄. **모션 추종** 정책 (기준 궤적 재생). 50Hz. `policy_node` 와 둘 중 하나만 | 작업 기계 (사람이 쓰는 쪽) |
 | `teleop_node` | (선택) `huphy-run --teleop` 과 같은 창으로 명령·시작·멈춤 | 작업 기계 (화면 있는 쪽) |
-| `gamepad_node` | (선택) Xbox 패드로 명령·토크·시작·멈춤. `joy_node` 와 같이 띄움 | 작업 기계 (패드 꽂은 쪽) |
+| `gamepad_node` | (선택) Xbox 패드로 명령·토크·시작·멈춤. `joy_node` 와 같이 띄움. 명령 없는 정책은 버튼만 | 작업 기계 (패드 꽂은 쪽) |
 | `log_node` | (선택) `huphy-run --log` 과 같은 JSON 기록. 구독만 함 | 아무 기계 (파일이 거기 모임) |
 
 패키지는 둘임.
@@ -322,7 +322,19 @@ ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/stai
 
 # 스쿼트 -- 십자키 위아래로 높이
 ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
+
+# 모션 추종 -- 스틱이 할 일이 없음. 버튼만 씀 (아래 설명)
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union_dr_00545
 ```
+
+**모션 추종 정책은 스틱이 없고 버튼만 씀.** 사람이 줄 명령이 없어서임 -- 따라갈
+궤적이 꾸러미 안에 있음. View·A·RB+Menu·B 는 그대로 되고, RB 는 속도를 내보내는
+데드맨 역할은 없어지지만 "RB 를 쥐고 있어야 시작된다" 는 조건으로 남음.
+
+`cmd_vel` 은 그 경우에도 **0 만 20Hz 로 계속 냄.** 값이 쓰이지 않지만 그것이 패드
+쪽이 살아 있다는 신호임 -- 끊기면 `control_node` 가 감쇠 후 토크를 끊고
+(`stop_on_input_loss`) `motion_node` 가 재생을 멈춤 (`stop_on_cmd_loss`). 안 내면
+패드가 죽어도 로봇이 13초 동안 혼자 돌고 B 를 누를 수단이 없어짐.
 
 | 패드 | 하는 일 |
 |---|---|
@@ -735,8 +747,16 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 | `approach_s` | 3.0 | 기준 자세로 옮기는 시간 |
 | `start_frame` | 0 | 기준 궤적의 몇 번째 프레임부터 재생할지 |
 
-명령 토픽(`cmd_vel`/`h_star`)을 안 구독함 -- 따라갈 궤적이 꾸러미 안에 있음.
-그래서 `cmd_timeout_s`·`stop_on_cmd_loss` 가 없음.
+| `cmd_timeout_s` | 0.5 | 명령 토픽이 이만큼 안 오면 조작 노드가 죽은 것으로 봄 |
+| `stop_on_cmd_loss` | true | 그때 **재생을 멈춤** -> 모션보드가 감쇠 후 토크 끔 |
+
+**명령 토픽은 값으로 안 쓰고 생존 신호로만 씀.** 사람이 줄 명령이 없지만
+`cmd_vel`·`h_star` 를 구독해 **도착 시각만** 봄. `gamepad_node` 가 명령 없는
+정책에서도 `cmd_vel` 로 0 을 20Hz 로 계속 내므로, 그것이 0.5초 넘게 끊기면 패드나
+그 노드가 죽은 것이라 재생을 멈춤. 한 번도 안 받았으면 멈추지 않음 -- 조작 노드
+없이 `ros2 service call` 로만 돌리는 쓰임임.
+
+패드 버튼은 `policy_node` 와 같음: View 1초 토크, A 기준 자세, RB+Menu 시작, B 끔.
 
 `joint_states` 의 **속도**도 씀 (`policy_node` 는 위치만 씀). 이 정책의 관찰에
 관절 속도 24칸이 있음. 같은 토픽에 이미 실려 오고 있어서 더 받을 것은 없음.

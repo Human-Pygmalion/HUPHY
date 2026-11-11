@@ -12,7 +12,15 @@
     ros2 topic echo /huphy/policy_status                         # frame / progress 확인
     ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 감쇠
 
-명령 토픽은 없음 -- 따라갈 궤적이 꾸러미 안에 있음.
+패드로도 됨 -- 스틱은 할 일이 없고 버튼만 씀.
+
+    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union_dr_00545
+
+    View 1초  토크 넣기      A  기준 자세
+    RB+Menu   재생 시작      B  멈춤 + 토크 끄기
+
+사람이 줄 명령값은 없음 -- 따라갈 궤적이 꾸러미 안에 있음. `cmd_vel` 은 패드가
+살아 있다는 신호로만 씀 (0 만 20Hz). 끊기면 재생을 멈춤 (`stop_on_cmd_loss`).
 
 끝까지 재생하면 단계가 `done` 이 되고 **마지막 목표각을 유지함.** 쪼그려 앉은
 자세로 끝나는 궤적이라 거기서 토크를 끊으면 주저앉음. 복귀는 `approach`,

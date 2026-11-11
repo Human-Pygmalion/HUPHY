@@ -181,12 +181,30 @@ ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml
 ros2 launch huphy_ros motion.launch.py \
   policy:=$HOME/HUPHY/config/policies/union_dr_00545
 
-ros2 service call /huphy/enable_torque std_srvs/srv/Trigger
-ros2 service call /huphy/approach std_srvs/srv/Trigger       # 기준 자세로
-ros2 service call /huphy/start_policy std_srvs/srv/Trigger   # 재생 시작
-ros2 topic echo /huphy/policy_status                         # frame / progress
-ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 감쇠
+ros2 service call /huphy/enable std_srvs/srv/Trigger          # 토크
+ros2 service call /huphy/approach std_srvs/srv/Trigger        # 기준 자세로
+ros2 service call /huphy/start_policy std_srvs/srv/Trigger    # 재생 시작
+ros2 topic echo /huphy/policy_status                          # frame / progress
+ros2 service call /huphy/stop_policy std_srvs/srv/Trigger     # 감쇠
+ros2 service call /huphy/disable std_srvs/srv/Trigger         # 토크 끊기
 ```
+
+패드로도 같은 것을 함. 스틱은 할 일이 없고 버튼만 씀.
+
+```bash
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union_dr_00545
+```
+
+```
+View 1초   토크 넣기
+A          기준 자세로
+RB+Menu    재생 시작 (RB 를 쥐고 있어야 나감)
+B          멈춤 -> 토크 끄기
+```
+
+패드나 `gamepad_node` 가 죽으면 `cmd_vel` 이 끊기고, `motion_node` 가 0.5초 뒤
+재생을 멈추고 모션보드가 감쇠 후 토크를 끊음. 서비스로만 돌릴 때는 그 감시가
+안 걸림 (`cmd_vel` 을 한 번도 안 받았으므로).
 
 런치 인자:
 

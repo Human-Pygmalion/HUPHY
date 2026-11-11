@@ -7,6 +7,19 @@
 `sensor_msgs/Joy` 를 `/joy` 에서 받음. `gamepad.launch.py` 가 둘을 같이 띄움.
 
 
+## 조작할 명령이 없는 정책
+
+모션 추종 정책(`union_dr_00545`)은 사람이 줄 명령이 없음 -- 따라갈 궤적이 꾸러미
+안에 있음. 그때는 **스틱만 할 일이 없고 버튼 다섯 개는 그대로임.**
+
+    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union_dr_00545
+
+`cmd_vel` 은 그 경우에도 **0 만 20Hz 로 계속 냄.** 값이 쓰이지 않지만 그것이 이
+노드가 살아 있다는 신호임 -- 끊기면 `control_node` 가 감쇠 후 토크를 끊고
+(`stop_on_input_loss`) `motion_node` 가 재생을 멈춤 (`stop_on_cmd_loss`). 안 내면
+패드가 죽어도 로봇이 계속 돌고 B 를 누를 수단이 없어짐.
+
+
 ## 조작 (버튼 번호는 연결 방식마다 다름 -- 아래 "배치")
 
     왼쪽 스틱 세로     vx        위로 밀면 +
@@ -165,8 +178,16 @@ class GamepadNode(Node):
             self.policy = deploy.load(Path(folder))
         except (deploy.ContractError, ValueError, OSError) as e:
             raise SystemExit(f"{e}") from e
-        if not self.policy.commands:
-            raise SystemExit(f"{self.policy.name}: 조작할 명령이 없는 정책임")
+        self.buttons_only = not self.policy.commands
+        """조작할 명령이 없는 정책인가. **모션 추종 정책이 그럼** (`union_dr_00545`)
+        -- 따라갈 궤적이 꾸러미 안에 있어서 사람이 줄 값이 없음.
+
+        스틱은 할 일이 없고 버튼 다섯 개(View·A·RB+Menu·B)는 그대로임. `cmd_vel` 은
+        **값 없이 0 만** 계속 냄 -- 그것이 이 노드가 살아 있다는 신호이고, 끊기면
+        `control_node` 가 감쇠로 들어가고 `motion_node` 가 재생을 멈춤
+        (`stop_on_input_loss` / `stop_on_cmd_loss`). 신호를 안 내면 패드가 죽어도
+        로봇이 계속 돎 -- B 를 누를 수단이 없어짐.
+        """
 
         overrides = {k: _name_values(str(self.get_parameter(k).value), k)
                      for k in ("max", "accel")}
@@ -203,7 +224,10 @@ class GamepadNode(Node):
         """지금 내보내는 명령 값. 속도는 매 주기 스틱에서 다시 정하고, 높이는 쌓임."""
 
         self.cmd_vel_pub = (self.create_publisher(Twist, "/huphy/cmd_vel", 10)
-                            if self.velocity_names else None)
+                            if self.velocity_names or self.buttons_only else None)
+        """속도 명령이 있는 정책이면 스틱 값을, `buttons_only` 면 0 만 냄.
+
+        둘 다 아닌 경우(높이만 쓰는 `huphy_squat`)는 `h_star` 가 그 자리를 함."""
         self.h_star_pub = (self.create_publisher(Float64, "/huphy/h_star", 10)
                            if "h_star" in self.height_names else None)
 
@@ -236,10 +260,13 @@ class GamepadNode(Node):
 
         self.create_timer(1.0 / PUBLISH_HZ, self._tick)
         self.get_logger().info(
-            f"{self.policy.name}  패드: 스틱 {sorted(self.axes)}  "
-            f"RB 누른 동안만 속도  A 기준 자세  RB+Menu 정책 시작  B 끔  "
-            f"View {self.enable_hold_s:g}초 토크 넣기  -- 배치 {self.layout_name} "
-            f"(첫 /joy 를 보고 정함)")
+            f"{self.policy.name}  패드: "
+            + ("스틱 없음 (조작할 명령이 없는 정책 -- cmd_vel 로 0 만 내서 살아 있음을 알림)  "
+               if self.buttons_only else
+               f"스틱 {sorted(self.axes)}  RB 누른 동안만 속도  ")
+            + f"A 기준 자세  RB+Menu {'모션' if self.buttons_only else '정책'} 시작  B 끔  "
+            + f"View {self.enable_hold_s:g}초 토크 넣기  -- 배치 {self.layout_name} "
+            + f"(첫 /joy 를 보고 정함)")
 
     # ---- 들어오는 것 -------------------------------------------------------
     def _on_joy(self, msg: Joy) -> None:

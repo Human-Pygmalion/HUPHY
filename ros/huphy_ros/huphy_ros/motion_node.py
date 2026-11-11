@@ -8,8 +8,20 @@
     policy_node   사람이 vx·wz·h* 를 줌. 명령 토픽이 관찰의 명령 칸이 됨
     motion_node   파일에 든 궤적을 재생함. 그 프레임의 관절값이 명령 칸이 됨
 
-그래서 `cmd_vel`·`h_star` 를 안 구독함. 대신 **몇 번째 프레임인지**가 상태이고,
+그래서 사람이 줄 명령값이 없음. 대신 **몇 번째 프레임인지**가 상태이고,
 `policy_status` 의 `frame`/`progress` 로 나감.
+
+## 명령 토픽은 값으로 안 쓰고 생존 신호로만 씀
+
+`cmd_vel` 과 `h_star` 를 구독하되 **값을 안 보고 도착 시각만 봄.**
+
+`gamepad_node` 는 조작할 명령이 없는 정책에서도 `cmd_vel` 로 0 을 20Hz 로 계속
+냄. 그것이 `cmd_timeout_s`(기본 0.5초) 넘게 끊기면 패드나 그 노드가 죽은 것이라
+재생을 멈춤 (`stop_on_cmd_loss`, 기본 켬). 멈추지 않으면 B 를 누를 수단이 없는
+채로 로봇이 13초 동안 혼자 돎.
+
+한 번도 안 받았으면 멈추지 않음 -- 조작 노드 없이 `ros2 service call` 로만 돌리는
+쓰임임.
 
 ## 받는 것이 하나 더 있음
 
@@ -34,6 +46,9 @@
     /huphy/approach       꺼짐 -> 접근. approach_s 가 지나면 저절로 대기
     /huphy/start_policy   대기 -> 정책. 프레임 0 (또는 start_frame) 부터
     /huphy/stop_policy    어디서든 꺼짐
+
+패드로도 같은 서비스를 부름 (`gamepad_node`: View 1초 토크, A 기준 자세,
+RB+Menu 시작, B 끔).
 
 **끝에서 꺼지지 않는 이유:** 이 궤적은 몸통이 1.03m 에서 0.55m 로 내려가는
 동작이라 끝 자세가 쪼그려 앉은 자세임. 목표각을 안 내면 모션보드가 100ms 뒤
@@ -60,11 +75,12 @@ from typing import Optional
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from geometry_msgs.msg import Vector3Stamped
+from geometry_msgs.msg import Twist, Vector3Stamped
 from huphy_ros_interfaces.msg import PolicyInfo, PolicyRow
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import Imu, JointState
+from std_msgs.msg import Float64
 from std_srvs.srv import Trigger
 
 from huphy.control import deploy
@@ -97,6 +113,8 @@ class MotionNode(Node):
         self.declare_parameter("state_stale_ms", POLICY_STATE_STALE_S * 1000.0)
         self.declare_parameter("approach_s", 3.0)
         self.declare_parameter("start_frame", 0)
+        self.declare_parameter("cmd_timeout_s", 0.5)
+        self.declare_parameter("stop_on_cmd_loss", True)
 
         folder = self.get_parameter("policy").value
         if not folder:
@@ -117,6 +135,19 @@ class MotionNode(Node):
                 f"{self.policy.name} 은 명령 칸({sorted(self.policy.commands)})이 있음. "
                 f"이 노드는 명령 토픽을 안 받음 -- policy_node 로 띄울 것")
 
+        self.cmd_timeout_s = float(self.get_parameter("cmd_timeout_s").value)
+        self.stop_on_cmd_loss = bool(self.get_parameter("stop_on_cmd_loss").value)
+        self._cmd_at: Optional[float] = None
+        """마지막 명령 토픽을 받은 시각. **값은 안 씀 -- 조작 노드가 살아 있는지만 봄.**
+
+        이 정책에는 사람이 줄 명령이 없지만 `gamepad_node` 는 `cmd_vel` 로 0 을
+        20Hz 로 계속 냄. 그것이 끊기면 패드나 그 노드가 죽은 것이라 재생을 멈춤
+        (`_check_cmd_source`). 멈추지 않으면 B 를 누를 수단이 없는 채로 로봇이
+        13초 동안 혼자 돎 (2026-11-02 에 같은 일이 있었음).
+
+        `None` 이면 아직 한 번도 안 옴 -- 조작 노드 없이 서비스로만 돌리는 쓰임이라
+        멈추지 않음.
+        """
         self.start_frame = int(self.get_parameter("start_frame").value)
         try:
             self.runner = self.policy.runner(model, start_frame=self.start_frame)
@@ -160,6 +191,9 @@ class MotionNode(Node):
             Imu, "/huphy/imu", self._on_imu, qos_profile_sensor_data)
         self.create_subscription(
             Vector3Stamped, "/huphy/gravity", self._on_gravity, qos_profile_sensor_data)
+        # 값은 안 씀 -- 조작 노드가 살아 있는지만 봄 (위 `_cmd_at`).
+        self.create_subscription(Twist, "/huphy/cmd_vel", self._on_input, 10)
+        self.create_subscription(Float64, "/huphy/h_star", self._on_input, 10)
         self.create_service(Trigger, "/huphy/approach", self._on_approach)
         self.create_service(Trigger, "/huphy/start_policy", self._on_start)
         self.create_service(Trigger, "/huphy/stop_policy", self._on_stop)
@@ -188,6 +222,31 @@ class MotionNode(Node):
 
     def _on_gravity(self, msg: Vector3Stamped) -> None:
         self.gravity.put((msg.vector.x, msg.vector.y, msg.vector.z))
+
+    def _on_input(self, msg) -> None:
+        """명령 토픽. **값을 안 봄** -- 도착 시각만 적음 (`_cmd_at`)."""
+        del msg
+        self._cmd_at = self._now()
+
+    def _check_cmd_source(self) -> None:
+        """조작 노드가 죽었으면 재생을 멈춤. 감쇠·토크 차단은 모션보드가 함.
+
+        한 번이라도 받은 뒤 `cmd_timeout_s` 넘게 안 오면 끊긴 것으로 봄. 한 번
+        멈추면 `_cmd_at` 을 비워 다시 알리지 않음 -- 조작 노드를 다시 띄우면 첫
+        메시지부터 다시 셈. `policy_node` 의 같은 이름 함수와 같은 규칙임.
+        """
+        if not self.stop_on_cmd_loss or self._cmd_at is None or self.stage == OFF:
+            return
+        silent = self._now() - self._cmd_at
+        if silent <= self.cmd_timeout_s:
+            return
+        self._cmd_at = None
+        was = self.stage
+        self._stop()
+        self.get_logger().error(
+            f"명령 토픽(cmd_vel/h_star)이 {silent:.2f}초째 안 옴 -- 조작 노드가 죽었을 "
+            f"수 있음. 재생 멈춤 ({was} -> off). 목표각을 안 냄 -> 모션보드가 감쇠 후 "
+            f"토크를 끊음")
 
     # ---- 서비스 -------------------------------------------------------------
     def _on_approach(self, request, response):
@@ -251,6 +310,7 @@ class MotionNode(Node):
 
     # ---- 한 주기 ------------------------------------------------------------
     def _tick(self) -> None:
+        self._check_cmd_source()
         if self.stage == OFF:
             return
 
