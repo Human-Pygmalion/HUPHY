@@ -122,7 +122,8 @@ class TestRecording:
         log.add_row(0.02, [1.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0],
                     power.power_values(MOTORS, IQ, VBUS, R))
 
-        assert len(log.columns) == 1 + 1 + 2 * 3 + 2 * 3 + 4
+        # t + obs 1 + (act·tgt·pos) 2x3 + extra 2x3 + power (모터별 copper_w·dc_a_lo + 합계 2)
+        assert len(log.columns) == 1 + 1 + 2 * 3 + 2 * 3 + 2 * 2 + 2
         assert all(len(r) == len(log.columns) for r in log.rows)
         i = log.columns.index("power/copper_w")
         assert math.isnan(log.rows[0][i])
