@@ -6,7 +6,8 @@
 | 노드 | 하는 일 | 어디서 |
 |---|---|---|
 | `control_node` | 모터를 몲. 100Hz, CAN, 가드 | 모션보드 (CAN·IMU 가 붙은 쪽) |
-| `policy_node` | 갈 자세를 냄. 정책 주기로 추론 (지금 정책 둘 다 50Hz) | 작업 기계 (사람이 쓰는 쪽) |
+| `policy_node` | 갈 자세를 냄. **속도 명령** 정책 (`vx`·`wz`·`h*`). 50Hz | 작업 기계 (사람이 쓰는 쪽) |
+| `motion_node` | 갈 자세를 냄. **모션 추종** 정책 (기준 궤적 재생). 50Hz. `policy_node` 와 둘 중 하나만 | 작업 기계 (사람이 쓰는 쪽) |
 | `teleop_node` | (선택) `huphy-run --teleop` 과 같은 창으로 명령·시작·멈춤 | 작업 기계 (화면 있는 쪽) |
 | `gamepad_node` | (선택) Xbox 패드로 명령·토크·시작·멈춤. `joy_node` 와 같이 띄움 | 작업 기계 (패드 꽂은 쪽) |
 | `log_node` | (선택) `huphy-run --log` 과 같은 JSON 기록. 구독만 함 | 아무 기계 (파일이 거기 모임) |
@@ -719,6 +720,45 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 | `approach_s` | 3.0 | 기준 자세로 옮기는 시간 |
 | `cmd_timeout_s` | 0.5 | 속도 명령(`cmd_vel`)이 이만큼 안 오면 속도를 0 으로. 높이는 유지 |
 | `stop_on_cmd_loss` | true | 명령 토픽(`cmd_vel`/`h_star`)을 받다가 `cmd_timeout_s` 넘게 끊기면 **정책을 멈춤** -> 모션보드가 감쇠 후 토크 끔. 조작 노드(패드·teleop)가 죽었을 때 멈출 수단이 없어지는 것을 막음 |
+
+### `motion_node`
+
+`policy_node` 와 같은 자리임 -- **둘 중 하나만 띄울 것.** 둘 다 띄우면 같은
+`joint_targets` 에 두 노드가 목표각을 내 모터가 둘을 번갈아 받음.
+
+| 이름 | 기본 | 무엇 |
+|---|---|---|
+| `policy` | 없음. **필수** | 정책 꾸러미 폴더. 계약에 `motion` 칸이 있어야 함 (없으면 시작할 때 멈춤) |
+| `checkpoint` | 빈 값 = 계약의 기본값 | 꾸러미 안의 다른 체크포인트 번호 |
+| `hz` | 0 = 계약의 `control_rate_hz` | 추론 주기. **런치 인자 이름은 `motion_hz`** |
+| `state_stale_ms` | 60.0 | 상태가 이보다 낡으면 목표각을 안 냄 |
+| `approach_s` | 3.0 | 기준 자세로 옮기는 시간 |
+| `start_frame` | 0 | 기준 궤적의 몇 번째 프레임부터 재생할지 |
+
+명령 토픽(`cmd_vel`/`h_star`)을 안 구독함 -- 따라갈 궤적이 꾸러미 안에 있음.
+그래서 `cmd_timeout_s`·`stop_on_cmd_loss` 가 없음.
+
+`joint_states` 의 **속도**도 씀 (`policy_node` 는 위치만 씀). 이 정책의 관찰에
+관절 속도 24칸이 있음. 같은 토픽에 이미 실려 오고 있어서 더 받을 것은 없음.
+
+단계가 하나 더 있음.
+
+```
+off -> approach -> ready -> running -> done
+```
+
+`done` 은 마지막 프레임까지 재생한 뒤임. **마지막 목표각을 계속 냄** -- 지금 궤적은
+쪼그려 앉은 자세로 끝나서 목표각을 끊으면 모션보드가 100ms 뒤 감쇠, 5초 뒤 토크를
+끊어 주저앉음. `done` 에서 `approach` 를 부르면 기본자세로 돌아옴.
+
+되돌려 반복하지 않음 -- 첫 프레임과 끝 프레임의 관절차가 최대 37.6도임.
+
+`log_node` 는 `running` 인 동안만 쌓으므로 `done` 으로 넘어가는 순간 그 재생의
+기록 파일이 떨어짐.
+
+재생 위치는 `policy_status` 의 `frame`·`frames`·`progress` 로 나감.
+
+꾸러미와 확인된 어긋남은 [docs/policies/union_dr_00545.md](../docs/policies/union_dr_00545.md).
 
 ### `teleop_node`
 
