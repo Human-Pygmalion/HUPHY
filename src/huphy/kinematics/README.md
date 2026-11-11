@@ -10,7 +10,7 @@ kinematics/
 것임 -- 같은 크랭크각에 피치가 약 1.1배, 롤이 약 1.4배 다르고 롤 부호 규약도
 다름. `ankle.py` 는 실측이라 모터에 보낼 각도를 정하는 데 쓰고, `mjcf_loop.py` 는
 학습 MJCF 라 **정책에 넣을 관찰**을 만드는 데만 씀
-(`docs/policies/union_dr_00545.md` 3절).
+(`docs/policies/union.md` 3절).
 
 순수 계산임. 모터도 CAN 도 모르고 숫자만 다룸. `numpy` 만 씀.
 

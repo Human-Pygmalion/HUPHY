@@ -1,7 +1,7 @@
 """모션 노드 — 작업 기계에서 돎. 기준 궤적 하나를 재생함.
 
-    ros2 run huphy_ros motion_node --ros-args -p policy:=config/policies/union_dr_00545
-    ros2 launch huphy_ros motion.launch.py policy:=$HOME/HUPHY/config/policies/union_dr_00545
+    ros2 run huphy_ros motion_node --ros-args -p policy:=config/policies/union
+    ros2 launch huphy_ros motion.launch.py policy:=$HOME/HUPHY/config/policies/union
 
 `policy_node` 와 **같은 자리, 다른 입력**임.
 

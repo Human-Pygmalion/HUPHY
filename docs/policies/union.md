@@ -1,4 +1,4 @@
-# `union_dr_00545` — 모션 추종 정책
+# `union` — 모션 추종 정책
 
 HuphyChan-dev 커밋
 [`ee7770d7`](https://github.com/Human-Pygmalion/HuphyChan-dev/commit/ee7770d7a72c18dc1c7ddeb25c7e57045a3fcd04)
@@ -16,7 +16,7 @@ HuphyChan-dev 커밋
 재생하고 정책은 그 궤적을 따라가려 함. 사람이 줄 명령이 없음.
 
 ```
-                 generalized_walk          union_dr_00545
+                 generalized_walk          union
 관찰              44칸                      114칸
 명령 칸           vx, wz (2칸)              기준 프레임의 관절 24개 + 속도 24개 (48칸)
 관절 관찰         모터 12개 x 2프레임        관절 24개 위치 + 24개 속도
@@ -57,7 +57,7 @@ ROS 노드          policy_node               motion_node
 
 검증: 학습에 쓴 기준 모션 659프레임의 24관절 값이 참값임. 크랭크각 2개만 주고 푼
 결과가 나머지 6개와 **최대 6.8e-8 rad (3.9e-6 도)** 안에서 같음
-(`tests/test_union_dr.py` 의 `TestLoop`). 속도는 야코비안 x 모터 속도로 내고
+(`tests/test_union.py` 의 `TestLoop`). 속도는 야코비안 x 모터 속도로 내고
 기준 모션의 속도와 최대 9.5e-3 rad/s 차이임 (모션 변환 스크립트가 낸 값과 비교한
 것이고, 학습 때 넣은 속도 노이즈는 0.5 rad/s 였음).
 
@@ -150,14 +150,14 @@ crank_A/B           kp 22.3  kd 1.41     robot.yaml: 60, kd 2.7
 받은 릴리스에서 다시 만들 수 있음.
 
 ```bash
-python3 tools/policy_package/build_union_dr_00545.py \
+python3 tools/policy_package/build_union.py \
   --release <릴리스 폴더>/huphy_00545_uniondr_30000
 ```
 
 내는 것:
 
 ```
-config/policies/union_dr_00545/
+config/policies/union/
   deploy_contract.json   이 레포 실행기가 읽는 계약 (72 KB)
   model_30000.pt         릴리스 그대로 (5.7 MB, sha256 대조)
   motion_00545.npz       기준 모션에서 쓰는 배열만 (126 KB, 659프레임)
@@ -179,7 +179,7 @@ ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml
 
 # 작업 기계 -- policy.launch.py 대신 이것 (둘 다 띄우지 말 것)
 ros2 launch huphy_ros motion.launch.py \
-  policy:=$HOME/HUPHY/config/policies/union_dr_00545
+  policy:=$HOME/HUPHY/config/policies/union
 
 ros2 service call /huphy/enable std_srvs/srv/Trigger          # 토크
 ros2 service call /huphy/approach std_srvs/srv/Trigger        # 기준 자세로
@@ -192,7 +192,7 @@ ros2 service call /huphy/disable std_srvs/srv/Trigger         # 토크 끊기
 패드로도 같은 것을 함. 스틱은 할 일이 없고 버튼만 씀.
 
 ```bash
-ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union_dr_00545
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union
 ```
 
 ```
@@ -235,7 +235,7 @@ off -> approach -> ready -> running -> done
 실물 확인          한 번도 안 돌림. 3절의 어긋남을 재 보고 결정할 일
 MJCF 링키지 수치   실측과 다름 (3-1). 어느 쪽이 맞는지 실물로 재야 함
 기준 궤적 가동범위  6개 관절이 밖으로 나감 (3-2). 궤적을 다시 리타게팅할지 판단 필요
-huphy-run          `--policy config/policies/union_dr_00545` 로 재생은 됨 (명령 칸이
+huphy-run          `--policy config/policies/union` 로 재생은 됨 (명령 칸이
                    없어 --cmd 가 필요 없음). 다만 끝에 닿은 것을 알리지 않고 마지막
                    프레임의 목표각을 계속 냄. 끝 처리와 프레임 표시는 ROS 쪽만 넣었음
 ```

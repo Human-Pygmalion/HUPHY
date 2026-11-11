@@ -16,7 +16,7 @@ can_communication.md  CAN 통신 진단 기록. 무엇이 문제였고 지금 �
 monitoring.md      무엇을 왜 보는가
 motor_power.md     모터 전류·전압·전력. 무엇이 읽히고 무엇을 계산해야 하나
 policies/          정책 꾸러미별 문서
-  union_dr_00545.md  모션 추종 정책. 관절 24칸 관찰, 확인된 어긋남
+  union.md           모션 추종 정책. 관절 24칸 관찰, 확인된 어긋남
 ```
 
 ---

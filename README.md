@@ -952,16 +952,23 @@ Ctrl-Q 까지 계속함. 끝나면 실패 집계를 찍음. 자세한 것은 [6�
 기본 자세, 자르기 범위, 관찰 구성, 주기, 명령 이름은 **전부 계약 파일이 정함** —
 읽는 코드는 `control/deploy.py` 하나이고 정책별 코드는 없음.
 
+**두 가지 정책이 있음.** 속도 명령 정책은 사람이 `--cmd` 로 값을 주고, 모션 추종
+정책은 꾸러미에 든 궤적을 재생함 (줄 값이 없음). ROS 에서는 노드가 갈림 --
+`policy_node` / `motion_node` ([ros/README.md](ros/README.md)).
+`union` 는 [docs/policies/union.md](docs/policies/union.md).
+
 | `--policy` | 무엇 | 입력 | 명령 (`--cmd`) |
 |---|---|---|---|
 | `generalized_walk` | 속도 명령 걷기 | 44 | `vx` m/s, `wz` rad/s. 기본 0 |
 | `huphy_squat` | 목표 골반 높이로 앉았다 일어섬 | 43 | `h_star` m. 0.65~0.895, 기본 0.8914 |
+| `union` | 기준 궤적 659프레임 재생 (모션 추종) | 114 | **없음** -- 따라갈 궤적이 꾸러미 안에 있음 |
 
 ```bash
 huphy-run --policy generalized_walk --cmd vx=0.5   # 걷기, 앞으로 0.5m/s
 huphy-run --policy huphy_squat --cmd h_star=0.80  # 스쿼트, 0.8914 -> 0.80 m 를 0.1 m/s 로
 huphy-run --policy huphy_squat --checkpoint 4500  # 같은 꾸러미의 다른 체크포인트
 huphy-run --policy generalized_walk --checkpoint 37400  # 걷기 예전 기본. 지금 기본은 49999 (terrain10 union-DR, 37400 에서 이어 학습)
+huphy-run --policy union                 # 모션 추종. --cmd 가 없음 (13.16초 재생)
 
 # 정책 입출력을 logs/policy/<월일>_policy_<정책>[_<인자>].json 으로 남김 (폴더 지정: --log 경로)
 huphy-run --policy generalized_walk --cmd vx=0.5 --log

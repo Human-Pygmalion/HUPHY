@@ -9,10 +9,10 @@
 
 ## 조작할 명령이 없는 정책
 
-모션 추종 정책(`union_dr_00545`)은 사람이 줄 명령이 없음 -- 따라갈 궤적이 꾸러미
+모션 추종 정책(`union`)은 사람이 줄 명령이 없음 -- 따라갈 궤적이 꾸러미
 안에 있음. 그때는 **스틱만 할 일이 없고 버튼 다섯 개는 그대로임.**
 
-    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union_dr_00545
+    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union
 
 `cmd_vel` 은 그 경우에도 **0 만 20Hz 로 계속 냄.** 값이 쓰이지 않지만 그것이 이
 노드가 살아 있다는 신호임 -- 끊기면 `control_node` 가 감쇠 후 토크를 끊고
@@ -179,7 +179,7 @@ class GamepadNode(Node):
         except (deploy.ContractError, ValueError, OSError) as e:
             raise SystemExit(f"{e}") from e
         self.buttons_only = not self.policy.commands
-        """조작할 명령이 없는 정책인가. **모션 추종 정책이 그럼** (`union_dr_00545`)
+        """조작할 명령이 없는 정책인가. **모션 추종 정책이 그럼** (`union`)
         -- 따라갈 궤적이 꾸러미 안에 있어서 사람이 줄 값이 없음.
 
         스틱은 할 일이 없고 버튼 다섯 개(View·A·RB+Menu·B)는 그대로임. `cmd_vel` 은

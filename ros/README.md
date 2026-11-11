@@ -181,11 +181,16 @@ ROS 없이 돌리는 `huphy-run` 한 번이 아래처럼 쪼개져 있음. **ROS
 `generalized_walk` 자리를 `stairs_slopes12` / `huphy_squat` 로 바꾸면 됨. 정책·창·패드에는
 **같은 정책**을 줌.
 
+터미널 2 는 **정책 종류에 따라 런치가 다름.** 속도 명령 정책(`generalized_walk`,
+`stairs_slopes12`, `huphy_squat`)은 `policy.launch.py`, 모션 추종 정책
+(`union`)은 `motion.launch.py` 임. **둘 중 하나만** 띄울 것 -- 둘 다 띄우면
+같은 `joint_targets` 에 두 노드가 목표각을 냄.
+
 | 터미널 | 기계 | 띄울 것 |
 |---|---|---|
 | 1 | 모션보드 | `huphy-can up` 후 `ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml` |
-| 2 | 작업 기계 | `ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk` |
-| 3 | 작업 기계 | 조작 하나: 창 `teleop.launch.py policy:=...` / 패드 `gamepad.launch.py policy:=...` / 명령 `ros2 topic pub ...` (A-6) |
+| 2 | 작업 기계 | 속도 명령 정책 `ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk` <br> 모션 추종 정책 `ros2 launch huphy_ros motion.launch.py policy:=$HOME/HUPHY/config/policies/union` |
+| 3 | 작업 기계 | 조작 하나: 창 `teleop.launch.py policy:=...` / 패드 `gamepad.launch.py policy:=...` / 명령 `ros2 topic pub ...` (A-6). **모션 추종 정책은 패드뿐** -- 창과 명령은 줄 값이 있어야 함 |
 | 4 | 작업 기계 | **기록할 때만** `ros2 launch huphy_ros log.launch.py` -- 정책 시작 전에 |
 
 - **기록은 터미널 4 하나로 끝남.** 1·2 에 붙일 것 없음 -- 기록 노드가 뜨면 두 노드가 알아서
@@ -212,7 +217,7 @@ ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml
 
 #### A-2. 정책 노드 띄우기  `[작업 기계]`
 
-**셋 중 하나만** 침 -- 어느 정책을 돌릴지 고르는 것.
+**넷 중 하나만** 침 -- 어느 정책을 돌릴지 고르는 것. 마지막 하나는 런치가 다름.
 
 ```bash
 # 걷기 -- /huphy/cmd_vel 로 앞뒤·회전 속도를 줌
@@ -223,7 +228,14 @@ ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/stair
 
 # 제자리 스쿼트 -- /huphy/h_star 로 골반 높이를 줌
 ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
+
+# 모션 추종 -- 줄 명령이 없음. 꾸러미의 궤적 659프레임을 13.16초 동안 재생
+ros2 launch huphy_ros motion.launch.py policy:=$HOME/HUPHY/config/policies/union
 ```
+
+`motion.launch.py` 는 `motion_node` 를 띄움 (아래 [`motion_node`](#motion_node)).
+단계·서비스는 `policy_node` 와 같고 끝에 `done` 이 하나 더 있음. 명령 토픽
+(`cmd_vel`/`h_star`)은 값으로 안 쓰고 조작 노드가 살아 있는지만 봄.
 
 | 명령 | 하는 일 | 기존으로 치면 |
 |---|---|---|
@@ -324,7 +336,7 @@ ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/stai
 ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
 
 # 모션 추종 -- 스틱이 할 일이 없음. 버튼만 씀 (아래 설명)
-ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union_dr_00545
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union
 ```
 
 **모션 추종 정책은 스틱이 없고 버튼만 씀.** 사람이 줄 명령이 없어서임 -- 따라갈
@@ -473,6 +485,11 @@ ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔
 
 **모든 명령을 CAN·IMU 가 붙은 그 기계 하나에서** 침. 노드 둘을 런치 하나로 같이 띄우는 것만
 다르고, 그 뒤 서비스·토픽은 A 와 같음. 런치 뒤 명령은 새 터미널에서.
+
+**`local.launch.py` 는 속도 명령 정책만 띄움** (`control` + `policy`). 모션 추종
+정책은 한 기계에서도 터미널 둘로 띄울 것 -- `control.launch.py` 와
+`motion.launch.py`. 한 런치로 묶지 않은 이유: `local.launch.py` 에 둘을 같이
+넣으면 `policy_node` 와 `motion_node` 가 같은 `joint_targets` 에 목표각을 냄.
 
 #### 띄울 것 한눈에 (한 기계)
 
@@ -778,7 +795,7 @@ off -> approach -> ready -> running -> done
 
 재생 위치는 `policy_status` 의 `frame`·`frames`·`progress` 로 나감.
 
-꾸러미와 확인된 어긋남은 [docs/policies/union_dr_00545.md](../docs/policies/union_dr_00545.md).
+꾸러미와 확인된 어긋남은 [docs/policies/union.md](../docs/policies/union.md).
 
 ### `teleop_node`
 

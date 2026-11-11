@@ -157,7 +157,7 @@ def arrays_to_observation(
 
     속도는 안 줘도 됨. 속도 명령 정책(`generalized_walk`, `huphy_squat`)의 관찰에는
     관절 속도 칸이 없고 위치 두 프레임으로 대신함. **모션 추종 정책
-    (`union_dr_00545`)은 관절 속도 24칸이 있어서 줘야 함** -- `motion_node` 가
+    (`union`)은 관절 속도 24칸이 있어서 줘야 함** -- `motion_node` 가
     `JointState.velocity` 를 같이 넘김.
     """
     ros_names = list(names)

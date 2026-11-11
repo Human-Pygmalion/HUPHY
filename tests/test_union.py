@@ -1,6 +1,6 @@
-"""`union_dr_00545` 모션 추종 꾸러미 — 계약·폐루프·한 주기.
+"""`union` 모션 추종 꾸러미 — 계약·폐루프·한 주기.
 
-    PYTHONPATH=src python3 -m pytest tests/test_union_dr.py -q
+    PYTHONPATH=src python3 -m pytest tests/test_union.py -q
 
 고정하는 것은 **틀려도 길이와 자릿수가 그대로라 코드로는 안 잡히는 것**임.
 
@@ -20,7 +20,7 @@ from huphy.control import deploy
 from huphy.control.reference import Clock, ReferenceError, ReferenceMotion
 from huphy.kinematics import mjcf_loop
 
-PACKAGE = Path(__file__).resolve().parent.parent / "config" / "policies" / "union_dr_00545"
+PACKAGE = Path(__file__).resolve().parent.parent / "config" / "policies" / "union"
 
 MOTOR = {
     "hip_pitch": "hip_pitch", "hip_roll": "hip_roll", "hip_yaw": "hip_yaw",

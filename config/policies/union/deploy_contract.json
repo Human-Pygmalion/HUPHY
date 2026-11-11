@@ -1,7 +1,7 @@
 {
-  "package": "union_dr_00545",
+  "package": "union",
   "task": "HUPHY 00545 Union-DR 모션 추종 (기준 궤적 659프레임 재생)",
-  "what": "Human-Pygmalion/HuphyChan-dev ee7770d7 의 mjlab_policy/checkpoints/huphy_00545_uniondr_30000 을 이 레포 계약 형식으로 옮긴 것. tools/policy_package/build_union_dr_00545.py 가 만듦. actions/observations/pd_gains 는 릴리스 deploy.yaml, 24칸 기본자세는 env.yaml 의 init_state.joint_pos, golden 은 policy.onnx 의 가중치로 따로 순전파한 값.",
+  "what": "Human-Pygmalion/HuphyChan-dev ee7770d7 의 mjlab_policy/checkpoints/huphy_00545_uniondr_30000 을 이 레포 계약 형식으로 옮긴 것. tools/policy_package/build_union.py 가 만듦. actions/observations/pd_gains 는 릴리스 deploy.yaml, 24칸 기본자세는 env.yaml 의 init_state.joint_pos, golden 은 policy.onnx 의 가중치로 따로 순전파한 값.",
   "control_rate_hz": 50.0,
   "obs_dim": 114,
   "action_dim": 12,

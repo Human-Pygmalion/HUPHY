@@ -1,6 +1,6 @@
 """작업 기계에서 띄움. 기준 궤적을 재생하는 쪽.
 
-    ros2 launch huphy_ros motion.launch.py policy:=$HOME/HUPHY/config/policies/union_dr_00545
+    ros2 launch huphy_ros motion.launch.py policy:=$HOME/HUPHY/config/policies/union
 
 `policy.launch.py` 와 같은 자리임 -- 둘 중 하나만 띄울 것. 둘 다 띄우면 같은
 `joint_targets` 토픽에 두 노드가 목표각을 내 모터가 둘을 번갈아 받음.
@@ -14,7 +14,7 @@
 
 패드로도 됨 -- 스틱은 할 일이 없고 버튼만 씀.
 
-    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union_dr_00545
+    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union
 
     View 1초  토크 넣기      A  기준 자세
     RB+Menu   재생 시작      B  멈춤 + 토크 끄기
@@ -39,7 +39,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
-            "policy", default_value="config/policies/union_dr_00545"),
+            "policy", default_value="config/policies/union"),
         DeclareLaunchArgument("checkpoint", default_value=""),
         # `control.launch.py` 의 `motor_hz` 와 같은 이유로 노드 파라미터 이름
         # (`hz`) 과 다르게 둠. 런치 인자 이름이 겹치면 같은 문맥에 include 한

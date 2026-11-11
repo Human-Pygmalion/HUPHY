@@ -1,7 +1,7 @@
-"""`union_dr_00545` 꾸러미를 릴리스에서 만듦. **한 번 돌리고 결과를 커밋함.**
+"""`union` 꾸러미를 릴리스에서 만듦. **한 번 돌리고 결과를 커밋함.**
 
-    python3 tools/policy_package/build_union_dr_00545.py --release <릴리스 폴더> \
-        [--out config/policies/union_dr_00545]
+    python3 tools/policy_package/build_union.py --release <릴리스 폴더> \
+        [--out config/policies/union]
 
 릴리스 폴더는 HuphyChan-dev 커밋 `ee7770d7` 의
 `mjlab_policy/checkpoints/huphy_00545_uniondr_30000` 임. 다음 네 파일을 읽음.
@@ -157,7 +157,7 @@ def gravity_and_gyro(qpos: np.ndarray, qvel: np.ndarray) -> Tuple[List[float], L
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--release", required=True, type=Path)
-    ap.add_argument("--out", type=Path, default=ROOT / "config/policies/union_dr_00545")
+    ap.add_argument("--out", type=Path, default=ROOT / "config/policies/union")
     args = ap.parse_args()
 
     rel: Path = args.release
@@ -244,12 +244,12 @@ def main() -> int:
     # ---- 계약 ----
     pd = deploy_yaml["pd_gains"]
     contract = {
-        "package": "union_dr_00545",
+        "package": "union",
         "task": "HUPHY 00545 Union-DR 모션 추종 (기준 궤적 659프레임 재생)",
         "what": (
             "Human-Pygmalion/HuphyChan-dev ee7770d7 의 "
             "mjlab_policy/checkpoints/huphy_00545_uniondr_30000 을 이 레포 계약 형식으로 옮긴 것. "
-            "tools/policy_package/build_union_dr_00545.py 가 만듦. "
+            "tools/policy_package/build_union.py 가 만듦. "
             "actions/observations/pd_gains 는 릴리스 deploy.yaml, 24칸 기본자세는 "
             "env.yaml 의 init_state.joint_pos, golden 은 policy.onnx 의 가중치로 따로 순전파한 값."
         ),
