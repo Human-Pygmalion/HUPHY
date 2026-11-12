@@ -897,6 +897,18 @@ ros2 launch huphy_ros view.launch.py
 | 로봇이 아예 안 움직임 | `ros2 topic hz /huphy/joint_states` 부터. 두 기계면 `ROS_DOMAIN_ID` 확인 |
 | 한 관절만 안 움직임 | URDF 관절 이름이 다름. robot_state_publisher 는 **모르는 이름을 경고 없이 버림** |
 | 실물과 반대로 돎 | 0점·방향이 학습 모델과 다름 -- 캘리브레이션 문제 (`config/README.md`) |
+| 반투명 로봇이 하나 더 겹쳐 있음 | 목표 자세 (아래). `target:=false` 로 안 띄움 |
+| 반투명 로봇이 안 보임 / Target 이 `No transform` | 정책 노드가 아직 목표각을 안 냄. `approach` 부터 나옴 |
+
+**목표 자세 (반투명).** 정책 노드가 낸 `/huphy/joint_targets` 를 반투명한 두 번째 로봇으로
+겹쳐 그림 -- 실측(진한 쪽)이 목표를 얼마나 따라가는지 바로 보임. 같은 세 노드(링키지·
+robot_state_publisher·고정 TF)를 한 벌 더 띄우고 TF 이름에 `target/` 을 붙임. 목표각은
+기준 자세로 가는 중·대기·정책 중에만 와서, 그 밖에는 마지막 목표 자세에 멈춰 있음. 색은 메시
+색 그대로라 투명도로만 구분됨.
+
+```bash
+ros2 launch huphy_ros view.launch.py target:=false   # 실측만
+```
 
 URDF 는 학습 레포(Human-Pygmalion/HuphyChan-dev) 의 `LegOnly_..._v30_proxyfix_loop.urdf` 를
 이름만 바꾼 사본임 (`urdf/huphy.urdf`, 메시는 `meshes/`). 원본이 바뀌면 다시 만듦:

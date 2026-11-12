@@ -2,12 +2,27 @@
 
     ros2 launch huphy_ros view.launch.py              # robot_state_publisher + RViz
     ros2 launch huphy_ros view.launch.py rviz:=false  # RViz 없이 /tf 만 (화면 없는 기계)
+    ros2 launch huphy_ros view.launch.py target:=false  # 목표 자세(반투명)를 안 띄움
 
 control_node 가 따로 떠 있어야 움직임 (OBSERVE 면 됨 -- 토크 없이 손으로 다리를 움직여 봄).
 
     /huphy/joint_states ─> linkage_node ─> /huphy/joint_states_view ─> robot_state_publisher ─> /tf ─> RViz
                            (발목 채움)                                     ↑ urdf/huphy.urdf
     world ─(0 으로 고정)─> base_link
+
+## 목표 자세 (반투명)
+
+정책 노드가 낸 목표각(`/huphy/joint_targets`)을 **반투명한 두 번째 로봇**으로 겹쳐 그림.
+같은 세 노드를 한 벌 더 띄우고 TF 이름에 `target/` 을 붙임.
+
+    /huphy/joint_targets ─> linkage_node ─> /huphy/joint_targets_view ─> robot_state_publisher ─> /tf (target/...)
+                                                                         (ns target, frame_prefix target/)
+    world ─(0 으로 고정)─> target/base_link
+
+목표각은 **정책 노드가 낼 때만** 옴 -- 기준 자세로 가는 중·대기·정책 중. 그 밖에는 반투명 로봇이
+마지막 목표 자세에 멈춰 있음 (처음부터 안 왔으면 RViz 의 Target 표시가 TF 없음으로 뜸). 색은
+메시 색 그대로라 투명도로만 구분됨. `target:=false` 로 띄우면 Target 표시는 상태 경고만 남음 --
+RViz 왼쪽에서 체크를 끄면 됨.
 
 robot_state_publisher · rviz2 · static_transform_publisher 는 ROS 기성 프로그램임. 우리가
 만든 것은 발목을 채우는 `linkage_node` 하나 (아래 "발목").
@@ -42,6 +57,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("rviz", default_value="true"),
+        DeclareLaunchArgument("target", default_value="true"),
         Node(
             package="huphy_ros",
             executable="linkage_node",
@@ -61,6 +77,36 @@ def generate_launch_description():
             executable="static_transform_publisher",
             name="world_to_base_link",
             arguments=["--frame-id", "world", "--child-frame-id", "base_link"],
+            output="screen",
+        ),
+        # ---- 목표 자세 (반투명) -- target:=false 면 안 띄움 ----------------
+        # 위 세 노드를 한 벌 더 띄움. 들어가는 토픽만 joint_targets 로 바꾸고, TF 이름에
+        # target/ 을 붙여 실측 로봇과 겹치지 않게 함. RViz 의 "Target" 표시가 이것을 그림.
+        Node(
+            package="huphy_ros",
+            executable="linkage_node",
+            name="huphy_linkage_target",
+            remappings=[("/huphy/joint_states", "/huphy/joint_targets"),
+                        ("/huphy/joint_states_view", "/huphy/joint_targets_view")],
+            condition=IfCondition(LaunchConfiguration("target")),
+            output="screen",
+        ),
+        Node(
+            package="robot_state_publisher",
+            executable="robot_state_publisher",
+            name="robot_state_publisher",
+            namespace="target",             # 모델 설명이 /target/robot_description 으로 나감
+            parameters=[{"robot_description": urdf, "frame_prefix": "target/"}],
+            remappings=[("joint_states", "/huphy/joint_targets_view")],
+            condition=IfCondition(LaunchConfiguration("target")),
+            output="screen",
+        ),
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="world_to_target_base_link",
+            arguments=["--frame-id", "world", "--child-frame-id", "target/base_link"],
+            condition=IfCondition(LaunchConfiguration("target")),
             output="screen",
         ),
         Node(

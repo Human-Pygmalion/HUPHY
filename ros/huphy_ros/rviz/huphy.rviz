@@ -25,6 +25,21 @@ Visualization Manager:
       Collision Enabled: false
       Alpha: 1
       Value: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: Target
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /target/robot_description
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+      TF Prefix: target
+      Visual Enabled: true
+      Collision Enabled: false
+      Alpha: 0.35
+      Value: true
     - Class: rviz_default_plugins/TF
       Name: TF
       Enabled: false
