@@ -394,6 +394,29 @@ class DeployPolicy:
         """기본 자세 사본 (도)."""
         return dict(self.default_pose_deg)
 
+    def reference_pose(self, frame: int = 0) -> Dict[str, float]:
+        """기준 모션의 한 프레임을 모터 12개 목표각(도)으로. 모션 추종 정책만.
+
+        **모션 추종 정책이 재생을 시작할 자세임** -- 기본자세가 아님. 학습은
+        에피소드를 시작할 때 로봇 관절을 그 프레임 값으로 놓고 시작함 (릴리스의
+        `mdp/commands.py` 가 `motion.joint_pos[time_steps]` 를 그대로 씀). 기본
+        자세에서 시작하면 첫 주기부터 기준과 실측이 벌어진 채로 들어감.
+
+        속도는 맞출 수 없음 -- 서 있는 로봇은 0 이고 궤적의 첫 프레임은 아님.
+        """
+        if self.reference is None:
+            raise ContractError(f"{self.name}: 기준 모션이 없는 꾸러미임")
+        if not self.loop_slots:
+            raise ContractError(f"{self.name}: 24칸 관절 항목이 없음")
+        row = self.reference.joint_pos[int(frame)]
+        index = {slot.name: i for i, slot in enumerate(self.loop_slots)}
+        out: Dict[str, float] = {}
+        for joint in self.order:
+            if joint not in index:
+                raise ContractError(f"{self.name}: {joint} 가 24칸 순서에 없음")
+            out[joint] = math.degrees(float(row[index[joint]]))
+        return out
+
     def weights_path(self, checkpoint: Optional[str] = None) -> Path:
         key = self._checkpoint_key(checkpoint)
         return self.folder / self.checkpoints[key]["pt"]

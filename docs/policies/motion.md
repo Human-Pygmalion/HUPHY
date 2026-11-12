@@ -162,7 +162,19 @@ left_leg/knee       -120.0~  -4.0   가동범위 -114.0~  -6.0   하한 -6.0  �
 한 주기에 그만큼 뛰는 목표각이 나감.
 
 첫 프레임의 관절 속도가 0 이 아님 — 궤적이 정지 상태에서 시작하지 않음.
-기본자세에 선 채로 프레임 0 부터 시작하면 기준과 실측이 처음부터 벌어져 있음.
+그래서 `approach` 는 **기본자세가 아니라 궤적 시작 프레임의 자세**로 감
+(`motion_node`, `DeployPolicy.reference_pose`). 학습도 에피소드를 시작할 때 로봇
+관절을 그 프레임 값으로 놓고 시작함 (릴리스 `mdp/commands.py` 가
+`motion.joint_pos[time_steps]` 를 그대로 씀). 기본자세와의 차이가 이만큼임.
+
+```
+                  기본자세 vs 프레임 0 (가장 큰 관절)
+motion545         20.8도  (R_hip_yaw)
+motion399         14.7도  (R_hip_yaw)
+```
+
+두 꾸러미 다 시작 프레임 자세가 로봇 가동범위 안에 있음 (12/12). 다만 **관절
+속도는 맞출 수 없음** -- 서 있는 로봇은 0 이고 궤적의 첫 프레임은 아님.
 학습 때도 에피소드 길이가 10초(궤적은 13.16초)라 임의 프레임에서 시작했음.
 
 ### 3-4. PD 게인이 레포 설정과 다름
@@ -248,7 +260,7 @@ ros2 launch huphy_ros motion.launch.py \
   policy:=$HOME/HUPHY/config/policies/motion545     # 또는 .../motion399
 
 ros2 service call /huphy/enable std_srvs/srv/Trigger          # 토크
-ros2 service call /huphy/approach std_srvs/srv/Trigger        # 기준 자세로
+ros2 service call /huphy/approach std_srvs/srv/Trigger        # 궤적 시작 프레임 자세로
 ros2 service call /huphy/start_policy std_srvs/srv/Trigger    # 재생 시작
 ros2 topic echo /huphy/policy_status                          # frame / progress
 ros2 service call /huphy/stop_policy std_srvs/srv/Trigger     # 감쇠

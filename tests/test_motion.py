@@ -206,6 +206,33 @@ class TestReference:
         with pytest.raises(ReferenceError):
             ReferenceMotion(policy.reference.path, sha256="0" * 64)
 
+    def test_the_start_pose_is_the_first_frame_not_the_default(self, policy):
+        """`approach` 가 데려갈 자세임. 기본자세로 가면 재생 시작에서 벌어져 있음."""
+        start = policy.reference_pose(0)
+        assert sorted(start) == sorted(policy.order)
+        row = policy.reference.joint_pos[0]
+        index = {s.name: i for i, s in enumerate(policy.loop_slots)}
+        for joint, value in start.items():
+            assert value == pytest.approx(math.degrees(float(row[index[joint]])), abs=1e-9)
+        # 기본자세와 같지 않음 -- 그게 이 자세를 따로 내는 이유임
+        gap = max(abs(value - policy.default_pose_deg[j]) for j, value in start.items())
+        assert gap > 1.0
+
+    def test_the_start_pose_is_inside_the_robot_range(self, policy):
+        """시작 자세는 가드에 안 걸려야 함 -- 걸리면 거기서 못 멈춤."""
+        import json as _json
+        from pathlib import Path as _Path
+        root = _Path(__file__).resolve().parent.parent
+        limits = {}
+        for side in ("right_leg", "left_leg"):
+            cal = _json.loads((root / "config" / "calibration"
+                               / f"{side}_v1.0.json").read_text(encoding="utf-8"))
+            for name, motor in cal["motors"].items():
+                limits[f"{side}/{name}"] = tuple(float(v) for v in motor["limits_deg"])
+        for joint, value in policy.reference_pose(0).items():
+            low, high = limits[joint]
+            assert low <= value <= high, f"{joint} {value} 가 {low}~{high} 밖"
+
     def test_a_frame_outside_the_motion_stops(self, policy):
         with pytest.raises(ReferenceError):
             policy.reference.command(policy.reference.frames)

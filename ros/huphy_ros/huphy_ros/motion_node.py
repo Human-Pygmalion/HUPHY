@@ -39,7 +39,7 @@
 ## 네 단계 + 끝
 
     꺼짐      아무것도 안 냄
-    접근      지금 자세에서 기준 자세로 approach_s 초 동안 보간
+    접근      지금 자세에서 궤적 시작 프레임의 자세로 approach_s 초 동안 보간
     대기      기준 자세를 계속 냄
     정책      신경망 출력. 한 주기에 기준 프레임 하나씩 나아감
     끝        마지막 프레임까지 재생함. **마지막 목표각을 계속 냄**
@@ -54,7 +54,7 @@ RB+Menu 시작, B 끔).
 **끝에서 꺼지지 않는 이유:** 이 궤적은 몸통이 1.03m 에서 0.55m 로 내려가는
 동작이라 끝 자세가 쪼그려 앉은 자세임. 목표각을 안 내면 모션보드가 100ms 뒤
 감쇠로 들어가고 5초 뒤 토크를 끊어 그 자세에서 주저앉음. 그래서 마지막 목표각을
-유지하고, 다음에 무엇을 할지는 사람이 정함 (`approach` 로 기본자세 복귀,
+유지하고, 다음에 무엇을 할지는 사람이 정함 (`approach` 로 시작 자세 복귀,
 `stop_policy` 로 감쇠).
 
 **되돌려 반복하지 않음.** 첫 프레임과 끝 프레임의 관절차가 최대 37.6도라 이어
@@ -251,9 +251,14 @@ class MotionNode(Node):
 
     # ---- 서비스 -------------------------------------------------------------
     def _on_approach(self, request, response):
-        """꺼짐·끝 -> 접근. 지금 자세에서 기준 자세로. 끝나면 저절로 대기.
+        """꺼짐·끝 -> 접근. 지금 자세에서 **궤적의 시작 프레임 자세**로.
 
-        `끝` 단계에서도 받음 -- 쪼그려 앉은 자세에서 기본자세로 돌아오는 길임.
+        기본자세가 아님. 학습은 에피소드를 시작할 때 로봇 관절을 그 프레임 값으로
+        놓고 시작함 (릴리스 `mdp/commands.py` 가 `motion.joint_pos[time_steps]` 를
+        씀). 기본자세로 가면 재생을 누른 순간 기준과 실측이 10~20도 벌어진 채로
+        들어감.
+
+        `끝` 단계에서도 받음 -- 끝 자세에서 시작 자세로 돌아오는 길임.
         """
         del request
         if self.stage == RUNNING:
@@ -267,12 +272,15 @@ class MotionNode(Node):
                 f"control_node 가 떠 있는지 볼 것")
             return response
         start = {n: float(observation.get(f"{n}.pos", 0.0)) for n in self.policy.order}
-        self.hold_pose = dict(self.policy.default_pose())
+        self.hold_pose = self.policy.reference_pose(self.start_frame)
         self.approach_motion = approach(self.hold_pose, start, self.approach_s)
         self.stage = APPROACH
         self.started_at = self._now()
         self._publish_status()
-        self.get_logger().info(f"기준 자세로 {self.approach_s:.1f}초 동안 감")
+        far = max(abs(self.hold_pose[j] - start[j]) for j in self.policy.order)
+        self.get_logger().info(
+            f"프레임 {self.start_frame} 자세로 {self.approach_s:.1f}초 동안 감 "
+            f"(지금 자세에서 최대 {far:.1f}도)")
         response.success, response.message = True, "접근 시작"
         return response
 
@@ -347,7 +355,7 @@ class MotionNode(Node):
             self._publish_status()
             self.get_logger().info(
                 f"모션 끝 (프레임 {self.runner.clock.index}). 마지막 목표각을 유지함 -- "
-                f"approach 로 기본자세 복귀, stop_policy 로 감쇠")
+                f"approach 로 시작 자세 복귀, stop_policy 로 감쇠")
 
     def _publish_row(self, targets, observation) -> None:
         """추론 한 번을 `PolicyRow` 로. `log_node` 가 기록의 한 줄로 씀."""
