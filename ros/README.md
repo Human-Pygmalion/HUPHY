@@ -768,6 +768,7 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 | `hz` | 0 = 계약의 `control_rate_hz` | 추론 주기. **런치 인자 이름은 `motion_hz`** |
 | `state_stale_ms` | 60.0 | 상태가 이보다 낡으면 목표각을 안 냄 |
 | `approach_s` | 3.0 | 기준 자세로 옮기는 시간 |
+| `start_pose_tolerance_deg` | 3.0 | 모션 시작 전 첫 프레임 목표와 실측 모터각의 최대 허용 오차. 하나라도 넘으면 시작을 거절하고 첫 프레임 자세를 계속 유지함 |
 | `start_frame` | 0 | 기준 궤적의 몇 번째 프레임부터 재생할지 |
 
 | `cmd_timeout_s` | 0.5 | 명령 토픽이 이만큼 안 오면 조작 노드가 죽은 것으로 봄 |
@@ -1660,7 +1661,10 @@ targets = self.runner.step(observation, imu_state)     # 20ms 타이머
 ```
 
 접근 단계는 `scripts.selftest.approach(targets, start, seconds)` 를 그대로 씀.
-지금 자세에서 목표까지 선형 보간하는 함수를 내는 순수 함수라 ROS 와 무관함.
+지금 자세에서 목표까지 5차 최소-저크 곡선으로 보간하는 순수 함수라 ROS 와 무관함.
+시작과 끝에서 목표 속도·가속도가 0이라 선형 보간처럼 경계에서 목표 속도가 갑자기
+꺾이지 않음. `motion_node` 는 `start_policy` 때 실측 모터각 12개가 첫 프레임 목표에서
+`start_pose_tolerance_deg` 안에 있는지도 다시 확인함.
 
 ---
 

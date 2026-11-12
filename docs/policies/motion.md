@@ -292,8 +292,14 @@ checkpoint      빈 값 = 계약의 30000
 motion_hz       0 = 계약의 50Hz
 state_stale_ms  60. 관절 상태가 이보다 낡으면 목표각을 안 냄
 approach_s      3.0
+start_pose_tolerance_deg  3.0
 start_frame     0. 궤적의 몇 번째 프레임부터 재생할지
 ```
+
+`approach` 는 현재 실측 자세에서 시작 프레임 자세까지 최소-저크 곡선으로 PD 목표를
+보낸다. 시간이 다 지나도 실측 모터각 하나라도 시작 프레임에서
+`start_pose_tolerance_deg`보다 멀면 `start_policy`를 거절하고 그 자세를 계속 유지한다.
+실물 자세가 실제로 맞은 뒤에만 첫 정책 프레임과 `last_action=0`으로 시작한다.
 
 단계는 `policy_node` 와 같고 끝이 하나 더 있음.
 

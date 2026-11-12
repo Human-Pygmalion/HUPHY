@@ -85,7 +85,7 @@ from std_msgs.msg import Float64
 from std_srvs.srv import Trigger
 
 from huphy.control import deploy
-from huphy.scripts.selftest import approach
+from huphy.scripts.selftest import approach, furthest_target
 from huphy.sensors.base import ImuState
 
 from . import convert, logbridge
@@ -113,6 +113,7 @@ class MotionNode(Node):
         self.declare_parameter("hz", 0.0)
         self.declare_parameter("state_stale_ms", POLICY_STATE_STALE_S * 1000.0)
         self.declare_parameter("approach_s", 3.0)
+        self.declare_parameter("start_pose_tolerance_deg", 3.0)
         self.declare_parameter("start_frame", 0)
         self.declare_parameter("cmd_timeout_s", 0.5)
         self.declare_parameter("stop_on_cmd_loss", True)
@@ -157,6 +158,10 @@ class MotionNode(Node):
 
         self.hz = float(self.get_parameter("hz").value) or self.policy.hz
         self.approach_s = float(self.get_parameter("approach_s").value)
+        self.start_pose_tolerance_deg = float(
+            self.get_parameter("start_pose_tolerance_deg").value)
+        if self.start_pose_tolerance_deg <= 0:
+            raise SystemExit("start_pose_tolerance_deg 는 0보다 커야 함")
         stale_s = float(self.get_parameter("state_stale_ms").value) / 1000.0
         self.joints = Freshness(stale_s)
         self.imu = Freshness(stale_s)
@@ -271,7 +276,12 @@ class MotionNode(Node):
                 f"관절 상태가 없거나 낡음 (나이 {self.joints.age():.3f}초). "
                 f"control_node 가 떠 있는지 볼 것")
             return response
-        start = {n: float(observation.get(f"{n}.pos", 0.0)) for n in self.policy.order}
+        try:
+            start = {n: float(observation[f"{n}.pos"]) for n in self.policy.order}
+            furthest_target(start, start)  # 빠진 값·NaN·inf 를 접근 전에 거절
+        except (KeyError, ValueError) as e:
+            response.success, response.message = False, f"관절 실측 자세가 불완전함: {e}"
+            return response
         self.hold_pose = self.policy.reference_pose(self.start_frame)
         self.approach_motion = approach(self.hold_pose, start, self.approach_s)
         self.stage = APPROACH
@@ -285,11 +295,29 @@ class MotionNode(Node):
         return response
 
     def _on_start(self, request, response):
+        del request
         if self.stage != READY:
             response.success, response.message = False, (
                 f"지금 단계가 {self.stage} 임. approach 로 기준 자세에 간 뒤 부를 것")
             return response
-        del request
+        observation, fresh = self.joints.take()
+        if not fresh:
+            response.success, response.message = False, (
+                f"관절 상태가 없거나 낡음 (나이 {self.joints.age():.3f}초). "
+                "실측 자세를 확인할 수 없어 시작하지 않음")
+            return response
+        try:
+            measured = {n: observation[f"{n}.pos"] for n in self.policy.order}
+            joint, error = furthest_target(self.hold_pose, measured)
+        except (KeyError, ValueError) as e:
+            response.success, response.message = False, f"관절 실측 자세가 불완전함: {e}"
+            return response
+        if error > self.start_pose_tolerance_deg:
+            response.success, response.message = False, (
+                f"프레임 {self.start_frame} 자세에 아직 도달하지 않음: {joint} 오차 "
+                f"{error:.1f}도 > 허용 {self.start_pose_tolerance_deg:.1f}도. "
+                "첫 프레임 목표를 계속 유지하므로 자세가 안정된 뒤 다시 시작할 것")
+            return response
         self.runner.reset()
         self._row_t0 = None
         self.stage = RUNNING

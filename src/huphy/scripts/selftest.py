@@ -191,23 +191,45 @@ def _inset(limits: Tuple[float, float], margin: float) -> Tuple[float, float]:
 # 동작
 # ===========================================================================
 def approach(targets: Dict[str, float], start: Dict[str, float], seconds: float):
-    """지금 자세에서 목표까지 관절 전부를 같이 옮김.
+    """지금 자세에서 목표까지 관절 전부를 최소-저크 곡선으로 같이 옮김.
 
     `motions.ramp` 은 관절 하나짜리라 여기서 여러 관절을 함께 다룸. 시작값은
     루프를 돌리기 전에 읽어 둔 관찰임 -- 매 주기 다시 읽으면 목표가 따라 움직여
-    영영 도착하지 않음.
+    영영 도착하지 않음. 5차 smoothstep 을 써 시작과 끝에서 목표 속도·가속도가
+    0임. 선형 보간처럼 토크를 넣거나 목표에 닿는 순간 속도가 꺾이지 않음.
     """
     if seconds <= 0:
         raise ValueError(f"seconds 는 0보다 커야 함 (받은 값 {seconds})")
 
     def motion(t: float, observation: Dict[str, Any]) -> Dict[str, float]:
-        fraction = min(1.0, max(0.0, t / seconds))
+        u = min(1.0, max(0.0, t / seconds))
+        fraction = u * u * u * (10.0 + u * (-15.0 + 6.0 * u))
         return {
             name: start.get(name, target) + (target - start.get(name, target)) * fraction
             for name, target in targets.items()
         }
 
     return motion
+
+
+def furthest_target(targets: Dict[str, float], measured: Dict[str, float]) -> Tuple[str, float]:
+    """목표에서 가장 먼 관절과 절대 오차(도).
+
+    정책을 시작하기 직전 실측 자세가 목표 자세에 실제로 도달했는지 확인할 때 씀.
+    값 하나라도 없거나 NaN/inf 이면 가까운 것으로 오인하지 않고 거절함.
+    """
+    if not targets:
+        raise ValueError("목표 자세가 비어 있음")
+    errors = []
+    for name, target in targets.items():
+        if name not in measured:
+            raise ValueError(f"실측 자세에 {name} 이 없음")
+        actual = float(measured[name])
+        target = float(target)
+        if not math.isfinite(actual) or not math.isfinite(target):
+            raise ValueError(f"{name} 자세가 유한한 수가 아님 (목표 {target}, 실측 {actual})")
+        errors.append((name, abs(target - actual)))
+    return max(errors, key=lambda item: item[1])
 
 
 def cycle(limits: Dict[str, Tuple[float, float]], *, period_s: float):
