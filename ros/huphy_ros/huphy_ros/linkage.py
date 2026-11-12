@@ -110,7 +110,15 @@ class Linkage:
     수 mm ~ 2cm 어긋남. 여기서는 URDF(= 학습 모델) 치수로 풀어서 화면이 모델과 맞음.
     """
 
-    def __init__(self, urdf: str, tol_m: float = 0.002) -> None:
+    def __init__(self, urdf: str, tol_m: float = 0.002, *,
+                 ankle_limits: bool = True) -> None:
+        """`ankle_limits=False` 면 발판 각도 범위를 안 봄.
+
+        기록을 들여다볼 때 씀 (`tools/robot_viewer.py`). 정책이 낸 목표각이
+        범위를 넘었을 때, 그 자세를 버리지 않고 그대로 보여 주려는 것임 --
+        무엇을 요구했는지 봐야 하므로. 막대 범위(±90도)는 그대로 둠: 그것은
+        기계 한계가 아니라 조립 모양을 고르는 조건임.
+        """
         self.joints = parse(urdf)
         self.tol_m = tol_m
         by_name = {j.name: j for j in self.joints.values()}
@@ -142,8 +150,8 @@ class Linkage:
             for n in unknowns:
                 j = by_name[n]
                 if n in ankle:      # 발판: URDF 범위 + 17도 여유 (뒤집힌 해만 거름)
-                    lo.append(j.lower - 0.3)
-                    hi.append(j.upper + 0.3)
+                    lo.append(-math.inf if not ankle_limits else j.lower - 0.3)
+                    hi.append(math.inf if not ankle_limits else j.upper + 0.3)
                 else:               # 막대: 크랭크에서 직각 넘게 꺾이는 일은 없음
                     lo.append(-math.pi / 2)
                     hi.append(math.pi / 2)

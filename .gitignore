@@ -10,3 +10,6 @@ build/
 dist/
 .pytest_cache/
 .DS_Store
+
+# 임시 산출물 (CSV 변환 등). 커밋하지 않음
+/tmp/

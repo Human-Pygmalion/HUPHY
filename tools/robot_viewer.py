@@ -100,7 +100,8 @@ class Kinematics:
 
     def __init__(self, urdf_text: str, links):
         self.joints = linkage_mod.parse(urdf_text)   # 자식 링크 -> 관절
-        self.linkage = linkage_mod.Linkage(urdf_text)
+        # 발판 각도 범위를 안 봄 -- 정책이 낸 목표가 범위를 넘어도 그대로 보여 줌
+        self.linkage = linkage_mod.Linkage(urdf_text, ankle_limits=False)
         self.links = list(links)
         self.chains = {l: self.linkage._chain(l) for l in self.links}
 
@@ -203,7 +204,9 @@ def frames(path: Path, make_kin, progress) -> dict:
             progress(n / len(picked))
     progress(1.0)
     out["run"] = d.get("run", {})
-    out["worst_mm"] = round(max(k.linkage.worst_m for k in kins.values()) * 1000, 3)
+    worst = max(k.linkage.worst_m for k in kins.values())
+    # inf·nan 은 JSON 이 아님 -- 브라우저의 res.json() 이 터져 화면이 멈춤
+    out["worst_mm"] = round(worst * 1000, 3) if math.isfinite(worst) else None
     out["kinds"] = list(kinds)
     out["cmd_names"] = [n for _, n in cmd_cols]
     out["cmd_units"] = [CMD_UNITS.get(n, "") for _, n in cmd_cols]
