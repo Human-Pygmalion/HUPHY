@@ -1,6 +1,6 @@
-"""`union` 모션 추종 꾸러미 — 계약·폐루프·한 주기.
+"""모션 추종 꾸러미 — 계약·폐루프·한 주기. `motion545` 와 `motion399` 둘 다 돎.
 
-    PYTHONPATH=src python3 -m pytest tests/test_union.py -q
+    PYTHONPATH=src python3 -m pytest tests/test_motion.py -q
 
 고정하는 것은 **틀려도 길이와 자릿수가 그대로라 코드로는 안 잡히는 것**임.
 
@@ -20,7 +20,9 @@ from huphy.control import deploy
 from huphy.control.reference import Clock, ReferenceError, ReferenceMotion
 from huphy.kinematics import mjcf_loop
 
-PACKAGE = Path(__file__).resolve().parent.parent / "config" / "policies" / "union"
+POLICIES = Path(__file__).resolve().parent.parent / "config" / "policies"
+PACKAGES = (POLICIES / "motion545", POLICIES / "motion399")
+"""모션 추종 꾸러미 전부. 새 꾸러미는 여기 한 줄 -- 같은 검사를 그대로 받음."""
 
 MOTOR = {
     "hip_pitch": "hip_pitch", "hip_roll": "hip_roll", "hip_yaw": "hip_yaw",
@@ -28,14 +30,24 @@ MOTOR = {
 }
 
 
-@pytest.fixture(scope="module")
-def policy():
-    return deploy.load(PACKAGE)
+@pytest.fixture(scope="module", params=PACKAGES, ids=lambda p: p.name)
+def package(request):
+    return request.param
 
 
 @pytest.fixture(scope="module")
-def motion():
-    data = np.load(PACKAGE / "motion_00545.npz")
+def contract(package):
+    return json.loads((package / "deploy_contract.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def policy(package):
+    return deploy.load(package)
+
+
+@pytest.fixture(scope="module")
+def motion(policy):
+    data = np.load(policy.reference.path)
     return {k: data[k] for k in data.files}
 
 
@@ -101,11 +113,11 @@ class TestContract:
         model = policy.load_model()
         assert model.golden_max_diff < deploy.GOLDEN_TOL
 
-    def test_the_contract_records_where_it_came_from(self):
-        c = json.loads((PACKAGE / "deploy_contract.json").read_text(encoding="utf-8"))
-        assert "ee7770d7" in c["what"]
-        assert c["motion"]["source_sha256"]
-        assert c["checkpoints"]["30000"]["pt_sha256"]
+    def test_the_contract_records_where_it_came_from(self, contract):
+        assert "HuphyChan-dev" in contract["what"]
+        assert contract["motion"]["source_sha256"]
+        ckpt = contract["checkpoints"][contract["default_checkpoint"]]
+        assert ckpt["pt_sha256"]
 
 
 # ===========================================================================
@@ -190,9 +202,9 @@ class TestReference:
         assert got[:24] == pytest.approx(list(motion["joint_pos"][7]), abs=1e-6)
         assert got[24:] == pytest.approx(list(motion["joint_vel"][7]), abs=1e-6)
 
-    def test_a_wrong_hash_stops(self, policy, tmp_path):
+    def test_a_wrong_hash_stops(self, policy):
         with pytest.raises(ReferenceError):
-            ReferenceMotion(PACKAGE / "motion_00545.npz", sha256="0" * 64)
+            ReferenceMotion(policy.reference.path, sha256="0" * 64)
 
     def test_a_frame_outside_the_motion_stops(self, policy):
         with pytest.raises(ReferenceError):
@@ -206,10 +218,10 @@ class TestOneCycle:
     def _runner(self, policy):
         return policy.runner(policy.load_model())
 
-    def test_the_vector_matches_the_contract_reference_pair(self, policy, motion):
+    def test_the_vector_matches_the_contract_reference_pair(self, policy, motion, contract):
         """계약의 참조 입력은 이 레포 코드 없이 만든 것임 -- 벡터 조립을 대조함."""
-        c = json.loads((PACKAGE / "deploy_contract.json").read_text(encoding="utf-8"))
-        obs_pairs = c["checkpoints"]["30000"]["golden"]["obs"]
+        c = contract
+        obs_pairs = c["checkpoints"][c["default_checkpoint"]]["golden"]["obs"]
         names = [str(n) for n in motion["joint_names"]]
         frames = np.linspace(0, motion["joint_pos"].shape[0] - 1, len(obs_pairs)).astype(int)
 

@@ -1,8 +1,19 @@
-# `union` — 모션 추종 정책
+# 모션 추종 정책 — `motion545` · `motion399`
 
-HuphyChan-dev 커밋
-[`ee7770d7`](https://github.com/Human-Pygmalion/HuphyChan-dev/commit/ee7770d7a72c18dc1c7ddeb25c7e57045a3fcd04)
-의 `huphy_00545_uniondr_30000` 릴리스를 이 레포에서 돌리게 옮긴 것.
+HuphyChan-dev 의 모션 추종 릴리스를 이 레포에서 돌리게 옮긴 것. 지금 둘임.
+
+```
+꾸러미        릴리스                      커밋        프레임   길이      체크포인트
+motion545    huphy_00545_uniondr_30000   ee7770d7     659   13.18초   30000
+motion399    huphy_00399_uniondr_20000   a2620fe0    1511   30.22초   20000
+```
+
+둘은 **같은 계약**임 — 관찰 114칸, 행동 12칸, 50Hz, 관절 24개 순서까지 같음.
+다른 것은 기준 궤적과 가중치뿐이라 아래 설명은 둘 다에 해당함. 숫자가 갈리는
+자리만 따로 적음.
+
+`motion399` 는 2단계 학습임 (`model_13000.pt` 에서 이어 학습). `motion545` 는
+처음부터 학습한 것.
 
 **실기 안전 검증본이 아님.** 릴리스 README 의 Safety 절이 그렇게 적고 있고, 아래
 3절에 이 레포 쪽에서 확인한 어긋남이 더 있음. 모터를 켜기 전에 3절을 읽을 것.
@@ -12,11 +23,11 @@ HuphyChan-dev 커밋
 ## 1. 무엇이 다른가
 
 지금까지 돌린 정책은 **속도 명령** 정책임 — 사람이 `vx`·`wz`·`h*` 를 주고 정책이
-그 방향으로 걸음. 이것은 **모션 추종** 정책임 — 파일에 든 관절 궤적 659프레임을
+그 방향으로 걸음. 이것은 **모션 추종** 정책임 — 파일에 든 관절 궤적을
 재생하고 정책은 그 궤적을 따라가려 함. 사람이 줄 명령이 없음.
 
 ```
-                 generalized_walk          union
+                 walk          motion545 · motion399
 관찰              44칸                      114칸
 명령 칸           vx, wz (2칸)              기준 프레임의 관절 24개 + 속도 24개 (48칸)
 관절 관찰         모터 12개 x 2프레임        관절 24개 위치 + 24개 속도
@@ -57,7 +68,7 @@ ROS 노드          policy_node               motion_node
 
 검증: 학습에 쓴 기준 모션 659프레임의 24관절 값이 참값임. 크랭크각 2개만 주고 푼
 결과가 나머지 6개와 **최대 6.8e-8 rad (3.9e-6 도)** 안에서 같음
-(`tests/test_union.py` 의 `TestLoop`). 속도는 야코비안 x 모터 속도로 내고
+(`tests/test_motion.py` 의 `TestLoop`). 속도는 야코비안 x 모터 속도로 내고
 기준 모션의 속도와 최대 9.5e-3 rad/s 차이임 (모션 변환 스크립트가 낸 값과 비교한
 것이고, 학습 때 넣은 속도 노이즈는 0.5 rad/s 였음).
 
@@ -82,9 +93,20 @@ ROS 노드          policy_node               motion_node
           `ankle.py` 는 크랭크 (0, 0) 에서 발목 (0, 0) -- 같은 크랭크각을 넣으면 8.8도
 ```
 
+**어긋난 쪽은 `ankle.py` 하나임.** 이 레포의 RViz·뷰어 URDF
+(`ros/huphy_ros/urdf/huphy.urdf`) 의 발목 기하는 학습 MJCF 와 **같음** -- 크랭크
+위치, 로드 위치, 로드 끝 점, 볼 점이 좌표까지 0 차이임 (`mjcf_loop.py` 의 수치와
+직접 대조). URDF 가 같은 Fusion 모델의 `_loop` 변형에서 나왔기 때문임
+(`urdf/make_urdf.py`). 즉 이 어긋남은 이 정책이 만든 것이 아니라 전부터 있던 것이고,
+`kinematics/ankle.py` 의 실측 좌표(mm, 다른 프레임)만 다름.
+
 **관찰에는 MJCF 값을 넣음.** 정책이 MJCF 가 내는 숫자로 학습했으므로 관찰을 실측
 링키지로 만들면 학습과 어긋난 입력을 주게 됨. 그래서 `mjcf_loop.py` 를 따로 두고
 `ankle.py` 와 섞지 않음.
+
+`ros/huphy_ros/huphy_ros/linkage.py` 와도 다름. 그쪽은 **크랭크각과 발목 2축을 다
+받아** 로드 각도만 풂 (RViz 가 나무 구조라 로드 값을 누가 줘야 해서). 이쪽은
+**크랭크각 2개만 받아** 발목 2축까지 풂.
 
 **다만 물리 쪽 어긋남은 남음.** 정책이 "발목 롤 20도" 를 의도해 크랭크각을 내면
 실제 발은 실측 링키지대로 약 13도만 돎. 발 자세가 시뮬과 다르게 나옴. 이건 코드로
@@ -94,37 +116,52 @@ ROS 노드          policy_node               motion_node
 ### 3-2. 기준 궤적이 로봇 가동범위를 벗어남
 
 기준 모션의 관절 범위를 `config/calibration/*_v1.0.json` 의 가동범위와 대조한 것
-(단위 도, 넘치는 양).
+(단위 도. `밖` 은 범위를 벗어난 프레임 비율).
+
+`motion545` — 5개 관절.
 
 ```
-right_leg/hip_yaw   -45.0~ 19.6   가동범위 -40.5~ 40.5    하한 -4.5
-right_leg/knee        0.0~120.0   가동범위   6.0~114.0    하한 -6.0  상한 +6.0
-left_leg/hip_pitch  -24.9~ 45.5   가동범위 -17.8~112.8    하한 -7.2
-left_leg/hip_yaw    -10.9~ 45.0   가동범위 -40.5~ 40.5    상한 +4.5
-left_leg/knee      -120.0~ -2.0   가동범위 -114.0~ -6.0   하한 -6.0  상한 +4.0
+right_leg/hip_yaw    -45.0~ +19.6   가동범위  -40.5~ +40.5   하한 -4.5              밖 34%
+right_leg/knee        +0.0~+120.0   가동범위   +6.0~+114.0   하한 -6.0  상한 +6.0   밖 42%
+left_leg/hip_pitch   -24.9~ +45.5   가동범위  -17.8~+112.8   하한 -7.2              밖  2%
+left_leg/hip_yaw     -10.9~ +45.0   가동범위  -40.5~ +40.5              상한 +4.5   밖 13%
+left_leg/knee       -120.0~  -2.0   가동범위 -114.0~  -6.0   하한 -6.0  상한 +4.0   밖 19%
 ```
 
-6개 관절이 가동범위 밖으로 나감. 안전 가드가 자르므로 **그 구간에서는 기준 궤적을
-따라갈 수 없음.** 계약의 `clip_rad` 는 MJCF 관절 범위라 더 넓고, 실제로 자르는
-것은 모션보드의 가드임 (`safety/guards.py`).
-
-### 3-3. 궤적이 쪼그려 앉는 동작이고 되돌아오지 않음
+`motion399` — 4개 관절. 넘치는 양이 더 작고 비율도 낮음.
 
 ```
-몸통 높이     1.032 m -> 0.551 m
-무릎          최대 120도
-길이          659프레임, 13.16초
-첫 프레임과 끝 프레임의 관절차   최대 37.6도
+right_leg/hip_yaw    -42.9~ +37.4   가동범위  -40.5~ +40.5   하한 -2.4              밖  0%
+right_leg/knee        +1.2~+120.0   가동범위   +6.0~+114.0   하한 -4.8  상한 +6.0   밖 23%
+left_leg/hip_yaw     -33.0~ +45.0   가동범위  -40.5~ +40.5              상한 +4.5   밖 11%
+left_leg/knee       -120.0~  -4.0   가동범위 -114.0~  -6.0   하한 -6.0  상한 +2.0   밖 12%
 ```
 
-끝이 쪼그려 앉은 자세임. 그래서 `motion_node` 는 **끝에서 꺼지지 않고 마지막
+안전 가드가 자르므로 **그 구간에서는 기준 궤적을 따라갈 수 없음.** 계약의
+`clip_rad` 는 MJCF 관절 범위라 더 넓고, 실제로 자르는 것은 모션보드의 가드임
+(`safety/guards.py`). 무릎 상한 +6도는 둘 다 같음 — 궤적의 무릎 최대가 120도이고
+가동범위가 114도임.
+
+### 3-3. 궤적이 제자리로 돌아오지 않음
+
+```
+                              motion545              motion399
+몸통 높이                     1.032 -> 0.551 m       0.85 ~ 1.00 m (서 있음)
+몸통 이동                     x -1.46~+1.50 m        x -2.53~+1.45  y -1.38~+2.29 m
+무릎 최대                     120도                  120도
+길이                          659프레임 13.18초      1511프레임 30.22초
+첫↔끝 프레임 최대 관절차       37.6도                 23.1도
+첫 프레임 관절속도 최대        5.04 rad/s             3.61 rad/s
+```
+
+`motion545` 는 끝이 쪼그려 앉은 자세임. 그래서 `motion_node` 는 **끝에서 꺼지지 않고 마지막
 목표각을 유지함** — 목표각을 안 내면 모션보드가 100ms 뒤 감쇠, 5초 뒤 토크를 끊어
 그 자세에서 주저앉음. 복귀는 `approach`.
 
-**되돌려 반복하지 않음.** 첫 프레임과 끝 프레임이 37.6도 떨어져 있어 이어 붙이면
+**되돌려 반복하지 않음.** 첫 프레임과 끝 프레임이 23~38도 떨어져 있어 이어 붙이면
 한 주기에 그만큼 뛰는 목표각이 나감.
 
-첫 프레임의 관절 속도가 최대 5.04 rad/s 임 — 궤적이 정지 상태에서 시작하지 않음.
+첫 프레임의 관절 속도가 0 이 아님 — 궤적이 정지 상태에서 시작하지 않음.
 기본자세에 선 채로 프레임 0 부터 시작하면 기준과 실측이 처음부터 벌어져 있음.
 학습 때도 에피소드 길이가 10초(궤적은 13.16초)라 임의 프레임에서 시작했음.
 
@@ -145,22 +182,51 @@ crank_A/B           kp 22.3  kd 1.41     robot.yaml: 60, kd 2.7
 
 ---
 
+## 3-5. 기준 궤적을 3D 로 보기
+
+```bash
+python3 tools/policy_package/reference_to_log.py                                    # motion545
+python3 tools/policy_package/reference_to_log.py --policy config/policies/motion399
+python3 tools/robot_viewer.py logs/track/motion545_reference.json
+```
+
+`--motors-only` 를 주면 모터 12개만 넣음 — 발목 6개를 뷰어가 역산함 (ROS 기록과
+같은 모양). 역산 결과가 파일 값과 0.0002도 안에서 같음.
+
+`--motion <npz>` 로 꾸러미가 아닌 학습 쪽 모션 파일을 바로 볼 수도 있음.
+
+꾸러미의 npz 를 뷰어가 읽는 기록 모양(JSON, `t` + `pos/<관절>`, 도)으로 바꿈.
+관절 24개를 다 넣으므로 뷰어가 풀 것이 없고 **학습이 본 자세를 그대로** 그림.
+불러올 때 나오는 폐루프 잔차가 0.0 mm 임 -- npz 값과 URDF 기하가 맞물린다는 뜻.
+
+**몸통은 안 움직임.** 뷰어가 몸통 위치·자세를 안 그림 (기록에 그 칸이 없음).
+`motion545` 는 몸통이 1.03m 에서 0.55m 로 내려가고 `motion399` 는 3m 가까이
+돌아다니는데, 화면에서는 둘 다 다리만 움직임.
+
+---
+
 ## 4. 꾸러미 만들기
 
 받은 릴리스에서 다시 만들 수 있음.
 
 ```bash
-python3 tools/policy_package/build_union.py \
-  --release <릴리스 폴더>/huphy_00545_uniondr_30000
+python3 tools/policy_package/build_motion.py \
+  --release <릴리스 폴더>/huphy_00545_uniondr_30000 --source ee7770d7
+python3 tools/policy_package/build_motion.py \
+  --release <릴리스 폴더>/huphy_00399_uniondr_20000 --source a2620fe0
 ```
+
+읽을 파일 이름은 릴리스의 `deploy.yaml` 에서 가져옴 (`motion.training_file`,
+`policy.checkpoint`, `policy.onnx`). 꾸러미 이름은 모션 번호에서 나옴. 그래서 다음
+모션 릴리스도 같은 명령으로 들어옴.
 
 내는 것:
 
 ```
-config/policies/union/
-  deploy_contract.json   이 레포 실행기가 읽는 계약 (72 KB)
-  model_30000.pt         릴리스 그대로 (5.7 MB, sha256 대조)
-  motion_00545.npz       기준 모션에서 쓰는 배열만 (126 KB, 659프레임)
+config/policies/motion545/            config/policies/motion399/
+  deploy_contract.json   72 KB          deploy_contract.json   72 KB
+  model_30000.pt        5.7 MB          model_20000.pt        5.7 MB
+  motion_00545.npz      126 KB          motion_00399.npz      286 KB
 ```
 
 릴리스의 `.pt` 와 `policy.onnx` 의 가중치가 바이트 단위로 같은지, ONNX 의 정규화
@@ -179,7 +245,7 @@ ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml
 
 # 작업 기계 -- policy.launch.py 대신 이것 (둘 다 띄우지 말 것)
 ros2 launch huphy_ros motion.launch.py \
-  policy:=$HOME/HUPHY/config/policies/union
+  policy:=$HOME/HUPHY/config/policies/motion545     # 또는 .../motion399
 
 ros2 service call /huphy/enable std_srvs/srv/Trigger          # 토크
 ros2 service call /huphy/approach std_srvs/srv/Trigger        # 기준 자세로
@@ -192,7 +258,7 @@ ros2 service call /huphy/disable std_srvs/srv/Trigger         # 토크 끊기
 패드로도 같은 것을 함. 스틱은 할 일이 없고 버튼만 씀.
 
 ```bash
-ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/motion545
 ```
 
 ```
@@ -235,7 +301,7 @@ off -> approach -> ready -> running -> done
 실물 확인          한 번도 안 돌림. 3절의 어긋남을 재 보고 결정할 일
 MJCF 링키지 수치   실측과 다름 (3-1). 어느 쪽이 맞는지 실물로 재야 함
 기준 궤적 가동범위  6개 관절이 밖으로 나감 (3-2). 궤적을 다시 리타게팅할지 판단 필요
-huphy-run          `--policy config/policies/union` 로 재생은 됨 (명령 칸이
+huphy-run          `--policy config/policies/motion545` 로 재생은 됨 (명령 칸이
                    없어 --cmd 가 필요 없음). 다만 끝에 닿은 것을 알리지 않고 마지막
                    프레임의 목표각을 계속 냄. 끝 처리와 프레임 표시는 ROS 쪽만 넣었음
 ```
