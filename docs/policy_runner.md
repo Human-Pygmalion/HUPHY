@@ -13,7 +13,7 @@
 > [`control/POLICY.md`](../src/huphy/control/POLICY.md) 0장.
 >
 > **2026-10-20 — `balance`/`hopping`/`stand`/`control/stand.py` 는 전부 지워짐.**
-> `control/generalized_walk.py`(44칸 입력, 12관절 출력)가 지금의 정식 정책이고
+> `control/walk.py`(44칸 입력, 12관절 출력)가 지금의 정식 정책이고
 > `huphy-run --vx --wz` 로 돎. 아래 본문은 그 전 상태를 예로 든 설계 검토라
 > **구체적인 파일명·정책 이름은 역사적 기록**임 — "여러 모델을 설정 파일로
 > 받는다"는 설계 방향 자체는 그대로 유효함.

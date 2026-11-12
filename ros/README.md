@@ -178,18 +178,18 @@ ROS 없이 돌리는 `huphy-run` 한 번이 아래처럼 쪼개져 있음. **ROS
 #### 띄울 것 한눈에
 
 런치 하나가 터미널 하나를 차지함. **위에서부터 순서대로** 띄움. 정책은 걷기 예시 --
-`generalized_walk` 자리를 `stairs_slopes12` / `huphy_squat` 로 바꾸면 됨. 정책·창·패드에는
+`walk` 자리를 `stair_slope` / `squat` 로 바꾸면 됨. 정책·창·패드에는
 **같은 정책**을 줌.
 
-터미널 2 는 **정책 종류에 따라 런치가 다름.** 속도 명령 정책(`generalized_walk`,
-`stairs_slopes12`, `huphy_squat`)은 `policy.launch.py`, 모션 추종 정책
-(`union`)은 `motion.launch.py` 임. **둘 중 하나만** 띄울 것 -- 둘 다 띄우면
+터미널 2 는 **정책 종류에 따라 런치가 다름.** 속도 명령 정책(`walk`,
+`stair_slope`, `squat`)은 `policy.launch.py`, 모션 추종 정책
+(`motion545` · `motion399`)은 `motion.launch.py` 임. **둘 중 하나만** 띄울 것 -- 둘 다 띄우면
 같은 `joint_targets` 에 두 노드가 목표각을 냄.
 
 | 터미널 | 기계 | 띄울 것 |
 |---|---|---|
 | 1 | 모션보드 | `huphy-can up` 후 `ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml` |
-| 2 | 작업 기계 | 속도 명령 정책 `ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk` <br> 모션 추종 정책 `ros2 launch huphy_ros motion.launch.py policy:=$HOME/HUPHY/config/policies/union` |
+| 2 | 작업 기계 | 속도 명령 정책 `ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/walk` <br> 모션 추종 정책 `ros2 launch huphy_ros motion.launch.py policy:=$HOME/HUPHY/config/policies/motion545` |
 | 3 | 작업 기계 | 조작 하나: 창 `teleop.launch.py policy:=...` / 패드 `gamepad.launch.py policy:=...` / 명령 `ros2 topic pub ...` (A-6). **모션 추종 정책은 패드뿐** -- 창과 명령은 줄 값이 있어야 함 |
 | 4 | 작업 기계 | **기록할 때만** `ros2 launch huphy_ros log.launch.py` -- 정책 시작 전에 |
 
@@ -221,16 +221,17 @@ ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml
 
 ```bash
 # 걷기 -- /huphy/cmd_vel 로 앞뒤·회전 속도를 줌
-ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk
+ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/walk
 
 # 계단·경사 걷기 -- /huphy/cmd_vel 의 linear.x 만. angular.z 는 0 으로 잘림
-ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/stairs_slopes12
+ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/stair_slope
 
 # 제자리 스쿼트 -- /huphy/h_star 로 골반 높이를 줌
-ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
+ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/squat
 
 # 모션 추종 -- 줄 명령이 없음. 꾸러미의 궤적 659프레임을 13.16초 동안 재생
-ros2 launch huphy_ros motion.launch.py policy:=$HOME/HUPHY/config/policies/union
+ros2 launch huphy_ros motion.launch.py policy:=$HOME/HUPHY/config/policies/motion545
+#   또는 policy:=$HOME/HUPHY/config/policies/motion399
 ```
 
 `motion.launch.py` 는 `motion_node` 를 띄움 (아래 [`motion_node`](#motion_node)).
@@ -242,7 +243,7 @@ ros2 launch huphy_ros motion.launch.py policy:=$HOME/HUPHY/config/policies/union
 | `policy.launch.py` | 정책 꾸러미를 불러 두고 모션보드의 `joint_states` 를 받기 시작함. **띄우기만 하면 아무것도 안 냄** (`stage` = `off`) | `huphy-run --policy <이름>` 의 불러오기까지 |
 
 `checkpoint:=4500`(스쿼트) / `checkpoint:=37400`(걷기 예전 기본. 지금 기본은 49999) 로 다른 체크포인트,
-안 주면 계약의 기본값 (`huphy-run --checkpoint` 와 같음). `stairs_slopes12` 는 체크포인트가 `99998`
+안 주면 계약의 기본값 (`huphy-run --checkpoint` 와 같음). `stair_slope` 는 체크포인트가 `99998`
 하나뿐임.
 
 #### A-3. 토크 넣기  `[작업 기계]`
@@ -295,13 +296,13 @@ ros2 service call /huphy/start_policy std_srvs/srv/Trigger
 
 ```bash
 # 걷기 -- W/S 앞뒤, A/D 회전
-ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk
+ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/walk
 
 # 계단·경사 -- W/S 앞뒤만. A/D 키가 아예 안 생김
-ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/stairs_slopes12
+ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/stair_slope
 
 # 스쿼트 -- ↑/↓ 높이
-ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
+ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/squat
 ```
 
 | 창에서 누르는 키 | 하는 일 | 기존으로 치면 |
@@ -327,16 +328,16 @@ ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/huphy
 
 ```bash
 # 걷기 -- 왼쪽 스틱 앞뒤, 오른쪽 스틱 회전
-ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/walk
 
 # 계단·경사 -- 왼쪽 스틱 앞뒤만. 오른쪽 스틱이 아예 안 배정됨
-ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/stairs_slopes12
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/stair_slope
 
 # 스쿼트 -- 십자키 위아래로 높이
-ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/squat
 
 # 모션 추종 -- 스틱이 할 일이 없음. 버튼만 씀 (아래 설명)
-ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/motion545
 ```
 
 **모션 추종 정책은 스틱이 없고 버튼만 씀.** 사람이 줄 명령이 없어서임 -- 따라갈
@@ -495,7 +496,7 @@ ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔
 
 | 터미널 | 띄울 것 |
 |---|---|
-| 1 | `huphy-can up` 후 `ros2 launch huphy_ros local.launch.py config:=$HOME/HUPHY/config/robot.yaml policy:=$HOME/HUPHY/config/policies/generalized_walk` |
+| 1 | `huphy-can up` 후 `ros2 launch huphy_ros local.launch.py config:=$HOME/HUPHY/config/robot.yaml policy:=$HOME/HUPHY/config/policies/walk` |
 | 2 | 조작 하나: 창 `teleop.launch.py policy:=...` / 패드 `gamepad.launch.py policy:=...` / 명령 `ros2 topic pub ...` (B-5) |
 
 - **기록할 때만** 다른 터미널에서 `ros2 launch huphy_ros log.launch.py` -- 정책 시작 전에.
@@ -507,13 +508,13 @@ ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔
 huphy-can up
 ros2 launch huphy_ros local.launch.py \
   config:=$HOME/HUPHY/config/robot.yaml \
-  policy:=$HOME/HUPHY/config/policies/generalized_walk
+  policy:=$HOME/HUPHY/config/policies/walk
 ```
 
 | 명령 | 하는 일 | 기존으로 치면 |
 |---|---|---|
 | `huphy-can up` | CAN 채널을 1 Mbps 로 올림 | 같음 |
-| `local.launch.py` | 제어 노드(`OBSERVE`, 토크 없음)와 정책 노드(불러만 둠)를 **한 번에** 띄움. 정책은 `policy:=` 로 고름 -- `generalized_walk` / `stairs_slopes12` / `huphy_squat`. **기록 노드는 안 띄움** | `huphy-test --robot watch` 상태 + `huphy-run --policy <이름>` 의 불러오기 |
+| `local.launch.py` | 제어 노드(`OBSERVE`, 토크 없음)와 정책 노드(불러만 둠)를 **한 번에** 띄움. 정책은 `policy:=` 로 고름 -- `walk` / `stair_slope` / `squat`. **기록 노드는 안 띄움** | `huphy-test --robot watch` 상태 + `huphy-run --policy <이름>` 의 불러오기 |
 
 로그 끝에 `approach 를 기다림` 과 `OBSERVE 로 시작` 이 나오면 된 것임.
 
@@ -557,15 +558,15 @@ ros2 service call /huphy/start_policy std_srvs/srv/Trigger   # ready -> running 
 
 ```bash
 # B-1 의 policy:= 와 같은 것
-ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk   # 걷기 W/S/A/D
-ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/stairs_slopes12    # 계단·경사 W/S
-ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat        # 스쿼트 ↑/↓
+ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/walk   # 걷기 W/S/A/D
+ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/stair_slope    # 계단·경사 W/S
+ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/squat        # 스쿼트 ↑/↓
 ```
 
 패드로 -- A-6 의 패드와 같음 (RB 데드맨, View 1초 토크, A 기준 자세, RB+Menu 시작, B 끔):
 
 ```bash
-ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/walk
 ```
 
 명령으로 -- 정책에 맞는 것 하나. 끊으면 속도는 0.5초 뒤 0, 높이는 유지.
@@ -795,7 +796,7 @@ off -> approach -> ready -> running -> done
 
 재생 위치는 `policy_status` 의 `frame`·`frames`·`progress` 로 나감.
 
-꾸러미와 확인된 어긋남은 [docs/policies/union.md](../docs/policies/union.md).
+꾸러미와 확인된 어긋남은 [docs/policies/motion.md](../docs/policies/motion.md).
 
 ### `teleop_node`
 
@@ -1150,13 +1151,13 @@ power/dc_a_lo           DC 전류 하한 합 (A) = 합 / vbus 평균
 
 | 정책 | 관찰 | 명령 토픽 |
 |---|---|---|
-| `generalized_walk` | 44 | `/huphy/cmd_vel` (Twist) 의 `linear.x` -> `vx`, `angular.z` -> `wz`. `vy` 칸 없음 |
-| `stairs_slopes12` | 44 | 같은 토픽, `linear.x` -> `vx` 만. **`angular.z` 는 0 으로 잘림** |
-| `huphy_squat` | 43 | `/huphy/h_star` (Float64) -> `h_star` [m]. 0.1 m/s 로 다가감 |
+| `walk` | 44 | `/huphy/cmd_vel` (Twist) 의 `linear.x` -> `vx`, `angular.z` -> `wz`. `vy` 칸 없음 |
+| `stair_slope` | 44 | 같은 토픽, `linear.x` -> `vx` 만. **`angular.z` 는 0 으로 잘림** |
+| `squat` | 43 | `/huphy/h_star` (Float64) -> `h_star` [m]. 0.1 m/s 로 다가감 |
 
 **정책이 명령 범위도 정함.** 계약의 `observations[].ranges` 에 적힌 범위 밖의 값은
 [`control/deploy.py`](../src/huphy/control/deploy.py) 의 `_command` 가 관찰에 넣기 전에
-자름. `stairs_slopes12` 는 전진만 학습해서 `vx` 가 `[0, 2]`, `wz` 가 `[0, 0]` 임 --
+자름. `stair_slope` 는 전진만 학습해서 `vx` 가 `[0, 2]`, `wz` 가 `[0, 0]` 임 --
 `/huphy/cmd_vel` 의 `angular.z` 에 무엇을 보내도 신경망은 0 을 받고, 조작 노드 둘은
 그 칸에 키·스틱을 아예 안 배정함.
 

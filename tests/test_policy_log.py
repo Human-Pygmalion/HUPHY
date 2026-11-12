@@ -14,7 +14,7 @@ import numpy as np
 
 from huphy.control import deploy
 
-WALK = deploy.load(Path(__file__).resolve().parent.parent / "config" / "policies" / "generalized_walk")
+WALK = deploy.load(Path(__file__).resolve().parent.parent / "config" / "policies" / "walk")
 """걷기 정책 계약. 관절 순서·기본 자세·관찰 구성을 여기서 읽음."""
 from huphy.sensors.base import ImuState
 from huphy.telemetry.policy_log import PolicyLog, default_path
@@ -70,14 +70,14 @@ class TestLog:
 
     def test_default_path(self, tmp_path):
         """`<월일>_policy_<이름>[_<인자들>].csv` (`telemetry/run_name.py`)."""
-        path = default_path(tmp_path, "generalized_walk")
+        path = default_path(tmp_path, "walk")
         assert path.parent == tmp_path / "policy", "종류별 폴더로 나뉨"
-        assert path.name.endswith("_policy_generalized_walk.json")
+        assert path.name.endswith("_policy_walk.json")
         assert path.name[:4].isdigit(), "월일로 시작해야 함"
 
     def test_default_path_carries_the_arguments(self, tmp_path):
-        path = default_path(tmp_path, "generalized_walk", ["g0.3", "vx0.3"])
-        assert path.name.endswith("_policy_generalized_walk_g0.3_vx0.3.json")
+        path = default_path(tmp_path, "walk", ["g0.3", "vx0.3"])
+        assert path.name.endswith("_policy_walk_g0.3_vx0.3.json")
 
 
 class TestOutsideEntry:

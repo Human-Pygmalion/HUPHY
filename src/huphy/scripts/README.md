@@ -686,7 +686,7 @@ motion 이 안 불리므로 기록기(`track_log.ObservationTap`)를 루프의 �
 
 ```bash
 huphy-test --robot --hz 100 --drain-ms 4 zero
-huphy-run --policy generalized_walk --cmd vx=0.5 --drain-ms 4
+huphy-run --policy walk --cmd vx=0.5 --drain-ms 4
 ```
 
 기본 4ms. 다 오면 즉시 빠져나가므로 정상 주기에는 이만큼 쓰지 않음.
@@ -740,9 +740,9 @@ root 가 아니면 `sudo` 를 붙여 부름. 암호는 sudo 가 터미널에서 
 루프**를 쓰고, 매 주기 관절 목표를 내는 것만 다름.
 
 ```bash
-huphy-run --policy generalized_walk --cmd vx=0.5 --cmd wz=0.0
-huphy-run --policy huphy_squat --cmd h_star=0.80
-huphy-run --policy huphy_squat --checkpoint 4500
+huphy-run --policy walk --cmd vx=0.5 --cmd wz=0.0
+huphy-run --policy squat --cmd h_star=0.80
+huphy-run --policy squat --checkpoint 4500
 ```
 
 **정책별 코드가 없음.** `main()` 의 순서:
@@ -772,7 +772,7 @@ huphy-run --policy huphy_squat --checkpoint 4500
 
 | | 기본 | 무엇 |
 |---|---|---|
-| `--policy` | **필수** | 꾸러미 이름 또는 폴더 (`generalized_walk`, `stairs_slopes12`, `huphy_squat`) |
+| `--policy` | **필수** | 꾸러미 이름 또는 폴더 (`walk`, `stair_slope`, `squat`) |
 | `--checkpoint` | 계약의 `default_checkpoint` | 같은 꾸러미의 다른 체크포인트 |
 | `--cmd 이름=값` | 계약의 시작값 | 정책 명령. 여러 번. `--teleop` 없으면 실행 내내 고정 |
 | `--teleop` | 끔 | pygame 창으로 실시간 조작 (`control/teleop.py`, 별도 프로세스). W/S vx, A/D wz, ↑/↓ h_star, Space 0, Enter 시작, Esc·Ctrl-C·Ctrl-Q 멈춤 |

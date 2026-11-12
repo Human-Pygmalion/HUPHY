@@ -1,6 +1,6 @@
-"""`config/policies/generalized_walk/` 민감도 테스트 — 실제 가중치로 돈다.
+"""`config/policies/walk/` 민감도 테스트 — 실제 가중치로 돈다.
 
-    PYTHONPATH=src python3 -m pytest tests/test_generalized_walk_sensitivity.py -q -v
+    PYTHONPATH=src python3 -m pytest tests/test_walk_sensitivity.py -q -v
 
 가중치가 실제로 읽히는지, 입력을 바꾸면 출력도 바뀌는지 확인함.
 
@@ -25,7 +25,7 @@ from huphy.control import deploy
 from huphy.sensors.base import ImuState
 
 REPO = Path(__file__).resolve().parent.parent
-WALK = deploy.load(REPO / "config" / "policies" / "generalized_walk")
+WALK = deploy.load(REPO / "config" / "policies" / "walk")
 WEIGHTS = WALK.weights_path()
 
 

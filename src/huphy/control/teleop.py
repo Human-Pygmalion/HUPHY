@@ -1,8 +1,8 @@
 """pygame 창으로 정책 명령을 실시간 조작 — **별도 프로세스**로 돎.
 
-    huphy-run --policy generalized_walk --teleop                   # walk: W/S 앞뒤, A/D 회전
-    huphy-run --policy generalized_walk --teleop --max vx=0.8 --accel vx=0.4 --decel vx=1.5
-    huphy-run --policy huphy_squat --teleop                # squat: ↑/↓ 높이
+    huphy-run --policy walk --teleop                   # walk: W/S 앞뒤, A/D 회전
+    huphy-run --policy walk --teleop --max vx=0.8 --accel vx=0.4 --decel vx=1.5
+    huphy-run --policy squat --teleop                # squat: ↑/↓ 높이
 
 
 ## 왜 별도 프로세스인가
@@ -129,7 +129,7 @@ def make_axes(
     `overrides` 는 {"max": {"vx": 0.8}, "accel": {...}, "decel": {...}} 꼴.
     키가 없는 명령이면 멈춤 -- 조작할 수 없는 칸이 있다는 뜻임.
 
-    **학습 범위가 한 점인 명령은 축을 안 만들고 건너뜀.** `stairs_slopes12` 는 전진만
+    **학습 범위가 한 점인 명령은 축을 안 만들고 건너뜀.** `stair_slope` 는 전진만
     학습해서 `wz` 의 범위가 `[0, 0]` 임 -- 키를 줘도 바꿀 값이 없음.
     """
     overrides = overrides or {}

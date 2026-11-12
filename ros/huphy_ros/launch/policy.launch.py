@@ -1,7 +1,7 @@
 """작업 기계에서 띄움. 어디로 갈지 정하는 쪽.
 
-    ros2 launch huphy_ros policy.launch.py                         # generalized_walk
-    ros2 launch huphy_ros policy.launch.py policy:=config/policies/huphy_squat
+    ros2 launch huphy_ros policy.launch.py                         # walk
+    ros2 launch huphy_ros policy.launch.py policy:=config/policies/squat
 
 띄우기만 하면 아무것도 안 냄. 기준 자세로 보낸 뒤 시작시켜야 함.
 
@@ -24,7 +24,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
-            "policy", default_value="config/policies/generalized_walk"),
+            "policy", default_value="config/policies/walk"),
         DeclareLaunchArgument("checkpoint", default_value=""),
         # `control.launch.py` 의 `motor_hz` 와 마찬가지로 런치 인자 이름을
         # 노드 파라미터 이름(`hz`)과 다르게 둠 -- 둘을 같은 문맥에 include 하는

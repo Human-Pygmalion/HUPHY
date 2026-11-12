@@ -451,8 +451,8 @@ MIT 응답에는 순번이 없어서, 도착 시각이 이번 송신보다 앞�
 
     <폴더>/<종류>/<월일>_<종류>_<이름>[_<인자들>].json
 
-    logs/policy/1030_policy_generalized_walk_g0.5-0.8_vx0.3.json
-    logs/latency/1030_latency_generalized_walk_g0.5-0.8_vx0.3.json
+    logs/policy/1030_policy_walk_g0.5-0.8_vx0.3.json
+    logs/latency/1030_latency_walk_g0.5-0.8_vx0.3.json
     logs/track/1030_track_zero_g0.3.json
 
 - `tags()` 가 이름에 붙일 조각을 만듦. **기본값인 인자는 빼므로** 전부 기본값이면
@@ -463,7 +463,7 @@ MIT 응답에는 순번이 없어서, 도착 시각이 이번 송신보다 앞�
   시각, 체크포인트, 기본값인 인자들. 이름은 찾기용, `run` 은 정확한 기록임
 - `write()` 가 JSON 으로 씀
 
-    {"run":     {"at": "2026-10-30 14:30:52", "policy": "generalized_walk", ...},
+    {"run":     {"at": "2026-10-30 14:30:52", "policy": "walk", ...},
      "limits":  {"right_leg/knee": [6, 114], ...},
      "columns": ["t", "obs/gyro/x", ...],
      "rows":    [[0.0, 0.01, ...], [0.02, ...]]}

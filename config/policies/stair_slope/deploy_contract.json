@@ -1,5 +1,5 @@
 {
- "package": "stairs_slopes12",
+ "package": "stair_slope",
  "task": "HUPHY 1.0 biped forward walking over stairs and slopes",
  "what": "Human-Pygmalion/HuphyChan-dev generalized-union-dr mjlab_policy/checkpoints/stairs_slopes12_union_dr_99998. Written from that folder's deploy.yaml; the golden I/O below was produced from its policy.onnx.",
  "control_rate_hz": 50.0,
@@ -240,7 +240,7 @@
    "task": "Pygmalion-Velocity-Generalized-StairsSlopes12-UnionDR",
    "source_commit": "huphychan 981a245d3ca124467d83d83aceffb0462b7953cd, mjlab 20f10e96b",
    "onnx_sha256": "a86bad7641e475c582604321556c72f51a66d7fb4f93ee4c22fbc9409d44c2c7",
-   "note": "Full resume from terrain10_union_dr_49999 (= generalized_walk 49999) for 50k updates on a 12-level stairs/slopes curriculum (slope 5-30 deg, stairs 3-18 cm, one level every 2000 updates). Same 44/12 contract as generalized_walk; default pose and clips match within 7e-7 rad. The command envelope is NOT the same: forward-only, no yaw.",
+   "note": "Full resume from terrain10_union_dr_49999 (= walk 49999) for 50k updates on a 12-level stairs/slopes curriculum (slope 5-30 deg, stairs 3-18 cm, one level every 2000 updates). Same 44/12 contract as walk; default pose and clips match within 7e-7 rad. The command envelope is NOT the same: forward-only, no yaw.",
    "golden": {
     "how": "24 synthetic obs (gyro +-0.3 rad/s, gravity tilted +-0.15 rad, motor_pos_rel +-0.15 rad, last_action +-0.5, every 4th command zero else vx in [0,2], wz fixed 0; seed 99998) run through the release policy.onnx (normalizer embedded) with onnxruntime 1.23.2, 2026-10-30.",
     "obs": [

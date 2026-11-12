@@ -1,6 +1,6 @@
 # 정책 실행 — 지금까지 만든 것
 
-> **2026-10-23 — 정책은 꾸러미 폴더 하나임.** `control/generalized_walk.py` 는
+> **2026-10-23 — 정책은 꾸러미 폴더 하나임.** `control/walk.py` 는
 > 지워졌고, `control/deploy.py` 가 `config/policies/<이름>/deploy_contract.json` 을
 > 읽어 어느 정책이든 같은 코드로 돌림. 0장이 지금 구조임.
 >
@@ -25,23 +25,23 @@
 ## 0. 실행 (지금)
 
 ```bash
-huphy-run --policy generalized_walk --cmd vx=0.5         # 걷기 (--policy 는 필수)
-huphy-run --policy stairs_slopes12 --cmd vx=0.5     # 계단·경사 (앞으로만)
-huphy-run --policy huphy_squat --cmd h_star=0.80    # 스쿼트
+huphy-run --policy walk --cmd vx=0.5         # 걷기 (--policy 는 필수)
+huphy-run --policy stair_slope --cmd vx=0.5     # 계단·경사 (앞으로만)
+huphy-run --policy squat --cmd h_star=0.80    # 스쿼트
 ```
 
 ### 0.1 꾸러미
 
 ```
 config/policies/
-  generalized_walk/
-    deploy_contract.json     이 저장소가 씀 (옛 generalized_walk.py 의 값 그대로)
+  walk/
+    deploy_contract.json     이 저장소가 씀 (옛 walk.py 의 값 그대로)
     generalized_walk.pt      체크포인트 37400
     generalized_walk_49999.pt  체크포인트 49999 (기본)
-  stairs_slopes12/
+  stair_slope/
     deploy_contract.json     학습 쪽 deploy.yaml 에서 옮겨 적음
     stairs_slopes12_99998.pt  체크포인트 99998. 49999 에서 이어 학습
-  huphy_squat/
+  squat/
     deploy_contract.json     학습 쪽 export_deploy.py 가 만든 것 그대로
     policy_5000.pt (기본)  policy_4500.pt  policy_4000.pt
     README.md                학습 쪽 꾸러미 README (참고용)

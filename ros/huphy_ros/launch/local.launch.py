@@ -37,7 +37,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("config", default_value="config/robot.yaml"),
         DeclareLaunchArgument(
-            "policy", default_value="config/policies/generalized_walk"),
+            "policy", default_value="config/policies/walk"),
         DeclareLaunchArgument("checkpoint", default_value=""),
         DeclareLaunchArgument("extra", default_value="0"),
         _include("control.launch.py",

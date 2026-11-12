@@ -43,7 +43,7 @@ sed -e 's/channel: canr/channel: vcan0/' -e 's/channel: canl/channel: vcan1/' \
 ```bash
 ros2 launch huphy_ros local.launch.py \
   config:=/tmp/robot_vcan.yaml \
-  policy:=$HOME/HUPHY/config/policies/generalized_walk
+  policy:=$HOME/HUPHY/config/policies/walk
 ```
 
 한 기계에서 둘 다 띄우는 런치임. `OBSERVE` 로 시작하므로 토크 경로를 안 탐.
@@ -136,8 +136,8 @@ ls $HOME/HUPHY/ros/logs/policy $HOME/HUPHY/ros/logs/latency
 두 파일이 같은 이름으로 나와야 함.
 
 ```
-policy/<월일>_policy_generalized_walk.json
-latency/<월일>_latency_generalized_walk.json
+policy/<월일>_policy_walk.json
+latency/<월일>_latency_walk.json
 ```
 
 `stop_policy` 를 또 하면 `_2` 가 붙고, **두 파일에 같이** 붙어야 함.

@@ -1,6 +1,6 @@
 """패드 조작 노드 — 작업 기계에서 돎. Xbox 패드로 명령·시작·멈춤.
 
-    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk
+    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/walk
 
 `teleop_node` 와 내는 것이 같음 (`/huphy/cmd_vel`, `/huphy/h_star`, 서비스 넷).
 다른 것은 입력뿐임 -- pygame 창 대신 `joy` 패키지의 `joy_node` 가 내는
@@ -9,10 +9,10 @@
 
 ## 조작할 명령이 없는 정책
 
-모션 추종 정책(`union`)은 사람이 줄 명령이 없음 -- 따라갈 궤적이 꾸러미
+모션 추종 정책(`motion545` · `motion399`)은 사람이 줄 명령이 없음 -- 따라갈 궤적이 꾸러미
 안에 있음. 그때는 **스틱만 할 일이 없고 버튼 다섯 개는 그대로임.**
 
-    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/union
+    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/motion545
 
 `cmd_vel` 은 그 경우에도 **0 만 20Hz 로 계속 냄.** 값이 쓰이지 않지만 그것이 이
 노드가 살아 있다는 신호임 -- 끊기면 `control_node` 가 감쇠 후 토크를 끊고
@@ -179,7 +179,7 @@ class GamepadNode(Node):
         except (deploy.ContractError, ValueError, OSError) as e:
             raise SystemExit(f"{e}") from e
         self.buttons_only = not self.policy.commands
-        """조작할 명령이 없는 정책인가. **모션 추종 정책이 그럼** (`union`)
+        """조작할 명령이 없는 정책인가. **모션 추종 정책이 그럼** (`motion545` · `motion399`)
         -- 따라갈 궤적이 꾸러미 안에 있어서 사람이 줄 값이 없음.
 
         스틱은 할 일이 없고 버튼 다섯 개(View·A·RB+Menu·B)는 그대로임. `cmd_vel` 은
@@ -227,7 +227,7 @@ class GamepadNode(Node):
                             if self.velocity_names or self.buttons_only else None)
         """속도 명령이 있는 정책이면 스틱 값을, `buttons_only` 면 0 만 냄.
 
-        둘 다 아닌 경우(높이만 쓰는 `huphy_squat`)는 `h_star` 가 그 자리를 함."""
+        둘 다 아닌 경우(높이만 쓰는 `squat`)는 `h_star` 가 그 자리를 함."""
         self.h_star_pub = (self.create_publisher(Float64, "/huphy/h_star", 10)
                            if "h_star" in self.height_names else None)
 

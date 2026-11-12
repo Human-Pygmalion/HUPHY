@@ -1,5 +1,5 @@
 {
- "package": "huphy_squat",
+ "package": "squat",
  "task": "Huphy-Squat-Flat-v0",
  "what": "HUPHY LegOnly biped (12 motors) stands on flat ground and holds a commanded pelvis height h*.",
  "control_rate_hz": 50.0,

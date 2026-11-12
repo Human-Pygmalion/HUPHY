@@ -14,9 +14,9 @@ import pytest
 from huphy.control import deploy, teleop
 
 POLICIES = Path(__file__).resolve().parent.parent / "config" / "policies"
-WALK = deploy.load(POLICIES / "generalized_walk")
-STAIRS = deploy.load(POLICIES / "stairs_slopes12")
-SQUAT = deploy.load(POLICIES / "huphy_squat")
+WALK = deploy.load(POLICIES / "walk")
+STAIRS = deploy.load(POLICIES / "stair_slope")
+SQUAT = deploy.load(POLICIES / "squat")
 
 
 def walk_state(**overrides):
@@ -65,7 +65,7 @@ class TestAxes:
             teleop.make_axes(SQUAT.commands.values(), {"max": {"h_star": 0.8}})
 
     def test_a_command_pinned_to_one_value_gets_no_axis(self):
-        """`stairs_slopes12` 는 전진만 학습해서 wz 범위가 [0, 0] 임. 바꿀 값이 없음."""
+        """`stair_slope` 는 전진만 학습해서 wz 범위가 [0, 0] 임. 바꿀 값이 없음."""
         axes = {a.name: a for a in teleop.make_axes(STAIRS.commands.values())}
         assert set(axes) == {"vx"}
         assert axes["vx"].keys == ("w", "s")

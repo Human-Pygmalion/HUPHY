@@ -14,7 +14,7 @@ import pytest
 from huphy.control import deploy, rsl_rl
 
 REPO = Path(__file__).resolve().parent.parent
-WALK = deploy.load(REPO / "config" / "policies" / "generalized_walk")
+WALK = deploy.load(REPO / "config" / "policies" / "walk")
 WEIGHTS = WALK.weights_path()
 SPEC = WALK.spec
 

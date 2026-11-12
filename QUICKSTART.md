@@ -66,14 +66,20 @@ Ctrl-Q 로 멈춤. 끝나면 실패 집계가 찍힘.
 
 | `--policy` | 무엇 | 명령 (`--cmd`) | 단위 | 체크포인트 |
 |---|---|---|---|---|
-| `generalized_walk` | 속도 명령으로 걷기 | `vx` 앞뒤<br>`wz` 돌기 | m/s<br>rad/s | `49999`(기본) `37400` |
-| `stairs_slopes12` | 계단·경사 걷기. **앞으로만** | `vx` 앞뒤 | m/s. **0~2** | `99998`(기본) |
-| `huphy_squat` | 골반 높이를 잡고 서기 | `h_star` 높이 | m. **0.70~0.891** | `5000`(기본) `4500` `4000` |
+| `walk` | 속도 명령으로 걷기 | `vx` 앞뒤<br>`wz` 돌기 | m/s<br>rad/s | `49999`(기본) `37400` |
+| `stair_slope` | 계단·경사 걷기. **앞으로만** | `vx` 앞뒤 | m/s. **0~2** | `99998`(기본) |
+| `squat` | 골반 높이를 잡고 서기 | `h_star` 높이 | m. **0.70~0.891** | `5000`(기본) `4500` `4000` |
+| `motion545` | 기준 궤적 재생 (13.18초) | **없음** | -- | `30000`(기본) |
+| `motion399` | 기준 궤적 재생 (30.22초) | **없음** | -- | `20000`(기본) |
 
-셋 다 50Hz, 관절 12개. 명령을 안 주면 전부 0 — 걷기는 제자리, 스쿼트는 계약의
+전부 50Hz, 관절 12개. 위 셋은 명령을 안 주면 0 — 걷기는 제자리, 스쿼트는 계약의
 기본 높이.
 
-**`stairs_slopes12` 는 `wz` 를 못 씀.** `generalized_walk` 의 49999 에서 이어
+아래 둘은 **모션 추종** 정책임. 사람이 줄 명령이 없고 꾸러미에 든 궤적을 재생함.
+ROS 에서는 `policy_node` 대신 `motion_node` 를 띄움
+([docs/policies/motion.md](docs/policies/motion.md)).
+
+**`stair_slope` 는 `wz` 를 못 씀.** `walk` 의 49999 에서 이어
 50,000번 더 학습한 것인데, 그 동안 `wz` 를 늘 0 으로만 줬음 (경사 5~30도, 계단
 3~18cm 과정). 계약에 `wz` 범위가 `[0, 0]` 으로 적혀 있어서
 
@@ -105,13 +111,13 @@ Ctrl-Q 로 멈춤. 끝나면 실패 집계가 찍힘.
 ### 쓰는 법
 
 ```bash
-huphy-run --policy generalized_walk                       # 제자리
-huphy-run --policy generalized_walk --cmd vx=0.3          # 앞으로
-huphy-run --policy generalized_walk --cmd vx=0.3 --cmd wz=0.2
-huphy-run --policy stairs_slopes12 --cmd vx=0.5             # 계단·경사. 앞으로만
-huphy-run --policy huphy_squat --cmd h_star=0.80
-huphy-run --policy huphy_squat --checkpoint 4500
-huphy-run --policy generalized_walk --checkpoint 37400   # 예전 기본 (49999 는 37400 에서 이어 학습)
+huphy-run --policy walk                       # 제자리
+huphy-run --policy walk --cmd vx=0.3          # 앞으로
+huphy-run --policy walk --cmd vx=0.3 --cmd wz=0.2
+huphy-run --policy stair_slope --cmd vx=0.5             # 계단·경사. 앞으로만
+huphy-run --policy squat --cmd h_star=0.80
+huphy-run --policy squat --checkpoint 4500
+huphy-run --policy walk --checkpoint 37400   # 예전 기본 (49999 는 37400 에서 이어 학습)
 ```
 
 3초에 걸쳐 기준 자세로 간 뒤 **Enter 를 눌러야** 정책이 시작됨. **Ctrl-Q** 로 멈춤.
@@ -119,20 +125,20 @@ huphy-run --policy generalized_walk --checkpoint 37400   # 예전 기본 (49999 
 ### 실시간 조작
 
 ```bash
-huphy-run --policy generalized_walk --teleop
+huphy-run --policy walk --teleop
 ```
 
 pygame 창이 뜸. 창에서 **Enter 시작**, **Space 속도 0**, **Esc 멈춤**.
 
 | 정책 | 키 |
 |---|---|
-| `generalized_walk` | `W`/`S` 앞뒤, `A`/`D` 돌기. 누르는 동안 가속, 떼면 0 으로 |
-| `huphy_squat` | `↑`/`↓` 높이 |
+| `walk` | `W`/`S` 앞뒤, `A`/`D` 돌기. 누르는 동안 가속, 떼면 0 으로 |
+| `squat` | `↑`/`↓` 높이 |
 
 상한과 가감속.
 
 ```bash
-huphy-run --policy generalized_walk --teleop \
+huphy-run --policy walk --teleop \
   --max vx=0.5 --accel vx=0.5 --decel vx=1.0
 ```
 
@@ -141,7 +147,7 @@ huphy-run --policy generalized_walk --teleop \
 ### 첫 통전
 
 ```bash
-huphy-run --policy generalized_walk --gain-scale 0.3 --duration 10
+huphy-run --policy walk --gain-scale 0.3 --duration 10
 ```
 
 `--gain-scale` 은 게인을 낮춰 첫 통전을 확인하는 용도임. **정책은 학습 게인을
@@ -152,14 +158,14 @@ huphy-run --policy generalized_walk --gain-scale 0.3 --duration 10
 ## 4. 보면서 돌리기
 
 ```bash
-huphy-run --policy generalized_walk --live
+huphy-run --policy walk --live
 ```
 
 `http://<이 기계 IP>:8770` 에서 관절 목표·실측을 봄. 같은 망의 다른 기계에서도
 열림. 포트를 바꾸려면 `--live 9000`.
 
 ```bash
-huphy-run --policy generalized_walk --log
+huphy-run --policy walk --log
 ```
 
 `logs/policy/` 와 `logs/latency/` 에 JSON 으로 남김. 열어 보는 법.
@@ -172,7 +178,7 @@ tools/latency_viewer.html     관절별 응답 지연
 둘 다 쓸 수 있음.
 
 ```bash
-huphy-run --policy generalized_walk --live --log
+huphy-run --policy walk --live --log
 ```
 
 ---
@@ -180,7 +186,7 @@ huphy-run --policy generalized_walk --live --log
 ## 5. 통신이 이상할 때
 
 ```bash
-huphy-run --policy generalized_walk --drain-ms 6   # 정책은 50Hz(20ms) 라 4 보다 늘릴 여유가 있음
+huphy-run --policy walk --drain-ms 6   # 정책은 50Hz(20ms) 라 4 보다 늘릴 여유가 있음
 ```
 
 | 인자 | 무엇 |
@@ -202,8 +208,8 @@ huphy-run --policy generalized_walk --drain-ms 6   # 정책은 50Hz(20ms) 라 4 
 huphy-can up                                          # 선 올리기
 huphy-test --robot watch                              # 손으로 움직여 확인
 huphy-test --robot zero --gain-scale 0.3              # 토크 넣어 보기
-huphy-run --policy generalized_walk --gain-scale 0.3 --duration 10
-huphy-run --policy generalized_walk --teleop --live
+huphy-run --policy walk --gain-scale 0.3 --duration 10
+huphy-run --policy walk --teleop --live
 huphy-can down                                        # 끝나고
 ```
 

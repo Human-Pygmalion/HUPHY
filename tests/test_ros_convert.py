@@ -22,7 +22,7 @@ from huphy.robots.biped import SEP                      # noqa: E402
 from huphy_ros import convert                           # noqa: E402
 
 
-WALK = deploy.load(Path(__file__).resolve().parent.parent / "config" / "policies" / "generalized_walk")
+WALK = deploy.load(Path(__file__).resolve().parent.parent / "config" / "policies" / "walk")
 
 
 def default_observation():

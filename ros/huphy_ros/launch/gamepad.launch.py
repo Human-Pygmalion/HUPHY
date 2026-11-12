@@ -1,7 +1,7 @@
 """작업 기계에서 띄움. Xbox 패드로 명령·시작·멈춤. `joy_node` 와 `gamepad_node` 를 같이 올림.
 
-    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk
-    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat \
+    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/walk
+    ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/squat \
         device:=/dev/input/js1 max:="vx=0.8"
 
 `policy` 는 policy_node 에 준 것과 같은 꾸러미여야 함 -- 그 정책의 명령만 조작함.
@@ -29,7 +29,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
-            "policy", default_value="config/policies/generalized_walk"),
+            "policy", default_value="config/policies/walk"),
         DeclareLaunchArgument("device", default_value="/dev/input/js0"),
         DeclareLaunchArgument("max", default_value=""),
         DeclareLaunchArgument("accel", default_value=""),

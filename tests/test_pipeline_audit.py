@@ -143,8 +143,8 @@ class TestGainPropagation:
                     f"(설정 {motor.gains.kd}, 명령 {cmd.kd})"
                 )
 
-    def test_gain_groups_match_generalized_walk_requirement(self, fake_can):
-        """걷기 정책(`config/policies/generalized_walk/`)이 전제하는 관절 묶음별 게인(학습 쪽 README의
+    def test_gain_groups_match_walk_requirement(self, fake_can):
+        """걷기 정책(`config/policies/walk/`)이 전제하는 관절 묶음별 게인(학습 쪽 README의
         "Nominal gains" 표)이 실제 `robot.yaml`과 같은지 직접 대조함. 둘이
         어긋나면 로봇이 학습 때와 다른 강성으로 움직임.
 
@@ -177,7 +177,7 @@ class TestGainPropagation:
 class TestGainOverride:
     """`build_leg(..., gains=Gains(...))` 가 설정값을 덮어쓰는지.
 
-    지금 `huphy-run`(`generalized_walk`)은 이 옵션을 안 씀 -- `robot.yaml`이
+    지금 `huphy-run`(`walk`)은 이 옵션을 안 씀 -- `robot.yaml`이
     이 정책이 학습에서 가정한 게인 그대로라 덮어쓸 이유가 없음(예전 `balance`/
     `hopping`은 달랐음, 지금은 지워짐). `build_leg`의 `gains=` 자체는 여전히
     범용 옵션으로 남아 있고, 쓰일 때 **모터 전부**에 걸리는지만 확인함 -- 모터
@@ -255,7 +255,7 @@ class TestImuWiring:
         from huphy.control import deploy
 
         walk = deploy.load(
-            Path(__file__).resolve().parent.parent / "config" / "policies" / "generalized_walk")
+            Path(__file__).resolve().parent.parent / "config" / "policies" / "walk")
         never_connected = ImuState()  # is_valid=False, 나머지 전부 기본값
         assert never_connected.is_valid is False
         assert never_connected.gravity == (0.0, 0.0, -1.0)

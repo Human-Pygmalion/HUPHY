@@ -1,7 +1,7 @@
 """작업 기계에서 띄움. `huphy-run --teleop` 과 같은 pygame 창으로 명령을 조작함.
 
-    ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
-    ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/generalized_walk \
+    ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/squat
+    ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/walk \
         max:="vx=0.8" accel:="vx=0.4" decel:="vx=1.5"
 
 `policy` 는 policy_node 에 준 것과 같은 꾸러미여야 함 -- 그 정책의 명령만 조작함.
@@ -23,7 +23,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
-            "policy", default_value="config/policies/generalized_walk"),
+            "policy", default_value="config/policies/walk"),
         DeclareLaunchArgument("max", default_value=""),
         DeclareLaunchArgument("accel", default_value=""),
         DeclareLaunchArgument("decel", default_value=""),

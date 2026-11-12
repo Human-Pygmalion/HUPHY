@@ -1,6 +1,6 @@
 """조작 노드 — 작업 기계에서 돎. `huphy-run --teleop` 의 pygame 창을 ROS 로.
 
-    ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/huphy_squat
+    ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/squat
 
 창과 키는 `huphy-run --teleop` 과 같음 (`src/huphy/control/teleop.py` 를 그대로 씀).
 정책 꾸러미를 받아 그 정책에 있는 명령만 조작함 -- walk 는 W/S/A/D, squat 는 ↑/↓.

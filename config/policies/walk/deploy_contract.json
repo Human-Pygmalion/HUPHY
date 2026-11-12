@@ -1,5 +1,5 @@
 {
- "package": "generalized_walk",
+ "package": "walk",
  "task": "HUPHY 1.0 biped velocity-command walking",
  "what": "maido-39/HuphyChan-dev vibecoded-audit-20261012 deploy/generalized_walk. Written by hand from the values the HUPHY repo already used (control/generalized_walk.py); no golden I/O from training.",
  "control_rate_hz": 50.0,

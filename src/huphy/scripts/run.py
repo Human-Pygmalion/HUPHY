@@ -1,8 +1,8 @@
 """정책 실행 — 정책 꾸러미 하나를 골라 양다리를 움직임.
 
-    huphy-run --policy generalized_walk --cmd vx=0.5 --cmd wz=0.1
-    huphy-run --policy huphy_squat --cmd h_star=0.80
-    huphy-run --policy huphy_squat --checkpoint 4500
+    huphy-run --policy walk --cmd vx=0.5 --cmd wz=0.1
+    huphy-run --policy squat --cmd h_star=0.80
+    huphy-run --policy squat --checkpoint 4500
 
 브링업과 **같은 다리·같은 루프**를 씀. 다르게 들어가는 것은 매 주기 관절 목표를
 내는 것 하나뿐임 -- 브링업은 사인파 같은 것을 넣고, 여기는 모델을 넣음.
@@ -161,8 +161,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "예시:\n"
-            "  huphy-run --policy generalized_walk --cmd vx=0.5\n"
-            "  huphy-run --policy huphy_squat --cmd h_star=0.80 --log\n\n"
+            "  huphy-run --policy walk --cmd vx=0.5\n"
+            "  huphy-run --policy squat --cmd h_star=0.80 --log\n\n"
             "상태 기계와 토크 가드가 아직 없음. 사람이 지켜보며 돌릴 것.\n"
         ),
     )

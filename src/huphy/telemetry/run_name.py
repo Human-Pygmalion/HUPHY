@@ -9,10 +9,10 @@
 
     <폴더>/<종류>/<월일>_<종류>_<이름>[_<인자들>].json
 
-    logs/policy/1027_policy_generalized_walk.json              기본값만
-    logs/policy/1027_policy_generalized_walk_g0.3_vx0.3.json
-    logs/policy/1027_policy_generalized_walk_g0.5-0.8_teleop.json
-    logs/latency/1027_latency_huphy_squat_h0.8.json
+    logs/policy/1027_policy_walk.json              기본값만
+    logs/policy/1027_policy_walk_g0.3_vx0.3.json
+    logs/policy/1027_policy_walk_g0.5-0.8_teleop.json
+    logs/latency/1027_latency_squat_h0.8.json
     logs/track/1027_track_zero_g0.3.json
 
 **기본값인 인자는 이름에서 뺌.** 전부 기본값이면 월일·종류·이름만 남음. 뭘 바꿔
@@ -27,7 +27,7 @@
 
 ## 파일 안
 
-    {"run":     {"at": "2026-10-27 14:30:52", "policy": "generalized_walk", ...},
+    {"run":     {"at": "2026-10-27 14:30:52", "policy": "walk", ...},
      "limits":  {"right_leg/knee": [6, 114], ...},
      "columns": ["t", "obs/gyro/x", ...],
      "rows":    [[0.0, 0.01, ...], [0.02, ...]]}
@@ -106,8 +106,8 @@ def path(directory: "str | Path", kind: str, name: str, parts: Sequence[str]) ->
 
     `kind` 는 `policy` / `latency` / `track`. `name` 은 정책 이름이나 동작 이름.
 
-        logs/policy/1027_policy_generalized_walk_g0.3_vx0.3.json
-        logs/latency/1027_latency_generalized_walk_g0.3_vx0.3.json
+        logs/policy/1027_policy_walk_g0.3_vx0.3.json
+        logs/latency/1027_latency_walk_g0.3_vx0.3.json
         logs/track/1027_track_zero_g0.3.json
 
     **종류별로 폴더를 나눔.** 한 폴더에 섞여 있으면 실행을 몇 번 하는 순간 목록이
@@ -132,7 +132,7 @@ def path(directory: "str | Path", kind: str, name: str, parts: Sequence[str]) ->
 def header(**fields: Any) -> Dict[str, Any]:
     """파일의 `run` 칸. 이 실행이 무엇이었는지.
 
-        {"at": "2026-10-27 14:30:52", "policy": "generalized_walk",
+        {"at": "2026-10-27 14:30:52", "policy": "walk",
          "checkpoint": "37400", "gain": 0.3, "vx": 0.3, ...}
 
     **이름에서 뺀 것이 전부 여기 들어감** -- 초 단위 시각, 체크포인트, 기본값인

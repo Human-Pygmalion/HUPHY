@@ -605,7 +605,7 @@ def _loop_joints_from(
 ) -> Tuple[Tuple[LoopSlot, ...], Tuple[float, ...]]:
     """계약의 `loop_joints` -> (24칸 순서, 24칸 기본자세 rad).
 
-    없으면 빈 것 둘 -- 24칸 관찰을 안 쓰는 정책임 (`generalized_walk` 등).
+    없으면 빈 것 둘 -- 24칸 관찰을 안 쓰는 정책임 (`walk` 등).
 
     모터 칸의 기본자세가 `actions[].offset_rad` 와 다르면 멈춤. 둘이 어긋나면
     관찰의 기준점과 행동의 기준점이 달라져 정책이 늘 치우친 값을 봄.

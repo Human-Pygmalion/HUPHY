@@ -3,7 +3,7 @@
     PYTHONPATH=src python3 -m pytest tests -q
 
 가짜 모터와 가짜 IMU 를 붙이고 **명령줄을 그대로 돌림.** `config/policies/` 의 진짜
-꾸러미(`generalized_walk/`, `huphy_squat/`)를 읽음.
+꾸러미(`walk/`, `squat/`)를 읽음.
 
 **이 정책은 양다리 12관절 전용임** -- `--limb`/`--robot` 선택지가 없음. 설정에
 `left_leg`/`right_leg` 가 둘 다 있어야 함.
@@ -94,8 +94,8 @@ def _calibration(limb: str) -> dict:
 
 
 POLICIES = Path(__file__).resolve().parent.parent / "config" / "policies"
-WALK = deploy.load(POLICIES / "generalized_walk")
-SQUAT = deploy.load(POLICIES / "huphy_squat")
+WALK = deploy.load(POLICIES / "walk")
+SQUAT = deploy.load(POLICIES / "squat")
 WEIGHTS = WALK.weights_path()
 """진짜 가중치. 없으면 실행 테스트를 건너뜀."""
 
@@ -215,7 +215,7 @@ def go(fake_can, cfg, monkeypatch, capsys):
 
 
 REAL = ["--approach", "0.05", "--duration", "0.3", "--hz", "50", "--allow-uncalibrated",
-        "--policy", "generalized_walk"]
+        "--policy", "walk"]
 """walk 로 짧게 돌림. 다른 정책은 뒤에 --policy 를 한 번 더 주면 그쪽이 씀."""
 
 
@@ -251,7 +251,7 @@ class TestRun:
 
     def test_it_shows_what_it_will_do(self, go):
         _, out = go(*REAL)
-        assert "generalized_walk" in out
+        assert "walk" in out
         assert "kp=30" in out  # robot.yaml 값 그대로, 학습값으로 덮어쓰지 않음
 
     def test_it_warns_that_nothing_stops_it(self, go):
@@ -313,19 +313,19 @@ class TestRun:
     def test_log_writes_one_row_per_policy_call(self, go, tmp_path):
         """100Hz 전송이어도 정책은 50Hz 라 줄 수는 정책 호출 수임."""
         _, out = go(*REAL, "--log", str(tmp_path / "lg"))
-        files = list((tmp_path / "lg" / "policy").glob("*_generalized_walk*.json"))
+        files = list((tmp_path / "lg" / "policy").glob("*_walk*.json"))
         assert len(files) == 1, out
         doc = _doc(files[0])
-        assert doc["run"]["policy"] == "generalized_walk"
+        assert doc["run"]["policy"] == "walk"
         assert doc["limits"], "관절 가동범위가 들어가야 함"
         assert len(doc["columns"]) == 1 + WALK.obs_dim + 12 * 3
 
     def test_log_also_writes_latency_for_all_twelve_joints(self, go, tmp_path):
         _, out = go(*REAL, "--log", str(tmp_path / "lg"))
-        files = list((tmp_path / "lg" / "latency").glob("*_generalized_walk*.json"))
+        files = list((tmp_path / "lg" / "latency").glob("*_walk*.json"))
         assert len(files) == 1, out
         doc = _doc(files[0])
-        assert doc["run"]["policy"] == "generalized_walk"
+        assert doc["run"]["policy"] == "walk"
         assert "drain_ms" in doc["meta"]
         joints = {row[1] for row in doc["rows"]}
         assert len(joints) == 12, joints
@@ -337,12 +337,12 @@ class TestRun:
 # ===========================================================================
 @pytest.mark.skipif(not SQUAT.weights_path().is_file(), reason="가중치 파일 없음")
 class TestSquat:
-    SQ = [*REAL, "--policy", "huphy_squat"]
+    SQ = [*REAL, "--policy", "squat"]
 
     def test_it_runs_to_the_end(self, go):
         code, out = go(*self.SQ, "--cmd", "h_star=0.80")
         assert code == 0, out
-        assert "huphy_squat" in out and "(입력 43, 출력 12)" in out
+        assert "squat" in out and "(입력 43, 출력 12)" in out
 
     def test_the_golden_check_runs_before_the_motors(self, go):
         _, out = go(*self.SQ)
@@ -369,7 +369,7 @@ class TestSquat:
 
     def test_log_has_43_observation_columns(self, go, tmp_path):
         go(*self.SQ, "--log", str(tmp_path / "lg"))
-        files = list((tmp_path / "lg" / "policy").glob("*_huphy_squat*.json"))
+        files = list((tmp_path / "lg" / "policy").glob("*_squat*.json"))
         assert len(files) == 1
         header = _doc(files[0])["columns"]
         assert len(header) == 1 + 43 + 12 * 3
@@ -404,14 +404,14 @@ class TestRefusals:
 
     def test_an_unknown_checkpoint_is_refused(self, go):
         with pytest.raises(SystemExit, match="체크포인트 1 가 없음"):
-            go(*REAL, "--policy", "huphy_squat", "--checkpoint", "1")
+            go(*REAL, "--policy", "squat", "--checkpoint", "1")
         assert FakeBus.instances == []
 
     @pytest.mark.parametrize("value", ["0.5", "85"])
     def test_h_star_outside_the_training_range_is_refused(self, go, value):
         """85 는 cm 로 친 실수. 범위 밖이면 CAN 을 열기 전에 멈춤."""
         with pytest.raises(SystemExit, match="학습 범위"):
-            go(*REAL, "--policy", "huphy_squat", "--cmd", f"h_star={value}")
+            go(*REAL, "--policy", "squat", "--cmd", f"h_star={value}")
         assert FakeBus.instances == []
 
     @pytest.mark.parametrize("scales", [["0.5", "0"], ["0.5", "1.5"], ["0.5", "0.5", "0.5"]])
@@ -437,7 +437,7 @@ class TestRefusals:
                 json.dumps(_calibration(limb), ensure_ascii=False), encoding="utf-8"
             )
         with pytest.raises(SystemExit, match="IMU 가 없음"):
-            main(["--config", str(robot), "--policy", "generalized_walk"])
+            main(["--config", str(robot), "--policy", "walk"])
 
     def test_missing_leg_names_are_refused(self, fake_can, tmp_path):
         """모델은 left_leg/right_leg 로 명령을 냄. 설정 이름이 다르면 못 나눔."""
@@ -597,7 +597,7 @@ class TestTeleop:
         assert "A/D wz" in out
 
     def test_squat_runs_with_the_window(self, go, dummy):
-        code, out = go(*REAL, "--policy", "huphy_squat", "--teleop", "--cmd", "h_star=0.85")
+        code, out = go(*REAL, "--policy", "squat", "--teleop", "--cmd", "h_star=0.85")
         assert code == 0, out
         assert "↑/↓ h_star (0.05/s)" in out
 

@@ -19,7 +19,7 @@ tools/
 과 `huphy-test --log` 이 `logs/` 에 남김.
 
 ```bash
-huphy-run --policy generalized_walk --cmd vx=0.5 --hz 50 --drain-ms 4 --log
+huphy-run --policy walk --cmd vx=0.5 --hz 50 --drain-ms 4 --log
 # 끝나면
 #   logs/policy/<월일>_policy_<정책>[_<인자>].json    -> policy_viewer.html
 #   logs/latency/<월일>_latency_<정책>[_<인자>].json  -> latency_viewer.html
@@ -79,8 +79,8 @@ python3 tools/robot_viewer.py --host 0.0.0.0                         # 같은 �
 | `extra/<모터>/<값>` | 추가 값. `--extra` 로 돌렸을 때만 있음. iq(전류), temp(온도), vbus(전압). 전류·전압은 몇 주기마다 갱신되고 그 사이는 마지막 값 | A, °C, V |
 | `power/<모터>/copper_w`, `power/<모터>/dc_a_lo`, `power/copper_w`, `power/dc_a_lo` | 전력. ROS `log_node` 가 전기값을 읽을 때만 있음. 구리 손실(`1.5 x iq^2 x R_phase`)만 넣은 값이라 `dc_a_lo` 는 하한임 ([docs/motor_power.md](../docs/motor_power.md)). 모터별 `dc_a_lo` 는 11-09 이전 기록에는 없음 | W, A, W, A |
 
-`generalized_walk` 의 관찰은 `obs/gyro/{x,y,z}`, `obs/grav/{x,y,z}`, `obs/q_prev/<관절>`,
-`obs/q/<관절>`, `obs/last_act/<관절>`, `obs/cmd/{vx,wz}` 순서임 (44칸). `huphy_squat` 는
+`walk` 의 관찰은 `obs/gyro/{x,y,z}`, `obs/grav/{x,y,z}`, `obs/q_prev/<관절>`,
+`obs/q/<관절>`, `obs/last_act/<관절>`, `obs/cmd/{vx,wz}` 순서임 (44칸). `squat` 는
 명령이 `obs/cmd/h_star` 하나라 43칸임. 순서와 칸 수는 정책마다 다르고 계약
 (`config/policies/<이름>/deploy_contract.json`) 이 정함.
 
@@ -174,7 +174,7 @@ huphy-run --robot --policy stand --ankle-space ab --hz 50 --live 8771
 ### 기록
 
 ```json
-{"run":     {"at": "2026-10-30 14:30:52", "policy": "generalized_walk", "gain": 0.5, ...},
+{"run":     {"at": "2026-10-30 14:30:52", "policy": "walk", "gain": 0.5, ...},
  "meta":    {"drain_ms": 4, "hz": 50},
  "columns": ["t", "joint", "latency_ms", "status"],
  "rows":    [[1.2041, "right_leg/knee", 2.6133, "ontime"],

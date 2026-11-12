@@ -25,8 +25,8 @@ from sensor_msgs.msg import Joy                         # noqa: E402
 
 from huphy_ros.gamepad_node import AXES, BUTTONS, GamepadNode   # noqa: E402
 
-WALK = "config/policies/generalized_walk"
-SQUAT = "config/policies/huphy_squat"
+WALK = "config/policies/walk"
+SQUAT = "config/policies/squat"
 HOLD_S = 0.2
 """시험에서 쓰는 `enable_hold_s`. 기본 1.0초를 그대로 기다리지 않으려는 것임."""
 

@@ -1,10 +1,10 @@
-# huphy_squat — 제자리 스쿼트 정책 배포 꾸러미
+# squat — 제자리 스쿼트 정책 배포 꾸러미
 
 HUPHY LegOnly 이족(모터 12 개)이 평지에 서서 **목표 골반 높이 h\* 를 따라 앉았다 일어서는** 정책입니다.
 밀어도 버티고, 필요하면 발을 디뎌 자세를 되찾습니다. 시뮬레이터는 필요 없습니다.
 `numpy` 와 `onnxruntime` 만 있으면 됩니다.
 
-정책이 무엇을 보고 어떻게 학습됐는지, 그리고 성능 수치는 [`../../huphy_squat/README.md`](../../huphy_squat/README.md) 에 있습니다.
+정책이 무엇을 보고 어떻게 학습됐는지, 그리고 성능 수치는 [`../../squat/README.md`](../../squat/README.md) 에 있습니다.
 
 > [!WARNING]
 > **고정 자세(fixed stand)는 반드시 이 꾸러미의 기본자세로 잡으십시오. 기존 Huphy 정책의 자세가 아닙니다.**
@@ -123,7 +123,7 @@ while True:                                    # 50 Hz (20 ms)
 > **주의 — 기존 Huphy 꾸러미 (`pyg_stand_*`, `pyg_rough_main_20261012`) 와 오프셋이 다릅니다.**
 > hip pitch 와 knee 는 같지만, hip roll·hip yaw·crank A/B 가 다릅니다.
 >
-> | 관절 (R) | 기존 꾸러미 | huphy_squat |
+> | 관절 (R) | 기존 꾸러미 | squat |
 > |---|---|---|
 > | hip roll | 0 | +0.05 |
 > | hip yaw | 0 | +0.008837 |
@@ -191,8 +191,8 @@ while True:                                    # 50 Hz (20 ms)
 ## 9. 꾸러미 다시 만들기 / 검증 (학습 컴퓨터에서)
 
 ```bash
-cd huphy_squat
-/home/roy/huphy/mjlab/.venv/bin/python scripts/export_deploy.py --run-dir logs/rsl_rl/huphy_squat/<run> --iters 5000 4500 4000
+cd squat
+/home/roy/huphy/mjlab/.venv/bin/python scripts/export_deploy.py --run-dir logs/rsl_rl/squat/<run> --iters 5000 4500 4000
 /home/roy/huphy/mjlab/.venv/bin/python scripts/verify_deploy.py
 ```
 

@@ -955,32 +955,34 @@ Ctrl-Q 까지 계속함. 끝나면 실패 집계를 찍음. 자세한 것은 [6�
 **두 가지 정책이 있음.** 속도 명령 정책은 사람이 `--cmd` 로 값을 주고, 모션 추종
 정책은 꾸러미에 든 궤적을 재생함 (줄 값이 없음). ROS 에서는 노드가 갈림 --
 `policy_node` / `motion_node` ([ros/README.md](ros/README.md)).
-`union` 는 [docs/policies/union.md](docs/policies/union.md).
+모션 추종 꾸러미는 [docs/policies/motion.md](docs/policies/motion.md).
 
 | `--policy` | 무엇 | 입력 | 명령 (`--cmd`) |
 |---|---|---|---|
-| `generalized_walk` | 속도 명령 걷기 | 44 | `vx` m/s, `wz` rad/s. 기본 0 |
-| `huphy_squat` | 목표 골반 높이로 앉았다 일어섬 | 43 | `h_star` m. 0.65~0.895, 기본 0.8914 |
-| `union` | 기준 궤적 659프레임 재생 (모션 추종) | 114 | **없음** -- 따라갈 궤적이 꾸러미 안에 있음 |
+| `walk` | 속도 명령 걷기 | 44 | `vx` m/s, `wz` rad/s. 기본 0 |
+| `squat` | 목표 골반 높이로 앉았다 일어섬 | 43 | `h_star` m. 0.65~0.895, 기본 0.8914 |
+| `motion545` | 기준 궤적 659프레임 재생 (모션 추종) | 114 | **없음** -- 따라갈 궤적이 꾸러미 안에 있음 |
+| `motion399` | 기준 궤적 1511프레임 재생 (모션 추종) | 114 | **없음** -- 같음 |
 
 ```bash
-huphy-run --policy generalized_walk --cmd vx=0.5   # 걷기, 앞으로 0.5m/s
-huphy-run --policy huphy_squat --cmd h_star=0.80  # 스쿼트, 0.8914 -> 0.80 m 를 0.1 m/s 로
-huphy-run --policy huphy_squat --checkpoint 4500  # 같은 꾸러미의 다른 체크포인트
-huphy-run --policy generalized_walk --checkpoint 37400  # 걷기 예전 기본. 지금 기본은 49999 (terrain10 union-DR, 37400 에서 이어 학습)
-huphy-run --policy union                 # 모션 추종. --cmd 가 없음 (13.16초 재생)
+huphy-run --policy walk --cmd vx=0.5   # 걷기, 앞으로 0.5m/s
+huphy-run --policy squat --cmd h_star=0.80  # 스쿼트, 0.8914 -> 0.80 m 를 0.1 m/s 로
+huphy-run --policy squat --checkpoint 4500  # 같은 꾸러미의 다른 체크포인트
+huphy-run --policy walk --checkpoint 37400  # 걷기 예전 기본. 지금 기본은 49999 (terrain10 Union-DR, 37400 에서 이어 학습)
+huphy-run --policy motion545                 # 모션 추종. --cmd 가 없음 (13.18초 재생)
+huphy-run --policy motion399                 # 같은 계약, 다른 궤적 (30.22초 재생)
 
 # 정책 입출력을 logs/policy/<월일>_policy_<정책>[_<인자>].json 으로 남김 (폴더 지정: --log 경로)
-huphy-run --policy generalized_walk --cmd vx=0.5 --log
+huphy-run --policy walk --cmd vx=0.5 --log
 
 # 권장 -- 50Hz, 수거 대기 4ms, 게인 나머지 0.5배 · 발목 0.8배
-huphy-run --policy generalized_walk --cmd vx=0.5 --hz 50 --drain-ms 4 --gain-scale 0.5 0.8 --log
+huphy-run --policy walk --cmd vx=0.5 --hz 50 --drain-ms 4 --gain-scale 0.5 0.8 --log
 
 # 주기를 못 지킬 때 -- 한 주기 안 단계별 소요 시간을 끝에 찍음 (huphy-run 만)
-huphy-run --policy generalized_walk --profile
+huphy-run --policy walk --profile
 
 # 모터 전류·전압·온도를 같이 봄 -- 실시간 뷰어와 기록에 extra/ 열 (huphy-test 도 됨)
-huphy-run --policy generalized_walk --extra --live --log
+huphy-run --policy walk --extra --live --log
 ```
 
 `--profile` 출력은 이런 모양임. 어느 단계가 주기(50Hz 면 20ms)를 잡아먹는지 봄.
@@ -997,9 +999,9 @@ huphy-run --policy generalized_walk --extra --live --log
 화면이 있어야 함 (ssh 면 `ssh -X`). pygame 은 `pip install -e ".[teleop]"`.
 
 ```bash
-huphy-run --policy generalized_walk --teleop                       # walk, 기본 설정
-huphy-run --policy generalized_walk --teleop --max vx=0.8 --accel vx=0.4 --decel vx=1.5
-huphy-run --policy huphy_squat --teleop                     # squat
+huphy-run --policy walk --teleop                       # walk, 기본 설정
+huphy-run --policy walk --teleop --max vx=0.8 --accel vx=0.4 --decel vx=1.5
+huphy-run --policy squat --teleop                     # squat
 ```
 
 | 창에서 누르는 키 | 하는 일 |

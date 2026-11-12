@@ -1,7 +1,7 @@
 """정책 노드 — 작업 기계에서 돎. 어디로 갈지 정함.
 
-    ros2 run huphy_ros policy_node --ros-args -p policy:=config/policies/generalized_walk
-    ros2 run huphy_ros policy_node --ros-args -p policy:=config/policies/huphy_squat
+    ros2 run huphy_ros policy_node --ros-args -p policy:=config/policies/walk
+    ros2 run huphy_ros policy_node --ros-args -p policy:=config/policies/squat
 
 정책은 꾸러미 폴더 하나임 (`huphy-run --policy` 와 같음). 관절 순서, 기본 자세, 관찰
 구성, 주기, 명령은 그 안의 `deploy_contract.json` 이 정하고 `control/deploy.py` 가 읽음.
