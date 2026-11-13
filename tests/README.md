@@ -15,6 +15,7 @@ tests/
 ├── test_leg.py             robots/leg.py               68개
 ├── test_sensors.py         sensors/                    31개
 ├── test_ebimu.py           sensors/ebimu/              42개
+├── test_wcm1600.py         sensors/wcm1600/            21개
 ├── test_telemetry.py       telemetry/                  69개
 ├── test_control.py         control/                    45개
 ├── test_policy.py          control/policy.py           27개
@@ -244,6 +245,21 @@ EBIMU 테스트는 실제 패킷 한 줄을 씀. 15필드이고 자세가 약 `r
 
 **개수가 안 맞는 줄은 통째로 버림.** 앞에서부터 채우면 항목 하나가 빠졌을 때 뒤가
 한 칸씩 당겨져 각속도 자리에 가속도가 들어가는데, 값이 그럴듯해서 실물에서 안 잡힘.
+
+### `test_wcm1600.py` — 21개
+
+| 클래스 | 개수 | 대상 |
+|---|---|---|
+| `TestParse` | 10 | 매뉴얼 예시 여섯 개, 깨진 프레임, 다섯째 자리 |
+| `TestMeter` | 6 | 모름과 0A 의 구분, 최신 하나만, 버린 줄, age 기준, IMU 가 아님 |
+| `TestColumns` | 5 | 계산 열 옆자리, 안 켜면 열 없음, 켜고 못 받으면 null, 두 길이 같은 열 |
+
+**자리수를 못 박는 것이 이 파일의 목적임.** 앞 네 자리 ÷ 100 인데 다섯 자리를 다
+읽으면 1.23 A 가 12.30 A 로 나옴 -- 값이 그럴듯해서 실물에서 안 잡힘.
+
+`huphy-run --current` 길(`PolicyLog(current_source=...)`)과 ROS 길
+(`convert.current_to_columns`)이 **같은 열 이름**을 내는지도 봄. 어긋나면 같은
+뷰어로 두 기록을 못 봄.
 
 ### `test_telemetry.py` — 69개
 

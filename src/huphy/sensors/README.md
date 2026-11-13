@@ -1,19 +1,25 @@
-# `sensors/` — IMU
+# `sensors/` — IMU 와 전류계
 
 ```
 sensors/
 ├── base.py         ImuState, Imu. 벤더를 모르는 자료형과 계약
+├── current.py      CurrentState, CurrentMeter. 전류계 쪽 중립 계층
 ├── group.py        ImuGroup. 붙어 있는 센서 묶음
-├── registry.py     설정의 model 문자열 -> 구현체
+├── registry.py     설정의 model 문자열 -> 구현체 (IMU 만)
 ├── ebimu/          E2BOX EBIMU-9DOF. 지금 쓰는 것
 │   ├── commands.py       매뉴얼에서 오는 값. 명령표, 블록별 필드 수
 │   ├── protocol.py       한 줄 <-> 값. 순수 함수
 │   ├── imu.py            EbimuImu. 위쪽이 쓰는 것
 │   └── commissioning.py  센서 설정을 바꿈. huphy-imu 가 부름
-└── xsens/          Xsens MTi
-    ├── imu.py      XsensImu
-    └── xbus/       받아 온 시리얼 읽기 코드
+├── xsens/          Xsens MTi
+│   ├── imu.py      XsensImu
+│   └── xbus/       받아 온 시리얼 읽기 코드
+└── wcm1600/        WCM1600 전류계. 로봇 전체 DC 전류
+    ├── protocol.py       프레임 한 줄 <-> 값. 순수 함수
+    └── meter.py          Wcm1600. 위쪽이 쓰는 것
 ```
+
+아래는 IMU 이야기임. 전류계는 마지막 절에 따로 있음.
 
 `motors/` 와 같은 나눔임. 중립 계층이 자료형과 계약을 정하고 벤더 폴더가 구현함.
 센서를 갈아 끼워도 위쪽 코드는 바뀌지 않음.
@@ -312,3 +318,54 @@ example_usage.py      원본 사용 예
 
 여기 것을 직접 쓰지 말 것. 위쪽은 `XsensImu` 를 씀 — 그것이 리더의 dict 를
 `ImuState` 로 바꿔 올림.
+
+---
+
+## 전류계 (`current.py`, `wcm1600/`)
+
+로봇 전체의 DC 전류를 잼. **필요할 때만 꽂는 장비임** -- `config/robot.yaml` 의
+항목이 아니고, 쓸 때 포트를 줘서 엶.
+
+```bash
+huphy-current                                  # 보면서 재고, 끝에 평균을 찍음
+huphy-run --log logs --current <정책>          # 기록에 current/ 열이 생김
+ros2 launch huphy_ros current.launch.py        # ROS. log_node 와 같이 띄울 것
+```
+
+IMU 와 같은 계약을 씀.
+
+| | |
+|---|---|
+| `read()` | 통신하지 않음. 백그라운드로 받아 둔 최근 값만 |
+| 못 받았어도 | `CurrentState` 는 나옴. `is_valid` 가 거짓 |
+| `age_ms()` | 한 번도 못 받았으면 `-1` |
+
+**`ImuState` 에 암페어 칸을 더하지 않았고 `registry.MODELS` 에도 없음.** 전류계는
+자세도 각속도도 안 내므로 `Imu` 프로토콜을 구현하면 칸이 전부 "모름" 으로 차고,
+`huphy-imu check` 같은 IMU 전용 검사에 끌려 들어옴.
+
+### 프레임 (UART 9600 8N1, Continuous 모드)
+
+```
+<부호><다섯 자리>(CR)(LF)        8바이트. 전부 ASCII
+
+~ = AC,  + = DC 양,  - = DC 음
+```
+
+매뉴얼의 예가 자리수를 못 박아 둠 -- `"1.23" A` 가 `'0','1','2','3','0'`,
+`"10.76" A` 가 `'1','0','7','6','0'`. **앞 네 자리를 100 으로 나눈 값**이고 다섯째
+자리는 해상도 밖임(항상 `'0'`). 틀려도 12.30 A 처럼 그럴듯한 숫자가 나와서 실물에서
+안 잡히므로 `tests/test_wcm1600.py` 가 못 박아 둠.
+
+### 로그에서 무엇과 짝인가
+
+`power/dc_a_lo` (모터 상전류로 계산한 DC 전류 **하한**) 와 나란히 남고, **둘은
+같아질 수 없음.** 계산값은 구리 손실만 보므로 작고, 실측은 모터 말고 연산보드·팬·
+통신까지 다 포함하므로 큼. 차를 바로 "손실" 로 읽으면 안 되고, 로봇을 세워 둔 채
+잰 값을 기준선으로 빼야 비교가 됨 (`telemetry/power.py` 4절).
+
+### 포트
+
+`port` 를 생략하면 USB 직렬 장치를 하나 찾고, **여럿이면 고르지 않고 멈춤.** IMU 도
+USB 로 붙어 있으면 직접 줄 것 -- 둘 다 FTDI 면 어느 것인지 알 수 없음. udev 로
+고정한 링크를 권함.

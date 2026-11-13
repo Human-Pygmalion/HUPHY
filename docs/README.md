@@ -14,7 +14,8 @@ motor_setup.md     출하 상태 모터 세팅. 보낼 프레임까지
 candlelight.md     USB-CAN 어댑터를 slcan 에서 candleLight(gs_usb) 로 전환
 can_communication.md  CAN 통신 진단 기록. 무엇이 문제였고 지금 어떻게 보내고 세나
 monitoring.md      무엇을 왜 보는가
-motor_power.md     모터 전류·전압·전력. 무엇이 읽히고 무엇을 계산해야 하나
+motor_power.md     모터 전류·전압·전력. 무엇이 읽히고, 무엇을 계산하고, 전류계
+                   실측과 어떻게 다른가
 policies/          정책 꾸러미별 문서
   motion.md              모션 추종 정책. 관절 24칸 관찰, 확인된 어긋남
 ```
@@ -38,6 +39,7 @@ policies/          정책 꾸러미별 문서
 | 그래프에서 무엇을 보나 | [monitoring.md](monitoring.md) |
 | 갓 뜯은 모터를 어떻게 세팅하나 | [motor_setup.md](motor_setup.md) |
 | CAN 지연·유실을 어떻게 줄이나 | [candlelight.md](candlelight.md) |
+| 전류·전력을 어떻게 재고 계산하나 | [motor_power.md](motor_power.md) |
 | 응답이 왜 빠졌나, 늦음·유실은 어떻게 세나 | [can_communication.md](can_communication.md) |
 
 ---

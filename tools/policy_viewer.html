@@ -118,6 +118,8 @@ const IMU_TITLE = { att: ["자세", "deg"], gyro: ["각속도", "deg/s"], grav: 
   acc: ["가속도", "m/s²"], age: ["수신 나이", "ms"] };
 // 추가 값 열(extra/<모터>/<값>). huphy-run / huphy-test 를 --extra 로 돌렸을 때만 있음.
 const EXTRA_TITLE = { iq: ["추가 값 · 전류 iq", "A"], temp: ["추가 값 · 온도", "°C"], vbus: ["추가 값 · 전압 VBUS", "V"] };
+// 전류계 실측 열(current/total_a, current/age). huphy-run --current / ROS current_node 를
+// 띄웠을 때만 있음. total_a 는 power/dc_a_lo 그래프에 겹쳐 그림.
 // 전력 열(power/<모터>/copper_w, power/<모터>/dc_a_lo, power/copper_w, power/dc_a_lo). ROS log_node 가 전기값을
 // 읽을 때만 있음. 구리 손실만 넣은 값이라 dc_a_lo 는 하한임 (docs/motor_power.md).
 const POWER_TITLE = { copper_w: ["전력 합", "W"], dc_a_lo: ["DC 전류 합", "A"] };
@@ -230,6 +232,16 @@ function load(name, text) {
       const g = add("power/motor", "전력 - 모터별", "W", false);
       g.extra = true; g.cols.push(i);
     }
+    else if (c === "current/total_a") {
+      // 전류계 실측. 계산 하한(power/dc_a_lo)과 **같은 그래프**에 겹쳐 둠 -- 두 값을
+      // 나란히 보는 것이 이 열의 목적임. 둘이 같아지지 않는 이유는 docs/motor_power.md.
+      const g = add("power/dc_a_lo", POWER_TITLE.dc_a_lo[0], "A", false);
+      g.title = "DC 전류 — 계산 하한(dc_a_lo) vs 전류계 실측(total_a)";
+      g.cols.push(i);
+    }
+    else if (c === "current/age") {
+      add("current/age", "전류계 수신 나이", "ms", false).cols.push(i);
+    }
     else if (p[0] === "power" && p[p.length - 1] === "dc_a_lo") {
       // 예전 기록에는 이 열이 없음 -- 그때는 그래프가 안 생김
       const g = add("power/motor_dc", "DC 전류 - 모터별", "A", false);
@@ -246,7 +258,9 @@ function load(name, text) {
     const rest = S.panels.filter((g) => !POWER_ORDER.includes(g.key));
     S.panels = [...rest.slice(0, at), ...pw, ...rest.slice(at)];
   }
-  const defaults = ["each", "err", "obs/gyro", "obs/grav"];
+  // 전류계 열이 있으면 DC 전류 그래프를 처음부터 펴 둠 -- 그 열을 켠 이유가 비교임.
+  const defaults = ["each", "err", "obs/gyro", "obs/grav"]
+    .concat(cols.includes("current/total_a") ? ["power/dc_a_lo"] : []);
   S.shown = new Set(S.panels.map((p) => p.key).filter((k) =>
     defaults.includes(k) || k === "extra/iq" || k === "power/copper_w"
     || /^imu\/[^/]+\/(att|gyro)$/.test(k)));

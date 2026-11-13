@@ -220,6 +220,7 @@ pip install --upgrade pip
 pip install -e .            # python-can, numpy, PyYAML
 pip install -e ".[dev]"     # + pytest
 pip install -e ".[imu]"     # + pyserial. IMU 를 붙일 때만
+pip install -e ".[current]" # + pyserial. 전류계를 꽂을 때만 (IMU 와 같은 꾸러미)
 pip install -e ".[teleop]"  # + pygame. huphy-run --teleop 을 쓸 때만
 ```
 
@@ -983,6 +984,9 @@ huphy-run --policy walk --profile
 
 # 모터 전류·전압·온도를 같이 봄 -- 실시간 뷰어와 기록에 extra/ 열 (huphy-test 도 됨)
 huphy-run --policy walk --extra --live --log
+
+# 전류계를 꽂았을 때 -- 기록에 current/ 열. --extra 와 같이 주면 계산값과 나란히 남음
+huphy-run --policy walk --extra --current --log
 ```
 
 `--profile` 출력은 이런 모양임. 어느 단계가 주기(50Hz 면 20ms)를 잡아먹는지 봄.
@@ -1073,6 +1077,7 @@ W 와 A 를 같이 누르면 앞으로 가면서 돎. 창이 포커스를 잃으
 | `--gain-scale A [B]` | kp/kd 배율. 숫자 하나면 전체, 둘이면 **나머지 A · 발목 B** (`ankle_a`/`ankle_b`). 0 초과 1 이하. 시작 화면에 실제로 걸린 값이 찍힘 |
 | `--log [DIR]` | 정책 입출력(`policy/<월일>_policy_*.json`)과 관절별 응답 지연(`latency/<월일>_latency_*.json`)을 남김. 폴더를 안 주면 `logs/`, 그 안에서 종류별로 나눠 담음 |
 | `--live [PORT]` | 도는 동안 관절 목표·실측을 브라우저로 봄. 기본 포트 8770 ([tools/README.md](tools/README.md)) |
+| `--current [PORT]` | 전류계(WCM1600)로 로봇 전체 DC 전류를 같이 기록함. 기록에 `current/total_a`·`current/age` 열. 포트를 생략하면 USB 직렬 장치를 찾음 -- IMU 도 USB 면 직접 줄 것. **못 열려도 정책은 그대로 돎** |
 | `--duration` `--approach` `--drain-ms` `--allow-uncalibrated` | 위와 같음 |
 
 게인을 낮추면 같은 행동에도 관절이 덜 따라가 시뮬과 다르게 움직임. 첫 통전 확인용이고,
@@ -1113,6 +1118,40 @@ python3 tools/imu_viewer.py check     # 손으로 한 축씩 돌리며 단위·�
 두 `check` 는 다른 것을 봄 -- `huphy-imu check` 는 정지 상태에서 부착 방향을, `imu_viewer.py
 check` 는 돌리는 동안 gyro 와 중력이 같은 좌표계·단위인지를 봄. IMU 포트는 한 프로세스만
 열 수 있으므로 정책 실행 중에는 못 씀.
+
+### 전류계 — 로봇 전체 DC 전류
+
+```bash
+huphy-current                        # 포트를 찾아 계속 보여 줌. 끝에 평균·최소·최대
+huphy-current --port /dev/ttyUSB1
+huphy-current --quiet --seconds 30   # 조용히 재고 요약만
+```
+
+WCM1600 (UART 9600 8N1, Continuous 모드). **필요할 때만 꽂는 장비임** --
+`robot.yaml` 의 항목이 아니라서 이 명령은 설정 파일을 안 읽음.
+
+포트를 생략하면 USB 직렬 장치를 찾고, **여럿이면 고르지 않고 멈춤.** IMU 도 USB 로
+붙어 있으면 직접 줄 것 -- 둘 다 FTDI 면 어느 것인지 알 수 없음.
+
+기록에 남기는 것은 이 명령이 아님.
+
+```bash
+huphy-run --policy walk --extra --current --log   # current/total_a · current/age 열
+ros2 launch huphy_ros current.launch.py           # ROS. log_node 와 같이 띄울 것
+```
+
+이 실측값은 `power/dc_a_lo` (모터 상전류로 계산한 DC 전류 **하한**) 와 나란히 남고
+**둘은 같아질 수 없음.** 계산값은 구리 손실만 보므로 작고, 실측은 모터 말고
+연산보드·팬·통신까지 다 포함하므로 큼. 차를 바로 "손실" 로 읽으면 안 됨.
+
+```
+1  로봇을 기준 자세로 세워 둠 (모터는 자세 유지 전류만)
+2  huphy-current --quiet --seconds 30   -> 평균을 기준선으로 적어 둠
+3  로그에서  current/total_a - 기준선  을  power/dc_a_lo  와 비교
+```
+
+뷰어는 두 값을 **같은 그래프에 겹쳐** 그림 ([tools/README.md](tools/README.md)).
+자세한 것은 [docs/motor_power.md](docs/motor_power.md).
 
 ### 공통
 
@@ -1289,12 +1328,14 @@ motors/           모터 id 와 raw 각도만 앎
    ├─ canbus.py       CAN 전송. python-can 유일 사용처
    └─ robstride/      벤더 사양, 코덱, 버스, 커미셔닝
    │
-sensors/          모터가 아닌 센서. IMU
+sensors/          모터가 아닌 센서. IMU 와 전류계
    │
    ├─ base.py         ImuState, Imu. 벤더 중립
-   ├─ registry.py     model 문자열 -> 구현체
+   ├─ current.py      CurrentState, CurrentMeter. 벤더 중립
+   ├─ registry.py     model 문자열 -> 구현체 (IMU 만)
    ├─ ebimu/          E2BOX EBIMU-9DOF. ASCII 시리얼. 지금 쓰는 것
-   └─ xsens/          Xsens MTi. 시리얼 Xbus
+   ├─ xsens/          Xsens MTi. 시리얼 Xbus
+   └─ wcm1600/        WCM1600 전류계. 로봇 전체 DC 전류. 필요할 때만 꽂음
    │
 telemetry/        옆에서 관찰. 제어를 방해하지 않음
 ```
@@ -1496,11 +1537,13 @@ kept_up    꾸준한 느림.   평균이 목표의 90% 미만
 | [`src/huphy/motors/robstride/`](src/huphy/motors/robstride/README.md) | 벤더 사양, 코덱, 버스, 커미셔닝 |
 | [`src/huphy/kinematics/`](src/huphy/kinematics/README.md) | 발목 링키지 |
 | [`src/huphy/robots/`](src/huphy/robots/README.md) | 관절 ↔ 모터 경계 |
+| [`src/huphy/sensors/`](src/huphy/sensors/README.md) | IMU 와 전류계 |
 | [`src/huphy/telemetry/`](src/huphy/telemetry/README.md) | 관찰 |
 | [`src/huphy/control/`](src/huphy/control/README.md) | 제어 루프, 게인 튜닝 |
 | [`src/huphy/scripts/`](src/huphy/scripts/README.md) | 터미널 진입점 |
 | [`tests/`](tests/README.md) | 무엇을 고정했나 |
 | [`docs/motor_setup.md`](docs/motor_setup.md) | 출하 상태 모터를 쓸 수 있게 만들기. 보낼 프레임까지 |
+| [`docs/motor_power.md`](docs/motor_power.md) | 모터 전류·전압·전력. 계산값과 전류계 실측의 차이 |
 | [`docs/cycle.md`](docs/cycle.md) | 한 주기. 값이 어떤 모양으로 어디를 지나나 |
 | [`docs/issues.md`](docs/issues.md) | 미해결 항목과 근거 |
 

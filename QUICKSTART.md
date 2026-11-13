@@ -224,5 +224,6 @@ huphy-can down                                        # 끝나고
 | `huphy-commission` | 조립할 때 한 번. 영점·가동범위 실측 |
 | `huphy-bringup` | 관절 하나씩 골라 움직여 보는 메뉴 |
 | `huphy-imu` | IMU 설정·부착 방향 확인 |
+| `huphy-current` | 전류계로 로봇 전체 DC 전류를 봄. 꽂았을 때만 |
 
 `--help` 로 각자 인자를 볼 수 있음.

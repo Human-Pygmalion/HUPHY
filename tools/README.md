@@ -78,6 +78,7 @@ python3 tools/robot_viewer.py --host 0.0.0.0                         # 같은 �
 | `imu/<이름>/<값>` | IMU. `huphy-test --log`·실시간 녹화에만 있음. roll/pitch/yaw, gx/gy/gz, grav_x/y/z, ax/ay/az, age | 도, 도/초, —, m/s², ms |
 | `extra/<모터>/<값>` | 추가 값. `--extra` 로 돌렸을 때만 있음. iq(전류), temp(온도), vbus(전압). 전류·전압은 몇 주기마다 갱신되고 그 사이는 마지막 값 | A, °C, V |
 | `power/<모터>/copper_w`, `power/<모터>/dc_a_lo`, `power/copper_w`, `power/dc_a_lo` | 전력. ROS `log_node` 가 전기값을 읽을 때만 있음. 구리 손실(`1.5 x iq^2 x R_phase`)만 넣은 값이라 `dc_a_lo` 는 하한임 ([docs/motor_power.md](../docs/motor_power.md)). 모터별 `dc_a_lo` 는 11-09 이전 기록에는 없음 | W, A, W, A |
+| `current/total_a`, `current/age` | 전류계(WCM1600)가 잰 로봇 전체 DC 전류와 그 값이 들어온 뒤 흐른 시간. `huphy-run --current` 또는 ROS `current_node` 를 띄웠을 때만 있음. `total_a` 는 `power/dc_a_lo` 그래프에 겹쳐 그림 -- **둘은 같아질 수 없음** ([docs/motor_power.md](../docs/motor_power.md)) | A, ms |
 
 `walk` 의 관찰은 `obs/gyro/{x,y,z}`, `obs/grav/{x,y,z}`, `obs/q_prev/<관절>`,
 `obs/q/<관절>`, `obs/last_act/<관절>`, `obs/cmd/{vx,wz}` 순서임 (44칸). `squat` 는

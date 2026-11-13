@@ -335,6 +335,39 @@ extra=0                         열을 아예 안 만듦
 
 합을 `null` 로 두는 이유: 그 모터를 빼고 더하면 일부만 더한 값이 전체 합으로 보임.
 
+### 전류 실측 열
+
+전류계(WCM1600)를 꽂으면 실측 DC 전류가 같은 줄에 남음. 계산값을 **대체하지 않음** --
+둘이 다르게 나오는 것이 정보임.
+
+```
+current/total_a   전류계가 잰 로봇 전체 DC 전류 (A)
+current/age       그 값이 장비에서 온 뒤 흐른 시간 (ms). 못 받았으면 -1
+```
+
+```
+huphy-run --current             PolicyLog(current_source=meter.read)
+ROS current_node                /huphy/bus_current -> log_node -> convert.current_to_columns
+```
+
+열 이름은 [`telemetry/power.py`](../src/huphy/telemetry/power.py) 의
+`CURRENT_COLUMNS` 임. 장비는 [`sensors/wcm1600/`](../src/huphy/sensors/wcm1600/).
+
+**`power/dc_a_lo` 와 같아질 수 없음.** 아래 "아직 안 들어간 것" 의 네 항목이 계산값에
+빠져 있어 계산값이 작고, 실측은 모터 말고 **연산보드·팬·통신까지** 포함해서 큼.
+그래서 두 열의 차가 곧 빠진 손실이 아님.
+
+비교하는 절차:
+
+```
+1  로봇을 기준 자세로 세워 둠 (모터는 자세 유지 전류만)
+2  huphy-current --quiet --seconds 30   -> 평균을 기준선으로 적어 둠
+3  로그에서  current/total_a - 기준선  을  power/dc_a_lo  와 비교
+```
+
+2 단계의 기준선에는 모터 외 소비와 자세 유지분이 같이 들어 있음. 그래서 3 은
+"움직이는 데 더 쓴 전류" 끼리의 비교임 -- 절대값끼리의 비교가 아님.
+
 ### 아직 안 들어간 것
 
 ```

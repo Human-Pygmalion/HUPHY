@@ -7,6 +7,7 @@ scripts/
 ├── selftest.py     정해진 패턴으로 계속 움직여 봄
 ├── run.py          학습한 정책으로 움직임
 ├── imu.py          센서를 설정하고 확인
+├── current.py      전류계로 로봇 전체 DC 전류를 봄
 ├── failures.py     실행이 끝난 뒤 실패 집계 (진입점 아님)
 └── table.py        표 그리기 (진입점 아님)
 ```
@@ -864,3 +865,23 @@ build_biped(robot)          # 로봇 전체.       kind: leg 인 팔다리를 �
 
 `limbs` 를 생략하면 `robot.yaml` 에 적힌 순서를 씀. 그 순서가 관절 이름 순서와
 텔레메트리 열 순서를 정하므로, 설정에서 다리 순서를 바꾸면 로그 열 순서도 바뀜.
+
+---
+
+## `current.py`
+
+```bash
+huphy-current                        # 포트를 찾아 계속 보여 줌
+huphy-current --port /dev/ttyUSB1
+huphy-current --quiet --seconds 10   # 조용히 재고 요약만
+```
+
+전류계(WCM1600)로 **로봇 전체 DC 전류**를 봄. `config/robot.yaml` 을 안 읽음 --
+전류계는 설정의 항목이 아니고 필요할 때만 꽂는 장비임 (`sensors/wcm1600/`).
+
+끝낼 때 프레임 수·평균·최소·최대를 찍음. **기준선을 잴 때 쓰는 화면임** -- 로봇을
+세워 둔 채(모터는 자세 유지 전류만) 평균을 재 두면, 나중에 로그의
+`current/total_a` 에서 그만큼을 빼고 계산값 `power/dc_a_lo` 와 비교할 수 있음
+(`telemetry/power.py` 4절).
+
+기록에 남기는 것은 이 명령이 아니라 `huphy-run --current` 또는 ROS `current_node` 임.

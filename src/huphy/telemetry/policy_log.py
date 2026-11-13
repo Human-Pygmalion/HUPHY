@@ -7,6 +7,7 @@
     pos/<관절>         그 순간의 실측 관절각 (도)
     extra/<모터>/<값>  추가 값 (iq A, temp C, vbus V). `--extra` 를 켰을 때만 (`track_log`)
     power/<모터>/...   전력 (W, A). 전기값을 읽는 ROS `log_node` 에서만 (`power`)
+    current/total_a    전류계가 잰 로봇 전체 DC 전류 (A). 전류계를 켰을 때만 (`power`)
 
 `tools/policy_viewer.html` 로 열면 재생하듯 볼 수 있음. 파일 모양은 `run_name.write`
 가 정함 -- `columns` 에 열 이름, `rows` 에 한 주기 한 줄, `limits` 에 관절 가동범위,
@@ -42,7 +43,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 import numpy as np
 
 from . import run_name
-from .power import power_columns
+from .power import CURRENT_COLUMNS, current_values, power_columns
 from .track_log import extra_columns, extra_values, joint_limits
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,8 @@ class PolicyLog:
         limits: Optional[Mapping[str, Sequence[float]]] = None,
         extra_motors: Optional[Sequence[str]] = None,
         power_motors: Optional[Sequence[str]] = None,
+        current: bool = False,
+        current_source: Optional[Callable[[], Any]] = None,
     ) -> None:
         self.obs_names = tuple(obs_names)
         self.limits = (
@@ -90,11 +93,25 @@ class PolicyLog:
         `power_motors` 는 전력 열(`power/...`)을 전기값 열 뒤에 붙임
         (`telemetry/power.py`). 전력은 받은 상전류로 계산한 값이라 전기값을 읽는
         쪽(`extra_motors`)에서만 줌.
+
+        `current` 는 전류계 실측 열(`current/...`)을 맨 뒤에 붙임. **켜 놓고 값이
+        안 와도 열은 남음** -- 전류계 프레임이 첫 정책 줄보다 늦게 올 수 있고, 그때
+        첫 줄로 열을 정하면 빈 열로 굳어 이후 값이 다 버려짐 (`extra_motors` 와 같은
+        이유). 그 줄들은 `current/age` 가 `-1` 임.
         """
         if extra_motors is not None:
             self.extra_cols = extra_columns(extra_motors)
             if power_motors is not None:
                 self.extra_cols += power_columns(power_motors)
+        self.current_source = current_source
+        """`CurrentState` 를 내는 함수. 주면 줄마다 불러 실측 열을 채움.
+
+        `huphy-run --current` 가 전류계의 `read` 를 그대로 줌 -- 통신하지 않고 최근
+        값만 꺼내는 함수임 (`sensors/current.py`). ROS `log_node` 는 이것을 안 쓰고
+        토픽으로 받은 값을 `add_row` 의 `extra` 에 넣음. 두 길이 같은 열을 냄.
+        """
+        if current or current_source is not None:
+            self.extra_cols = tuple(self.extra_cols or ()) + CURRENT_COLUMNS
         self.rows: List[List[float]] = []
         self.errors = 0
         self._t0: Optional[float] = None
@@ -158,8 +175,15 @@ class PolicyLog:
             pending[n_obs:],
             [targets.get(j, float("nan")) for j in self.order],
             [observation.get(f"{j}.pos", float("nan")) for j in self.order],
-            extra_values(observation),
+            self._extra(observation),
         )
+
+    def _extra(self, observation: Mapping[str, Any]) -> Dict[str, float]:
+        """그 줄의 `extra/...` 와 `current/...`. 전류계를 안 줬으면 앞의 것만."""
+        out = extra_values(observation)
+        if self.current_source is not None:
+            out.update(current_values(self.current_source()))
+        return out
 
     # ---- 줄 만들기 ---------------------------------------------------------
     def _append(self, t, obs, act, tgt, pos, extra: Mapping[str, float]) -> None:

@@ -11,13 +11,14 @@
 | `teleop_node` | (선택) `huphy-run --teleop` 과 같은 창으로 명령·시작·멈춤 | 작업 기계 (화면 있는 쪽) |
 | `gamepad_node` | (선택) Xbox 패드로 명령·토크·시작·멈춤. `joy_node` 와 같이 띄움. 명령 없는 정책은 버튼만 | 작업 기계 (패드 꽂은 쪽) |
 | `log_node` | (선택) `huphy-run --log` 과 같은 JSON 기록. 구독만 함 | 아무 기계 (파일이 거기 모임) |
+| `current_node` | (선택) 전류계로 로봇 전체 DC 전류를 재서 냄. 제어도 추론도 안 함 | 전류계를 꽂은 기계 (CAN 과 무관) |
 
 패키지는 둘임.
 
 | 패키지 | 빌드 | 무엇 |
 |---|---|---|
 | `huphy_ros` | `ament_python` | 노드와 런치 |
-| `huphy_ros_interfaces` | `ament_cmake` | 기록용 메시지 4개. 제어 토픽은 표준 타입 그대로임 |
+| `huphy_ros_interfaces` | `ament_cmake` | 기록용 메시지 6개. 제어 토픽은 표준 타입 그대로임 |
 
 D455 를 쓸 때는 노드가 하나 더 돎. **그건 우리가 만든 것이 아니라 인텔 공식
 패키지임** -- 아래 [카메라 (D455)](#카메라-d455).
@@ -1096,6 +1097,42 @@ power/dc_a_lo           DC 전류 하한 합 (A) = 합 / vbus 평균
 파라미터로 켜는 것이라 `log_node` 가 없어도 보냄.** 안 보내려면 `extra:=0` 으로
 띄울 것.
 
+#### 전류 실측 열
+
+전류계를 꽂았으면 `current_node` 를 같이 띄움 (아래 [노드](#3-노드) 3-4).
+`log_node` 가 그 토픽을 받아 열을 더 만듦.
+
+```bash
+ros2 launch huphy_ros log.launch.py        # 터미널 2
+ros2 launch huphy_ros current.launch.py    # 터미널 3. 포트가 헷갈리면 port:= 로
+```
+
+```
+current/total_a   전류계가 잰 로봇 전체 DC 전류 (A). 실측
+current/age       그 값이 장비에서 온 뒤 흐른 시간 (ms). 못 받았으면 -1
+```
+
+**계산값 `power/dc_a_lo` 와 같아질 수 없음.** 차이가 두 가지에서 옴.
+
+| | |
+|---|---|
+| 빠진 손실 | 철손 + 인버터 + 감속기 + 기계 출력 -> 계산값이 작음 |
+| 범위 차이 | 실측은 모터 말고 연산보드·팬·통신까지 다 포함 -> 실측이 큼 |
+
+그래서 두 열을 바로 빼서 손실로 읽으면 안 됨. 로봇을 세워 둔 채 잰 값을 기준선으로
+빼면 비교가 됨 (`huphy-current` 가 평균을 찍어 줌).
+
+`age` 가 따로 있는 이유: 장비 출력 주기가 정책 줄 주기(50Hz)보다 느려 같은 값이 여러
+줄에 반복됨. 없으면 "전류가 안 변함" 과 "장비가 멈춤" 이 구분되지 않음. 이 값은
+`current_node` 가 재서 실어 보낸 것이므로 **그 기계 기준**임 -- 두 기계 시계를 안
+맞추므로 전달 시간은 안 들어 있음 (`freshness.py` 와 같은 이유).
+
+열은 **첫 `bus_current` 가 왔을 때 생김.** 정책이 도는 중에 `current_node` 를 띄우면
+그 실행은 열 없이 끝나고 다음 실행부터 생김 -- 이미 쌓인 줄이 있는데 기록을 다시
+만들면 그 줄들이 날아감. 열이 생긴 뒤에는 값이 안 와도 남고 `age` 가 `-1` 임.
+
+파일의 열 이름은 `huphy-run --current` 와 같음. 같은 뷰어로 봄.
+
 ### 어느 구간이 담기나
 
 `policy_status` 의 단계가 `running` 인 동안만. 접근·대기·감쇠가 빠짐 --
@@ -1331,6 +1368,7 @@ policy_node
 하는 일   토픽을 받아 huphy-run --log 과 같은 JSON 두 파일을 씀. 제어도 추론도 안 함
 받음      /huphy/debug/policy_info, /policy_row
           /huphy/debug/control_info, /latency, /motor_extra
+          /huphy/bus_current          전류계 실측 (current_node 를 띄웠을 때만)
           /huphy/policy_status        단계. running 인 동안만 쌓음
 보냄      없음
 ```
@@ -1341,7 +1379,36 @@ policy_node
 
 따로 있는 이유와 파일 경로는 위 [기록](#기록).
 
-### 3-4. 사람이 치는 것
+### 3-4. `current_node` — 전류계를 꽂은 기계 (선택)
+
+```
+하는 일   전류계(WCM1600)로 로봇 전체 DC 전류를 재서 냄. 제어도 추론도 안 함
+받음      없음
+보냄      /huphy/bus_current          전류 (A) · 값이 온 뒤 흐른 시간 (ms), 20Hz
+```
+
+```bash
+ros2 launch huphy_ros current.launch.py
+ros2 launch huphy_ros current.launch.py port:=/dev/ttyUSB1
+```
+
+`log_node` 와 **같이 띄워야** 기록에 열이 남음 (`current/total_a`, `current/age`).
+다른 런치에 들어 있지 않음 -- 전류계가 없는 실행이 대부분이고, 없으면 이 노드는
+포트를 못 열어 멈춤. 그래도 **로봇은 멈추지 않음**: 이 노드는 아무것도 제어하지
+않고, 제어·정책 노드는 이 토픽을 보지 않음.
+
+**어느 기계에 꽂아도 됨.** 모터와 달리 CAN 과 무관해서 작업 기계에 꽂고 이 노드만
+그쪽에서 띄워도 `log_node` 가 받음 (결정 13).
+
+`control_node` 에 넣지 않은 이유는 둘임. 안 꽂혀 있을 때마다 그 노드가 포트를
+뒤지게 되고, 장비가 9600 baud 라 8바이트 프레임 하나가 선로에 8.3ms 걸림 -- 제어
+주기가 10ms 임. 읽기는 스레드가 하므로 주기 안에서 기다리지는 않지만 같은
+프로세스에 둘 이유가 없음.
+
+이 값은 `power/dc_a_lo`(모터 상전류로 계산한 하한)와 **같아질 수 없음.** 위
+[기록](#기록) 의 전류 실측 열 절.
+
+### 3-5. 사람이 치는 것
 
 노드를 안 만듦. `policy_node` 와 **같은 기계**에서 기성 도구로 함.
 
@@ -1368,7 +1435,7 @@ rqt_plot /huphy/joint_states/position[3]
 | `/huphy/cmd_vel` | `geometry_msgs/Twist` | 사람 | 10~20Hz | 기본 |
 | `/huphy/policy_status` | `diagnostic_msgs/DiagnosticArray` | policy | 5Hz + 단계 전이 직후 | 기본 |
 
-**제어가 쓰는 것은 전부 표준 메시지임** (결정 11). 기록용 토픽 넷만 직접 정의한
+**제어가 쓰는 것은 전부 표준 메시지임** (결정 11). 기록용 토픽 다섯만 직접 정의한
 타입을 씀 (`huphy_ros_interfaces`).
 
 | 토픽 | 타입 | 내는 쪽 | 주기 | QoS |
@@ -1378,8 +1445,11 @@ rqt_plot /huphy/joint_states/position[3]
 | `/huphy/debug/control_info` | `huphy_ros_interfaces/ControlInfo` | control | 1회 | transient_local |
 | `/huphy/debug/latency` | `huphy_ros_interfaces/LatencyBatch` | control | 100Hz | sensor_data |
 | `/huphy/debug/motor_extra` | `huphy_ros_interfaces/MotorExtra` | control | 100Hz | sensor_data |
+| `/huphy/bus_current` | `huphy_ros_interfaces/BusCurrent` | current | 20Hz | sensor_data |
 
-`policy_row` · `latency` · `motor_extra` 는 구독자(`log_node`)가 있을 때만 나감. 쓰는 쪽은 `log_node` 하나임 -- 아래 [기록](#기록).
+`policy_row` · `latency` · `motor_extra` 는 구독자(`log_node`)가 있을 때만 나감.
+`bus_current` 는 구독자와 무관하게 나감 -- `current_node` 를 띄운 것 자체가 "지금
+재겠다" 는 뜻임. 쓰는 쪽은 `log_node` 하나임 -- 아래 [기록](#기록).
 
 ### 4-0. 기록용 토픽만 직접 정의한 이유
 
@@ -1560,6 +1630,7 @@ control_node 가 목표각을 100ms 넘게 못 받음
 | `huphy_ros/logbridge.py` | 파이썬 `logging` → ROS 로그. 노드 시작 때 붙임 | 씀 |
 | `huphy_ros/linkage.py` | 크랭크각 -> 발 자세·막대 각도 (URDF 치수). RViz 용 | **안 씀** |
 | `huphy_ros/linkage_node.py` · `launch/view.launch.py` · `urdf/` · `meshes/` · `rviz/` | RViz 로 보기. URDF 는 `urdf/make_urdf.py` 로 만듦 | 씀 |
+| `huphy_ros/current_node.py` · `launch/current.launch.py` | 전류계로 로봇 전체 DC 전류. 필요할 때만 띄움 | 씀 |
 
 앞의 둘이 `rclpy` 를 안 쓰는 것이 의도임. 거기 있는 판단(단위, 이름, 낡음)이 틀리면
 로봇이 잘못 움직이는데 **틀려도 길이와 자릿수가 그대로라 코드로는 안 잡힘.** ROS 가
@@ -1576,6 +1647,8 @@ control_node 가 목표각을 100ms 넘게 못 받음
 | `targets_to_arrays` | 목표각(도) → `JointState`(rad). 순서는 `ORDER` 가 정함 |
 | `arrays_to_targets` | `JointState` → `Action`(도). `control_node` 가 씀 |
 | `imu_arrays` | `ImuState` → 각속도(rad/s)·가속도·중력방향 |
+| `extra_to_columns` | `MotorExtra` 세 배열 → `extra/<모터>/<값>` 열 |
+| `current_to_columns` | `BusCurrent` → `current/total_a`·`current/age` 열 |
 
 **없는 항목은 `0.0` 으로 채움.** `JointState` 는 네 배열의 길이가 같아야 하고 다르면
 받는 쪽이 짝을 못 맞춤 — 0 이 옳은 값이라는 뜻이 아니라 길이를 맞추는 것이 필수라서임.
@@ -1684,6 +1757,7 @@ targets = self.runner.step(observation, imu_state)     # 20ms 타이머
 | `control_node` | `config.load_robot`, `scripts.bringup.build_biped`, `control.ControlLoop`, `control.Mode`, `telemetry.track_log.joint_limits` |
 | `policy_node` | `control.deploy` 의 `load`·`DeployPolicy.load_model`·`runner`·`default_pose`·`order`, `scripts.selftest.approach` |
 | `log_node` | `telemetry` 의 `policy_log.PolicyLog`·`latency_log.LatencyLog`·`run_name`·`power`, `motors.robstride.tables.phase_resistance_ohm` |
+| `current_node` | `sensors.wcm1600.Wcm1600` |
 
 ### 기록을 위해 더한 것
 
@@ -1694,8 +1768,8 @@ targets = self.runner.step(observation, imu_state)     # 20ms 타이머
 | 어디 | 무엇 | 왜 |
 |---|---|---|
 | `control/deploy.py` | `Runner.last_vector` | 모델에 넣은 관찰 벡터. `last_action` 은 이미 있었음. 모델을 감싸지 않고 읽으려는 것 |
-| `telemetry/policy_log.py` | `add_row(...)`, 생성자 `limits=`·`extra_motors=`·`power_motors=` | 완성된 줄을 넣음. `limits` 는 로봇 객체 없이 받음 (모터가 다른 기계에 있음). 두 `*_motors` 는 열을 미리 박음 -- 첫 정책 줄이 첫 `MotorExtra` 보다 먼저 올 수 있음 |
-| `telemetry/power.py` | 새 모듈 | 받은 상전류로 구리 손실. `huphy-run` 쪽은 안 씀 (모델별 상저항을 꺼내는 길이 없음) |
+| `telemetry/policy_log.py` | `add_row(...)`, 생성자 `limits=`·`extra_motors=`·`power_motors=`·`current=` | 완성된 줄을 넣음. `limits` 는 로봇 객체 없이 받음 (모터가 다른 기계에 있음). 두 `*_motors` 는 열을 미리 박음 -- 첫 정책 줄이 첫 `MotorExtra` 보다 먼저 올 수 있음 |
+| `telemetry/power.py` | 새 모듈 | 받은 상전류로 구리 손실. `huphy-run` 쪽은 안 씀 (모델별 상저항을 꺼내는 길이 없음). 전류계 실측 열 이름(`CURRENT_COLUMNS`)도 여기 -- 계산값과 나란히 적어 두려는 것 |
 | `telemetry/latency_log.py` | `set_joints`·`note_sent`·`add_sample` | 버스 없이 사건을 넣음. `_BusSink` 도 이 셋을 거쳐 가게 바꿈 |
 
 **기록 형식을 `log_node` 안에 베끼지 않은 이유:** 열 순서, `NaN -> null`, 유실

@@ -53,6 +53,7 @@ from ..config import ConfigError, load_robot
 from ..control import ControlLoop, Mode, deploy, held, teleop
 from ..motors.canbus import DEFAULT_DRAIN_S, bring_up_hint
 from ..robots.leg import SEND_BURST, SEND_MODES, HostIdError
+from ..sensors.wcm1600 import Wcm1600
 from ..telemetry import latency_log, live, policy_log, run_name
 from . import failures
 from .bringup import build_biped
@@ -239,6 +240,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--current", nargs="?", const="", default=None, metavar="PORT",
+        help=(
+            "전류계(WCM1600)로 로봇 전체 DC 전류를 같이 기록함. --log 기록에 "
+            "current/total_a·age 열이 생김. 포트를 생략하면 USB 직렬 장치를 찾음 -- "
+            "IMU 도 USB 면 포트를 직접 줄 것. 못 열려도 정책은 그대로 돎"
+        ),
+    )
+    p.add_argument(
         "--approach", type=float, default=DEFAULT_APPROACH_S,
         help=f"기준 자세까지 옮기는 시간. 기본 {DEFAULT_APPROACH_S:.0f}초",
     )
@@ -335,6 +344,9 @@ def _log_naming(args, policy, model, commands) -> tuple:
             "drain": args.drain_ms if args.drain_ms != DEFAULT_DRAIN_S * 1000.0 else None,
             args.send_mode: True if args.send_mode != SEND_BURST else None,
             "extra": args.extra,
+            # 끈 실행은 조각을 안 붙임 -- False 는 `is not None` 을 통과해 "current"
+            # 가 이름에 붙음 (`run_name.tags`). 켰을 때만 True 를 줌.
+            "current": True if args.current is not None else None,
         },
     )
     run_meta = run_name.header(
@@ -345,6 +357,7 @@ def _log_naming(args, policy, model, commands) -> tuple:
         drain_ms=args.drain_ms,
         send_mode=args.send_mode,
         extra=args.extra,
+        current=args.current is not None,
         approach=args.approach,
         teleop=bool(args.teleop),
         **{k: float(v) for k, v in targets.items()},
@@ -542,6 +555,11 @@ def main(argv=None) -> int:
         raise SystemExit(f"--extra-per-cycle 은 1 이상이어야 함 (받은 값 {args.extra})")
     if args.extra and args.send_mode != SEND_BURST:
         raise SystemExit("--extra 는 --send-mode burst 에서만 됨 (읽기 응답을 CAN id 로 가름)")
+    if args.current is not None and args.log is None:
+        # 열이 생길 파일이 없음. 멈추지 않고 알림만 -- 화면으로 보려는 것일 수 있음
+        # (그 용도의 명령은 huphy-current 임).
+        print("  [!] --current 는 --log 와 같이 줄 때만 기록에 남음. "
+              "보기만 할 거면 huphy-current")
     if len(args.gain_scale) > 2:
         raise SystemExit(
             f"--gain-scale 은 숫자 하나(전체) 또는 둘(나머지 발목)임 (받은 값 {args.gain_scale})"
@@ -620,6 +638,18 @@ def main(argv=None) -> int:
         joint: float(leg.get_observation().get(f"{joint}.pos", 0.0))
         for joint in policy.order
     }
+    # 전류계는 관측이라 **못 열려도 정책을 막지 않음** (IMU 와 같은 이유,
+    # sensors/README.md). 열이 안 생기고 경고만 남음.
+    meter = None
+    if args.current is not None:
+        meter = Wcm1600(port=args.current or None)
+        try:
+            meter.connect()
+            print(f"  전류계   {meter.port}")
+        except Exception as e:
+            print(f"  [!] 전류계를 열지 못함 (계속함): {e}")
+            meter = None
+
     log = None
     # 이름 조각과 첫 줄은 한 번만 만들어 두 기록이 같이 씀.
     naming = (
@@ -628,7 +658,9 @@ def main(argv=None) -> int:
     )
 
     if args.log is not None:
-        log = policy_log.PolicyLog(policy.obs_names, policy.order, robot=leg)
+        log = policy_log.PolicyLog(
+            policy.obs_names, policy.order, robot=leg,
+            current_source=meter.read if meter is not None else None)
         model = log.wrap_model(model)
     policy_motion = policy.motion(model, leg.imus[0], commands=commands)
     if log is not None:
@@ -683,6 +715,12 @@ def main(argv=None) -> int:
     finally:
         leg.disconnect()
         print("\n  종료. 토크가 끊겼음")
+        if meter is not None:
+            # 기록보다 먼저 닫음 -- 스레드가 도는 동안 열려 있어도 값은 안 바뀜.
+            meter.disconnect()
+            if meter.frames == 0:
+                print("  [!] 전류계 프레임을 하나도 못 받았음 "
+                      "(current/age 가 전부 -1)")
         if pad is not None:
             pad.close()
         if server is not None:

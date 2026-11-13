@@ -112,6 +112,20 @@ def extra_to_columns(
     return out
 
 
+def current_to_columns(msg) -> Dict[str, float]:
+    """`BusCurrent` -> `current/...` 사전. `log_node` 가 줄에 넣음.
+
+    `telemetry/power.py` 의 `CURRENT_COLUMNS` 와 **같은 열 이름**을 내야 함 --
+    `huphy-run --current` 기록과 열이 같아야 같은 뷰어로 봄.
+
+    `age_ms` 는 노드가 재서 실어 보낸 값을 그대로 씀. 여기서 다시 재지 않음 --
+    두 기계 시계를 안 맞추므로 받은 시각으로는 장비에서 온 뒤 흐른 시간을 알 수
+    없음 (`freshness.py` 와 같은 이유). 그래서 이 열은 **발행하는 기계 기준**이고,
+    기록 쪽에서 더 걸린 전달 시간은 안 들어 있음.
+    """
+    return {"current/total_a": float(msg.amps), "current/age": float(msg.age_ms)}
+
+
 def joint_names(observation: Mapping[str, float]) -> Tuple[str, ...]:
     """관찰 사전에서 관절 이름을 뽑음. **huphy 이름**, 나온 순서대로.
 

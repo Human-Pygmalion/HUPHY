@@ -11,6 +11,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ControlInfo.msg"
   "msg/LatencyBatch.msg"
   "msg/MotorExtra.msg"
+  "msg/BusCurrent.msg"
   DEPENDENCIES std_msgs
 )
 

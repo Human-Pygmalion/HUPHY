@@ -24,6 +24,7 @@
     /huphy/debug/control_info  ControlInfo   transient_local, 1회
     /huphy/debug/latency       LatencyBatch  100Hz
     /huphy/debug/motor_extra   MotorExtra    100Hz, control_node 의 extra 가 1 이상일 때만
+    /huphy/bus_current         BusCurrent    20Hz, current_node 를 띄웠을 때만
     /huphy/policy_status       DiagnosticArray  5Hz + 단계 전이 직후
 
 두 `*Info` 가 `transient_local` 이라 **이 노드를 나중에 띄워도 받음.** 설정 파일은
@@ -66,7 +67,7 @@ from typing import Dict, Optional
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray
 from huphy_ros_interfaces.msg import (
-    ControlInfo, LatencyBatch, MotorExtra, PolicyInfo, PolicyRow)
+    BusCurrent, ControlInfo, LatencyBatch, MotorExtra, PolicyInfo, PolicyRow)
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 
@@ -117,6 +118,15 @@ class LogNode(Node):
         (`freshness.py`). `iq`·`vbus` 는 그보다 느리게 갱신되어 (`extra=2` 면 약
         17Hz) 연속 두세 줄에 같은 값이 기록됨.
         """
+        self.current_latest: Optional[BusCurrent] = None
+        """마지막으로 받은 `BusCurrent`. 정책 줄이 올 때 그 줄에 넣음.
+
+        **한 번이라도 받으면 열이 생김.** `current_node` 를 띄운 실행에서만 생기고,
+        안 띄웠으면 열 자체가 없음 (`telemetry/power.py` 4절). 열이 생긴 뒤 장비가
+        멈추면 `current/age` 가 자람.
+
+        전류계는 `MotorExtra` 와 달리 **다른 기계에 꽂혀 있어도 됨** -- CAN 과 무관함.
+        """
         self.stage = ""
         self.policy_name = ""
         self.dropped_rows = 0
@@ -133,6 +143,8 @@ class LogNode(Node):
             LatencyBatch, "/huphy/debug/latency", self._on_batch, qos_profile_sensor_data)
         self.create_subscription(
             MotorExtra, "/huphy/debug/motor_extra", self._on_extra, qos_profile_sensor_data)
+        self.create_subscription(
+            BusCurrent, "/huphy/bus_current", self._on_current, qos_profile_sensor_data)
         self.create_subscription(
             DiagnosticArray, "/huphy/policy_status", self._on_status, 10)
 
@@ -207,13 +219,16 @@ class LogNode(Node):
         DC 전류도 전력도 안 냄. `huphy-run` 쪽에는 이 열이 없음.
         """
         msg, info = self.extra_latest, self.control_info
-        if msg is None or info is None:
-            return {}
-        names = list(info.joint_names)
-        out = convert.extra_to_columns(names, msg.iq, msg.vbus, msg.temp)
-        if self._power_motors() is not None:
-            out.update(power.power_values(
-                names, dict(zip(names, msg.iq)), dict(zip(names, msg.vbus)), self.r_phase))
+        out: dict = {}
+        if msg is not None and info is not None:
+            names = list(info.joint_names)
+            out = convert.extra_to_columns(names, msg.iq, msg.vbus, msg.temp)
+            if self._power_motors() is not None:
+                out.update(power.power_values(
+                    names, dict(zip(names, msg.iq)), dict(zip(names, msg.vbus)),
+                    self.r_phase))
+        if self.current_latest is not None:
+            out.update(convert.current_to_columns(self.current_latest))
         return out
 
     def _power_motors(self) -> Optional[list]:
@@ -237,7 +252,8 @@ class LogNode(Node):
             return
         self.policy = policy_log.PolicyLog(
             info.obs_names, info.joint_names, limits=self._limits(),
-            extra_motors=self._extra_motors(), power_motors=self._power_motors())
+            extra_motors=self._extra_motors(), power_motors=self._power_motors(),
+            current=self.current_latest is not None)
 
     def _new_latency_log(self) -> None:
         info = self.control_info
@@ -278,6 +294,22 @@ class LogNode(Node):
     def _on_extra(self, msg: MotorExtra) -> None:
         """전기값·온도. **마지막 것만 둠.** 정책 줄이 올 때 그 줄에 넣음."""
         self.extra_latest = msg
+
+    def _on_current(self, msg: BusCurrent) -> None:
+        """전류계 실측. **마지막 것만 둠.** 정책 줄이 올 때 그 줄에 넣음.
+
+        첫 메시지는 열을 만들어야 하므로 기록을 다시 만듦 -- `_on_control_info` 와
+        같은 처리임. **이미 쌓인 줄이 있으면 안 바꿈**: 정책이 도는 중에
+        `current_node` 를 띄우면 이 메시지가 늦게 오고, 그때 다시 만들면 그 실행의
+        줄이 날아감. 그 실행은 전류계 열 없이 끝나고 다음 실행부터 생김.
+        """
+        first = self.current_latest is None
+        self.current_latest = msg
+        if first:
+            self.get_logger().info(
+                f"전류계 값이 옴 ({msg.amps:+.2f} A) -- 기록에 current/ 열을 남김")
+            if self.policy is None or not len(self.policy):
+                self._new_policy_log()
 
     # ---- 단계 ---------------------------------------------------------------
     def _on_status(self, msg: DiagnosticArray) -> None:

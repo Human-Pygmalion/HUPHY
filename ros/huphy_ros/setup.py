@@ -35,6 +35,7 @@ setup(
             "gamepad_node = huphy_ros.gamepad_node:main",
             "log_node = huphy_ros.log_node:main",
             "linkage_node = huphy_ros.linkage_node:main",
+            "current_node = huphy_ros.current_node:main",
         ],
     },
 )
