@@ -215,6 +215,9 @@ huphy-can down                                        # 끝나고
 
 멈춤은 **Ctrl-Q**. 멈출 때 `kp=0` 으로 속도를 죽인 뒤 토크를 끊음 (5초).
 
+로봇에 올리기 전에 같은 꾸러미를 시뮬에서 돌려 볼 수 있음 -- `python3 sim/rollout.py
+--policy walk` (`pip install mujoco` 필요, [sim/README.md](sim/README.md)).
+
 ---
 
 ## 그 밖의 명령
@@ -225,5 +228,6 @@ huphy-can down                                        # 끝나고
 | `huphy-bringup` | 관절 하나씩 골라 움직여 보는 메뉴 |
 | `huphy-imu` | IMU 설정·부착 방향 확인 |
 | `huphy-current` | 전류계로 로봇 전체 DC 전류를 봄. 꽂았을 때만 |
+| `python3 sim/rollout.py --policy walk` | 실물 대신 MuJoCo 에서 돌려 봄 ([sim/README.md](sim/README.md)) |
 
 `--help` 로 각자 인자를 볼 수 있음.

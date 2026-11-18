@@ -17,6 +17,7 @@ dependencies = [
 dev = ["pytest>=7.0"]
 imu = ["pyserial>=3.5"]
 current = ["pyserial>=3.5"]
+sim = ["mujoco>=3.17"]
 teleop = ["pygame>=2.1"]
 
 [project.scripts]
@@ -35,4 +36,7 @@ where = ["src"]
 huphy = ["telemetry/*.html"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "sim/tests"]
+markers = [
+    "slow: 정책을 실제로 굴리는 시험 (sim/tests). 몇 초씩 걸림",
+]

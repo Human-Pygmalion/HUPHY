@@ -19,6 +19,7 @@
 - [하드웨어 버전 바꾸기](#하드웨어-버전-바꾸기)
 - [조정해야 할 값](#조정해야-할-값)
 - [지금 무엇이 비어 있나](#지금-무엇이-비어-있나)
+- [시뮬에서 먼저 돌려 보기](#시뮬에서-먼저-돌려-보기)
 - [계층 구조](#계층-구조)
 - [한 주기에 무슨 일이 일어나나](#한-주기에-무슨-일이-일어나나)
 - [왜 이렇게 나눴나](#왜-이렇게-나눴나)
@@ -1299,6 +1300,33 @@ huphy-test       --config config/robot_v1.0.yaml --limb right_leg zero
 
 ---
 
+## 시뮬에서 먼저 돌려 보기
+
+실물에 올리기 전에 같은 정책 꾸러미를 MuJoCo 안에서 돌려 볼 수 있음. **제어 경로가
+실물과 같음** -- 관측 조립(`control/deploy.py`), 추론, 발목 기구학, 한계 가드,
+기록이 전부 실물용 파일이고, CAN 과 시리얼 IMU 자리에만 시뮬 구현이 들어감.
+
+```bash
+pip install mujoco                                  # 또는 pip install -e .[sim]
+python3 sim/rollout.py --policy walk
+python3 sim/rollout.py --policy motion399 --duration 10 --log logs
+python3 sim/rollout.py --policy walk --view         # MuJoCo 창
+```
+
+기록 열 이름이 실물 로그와 같아서 `tools/policy_viewer.html` 로 겹쳐 볼 수 있음.
+
+**잡히는 것**: 관측 칸 순서, 단위 변환(도/초 <-> rad/s), 중력 부호, 행동 스케일,
+발목 기구학 부호, 왼·오른 순서, 가드가 정상 동작을 자르는지, `robot.yaml` 게인으로
+정책을 따라가는지.
+
+**안 잡히는 것**: 캘리브레이션 sign/offset(왕복에서 상쇄됨), CAN 지연·응답 누락,
+인코더 영점 오차, 발열, IMU 노이즈, 지형, 외력.
+
+자세한 것은 [sim/README.md](sim/README.md). 지금 `walk`·`stair_slope`·`motion399`
+는 서 있고 **`squat` 은 넘어짐 (원인 미해결)**.
+
+---
+
 ## 계층 구조
 
 ```
@@ -1541,6 +1569,7 @@ kept_up    꾸준한 느림.   평균이 목표의 90% 미만
 | [`src/huphy/telemetry/`](src/huphy/telemetry/README.md) | 관찰 |
 | [`src/huphy/control/`](src/huphy/control/README.md) | 제어 루프, 게인 튜닝 |
 | [`src/huphy/scripts/`](src/huphy/scripts/README.md) | 터미널 진입점 |
+| [`sim/`](sim/README.md) | MuJoCo 에 올려 보기. 무엇이 검증되고 무엇이 안 되나 |
 | [`tests/`](tests/README.md) | 무엇을 고정했나 |
 | [`docs/motor_setup.md`](docs/motor_setup.md) | 출하 상태 모터를 쓸 수 있게 만들기. 보낼 프레임까지 |
 | [`docs/motor_power.md`](docs/motor_power.md) | 모터 전류·전압·전력. 계산값과 전류계 실측의 차이 |

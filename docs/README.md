@@ -62,6 +62,7 @@ policies/          정책 꾸러미별 문서
 | [`src/huphy/control/`](../src/huphy/control/README.md) | 제어 루프, 게인 튜닝 |
 | [`src/huphy/scripts/`](../src/huphy/scripts/README.md) | 터미널 진입점 |
 | [`ros/`](../ros/README.md) | ROS 2 래퍼. 설계·코드·실행 |
+| [`sim/`](../sim/README.md) | MuJoCo 롤아웃. 무엇이 검증되고 무엇이 안 되나 |
 | [`tests/README.md`](../tests/README.md) | 테스트가 고정하는 것 |
 
 ---
@@ -76,3 +77,4 @@ policies/          정책 꾸러미별 문서
 | [#9](issues.md) 게인 미튜닝 | 시작값 `kp = 20` 에서 튜닝해야 함 |
 | [#13](issues.md) 발목 기하 출처 | 어느 다리 것인지 모름 |
 | [#11](issues.md) 전제를 코드로 못 읽음 | 외부 도구로 대체 중 |
+| [#17](issues.md) `squat` 이 시뮬에서 넘어짐 | 관측 경로인지 학습 조건인지 미확인 |

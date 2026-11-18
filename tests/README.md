@@ -31,6 +31,7 @@ tests/
 
 ```bash
 PYTHONPATH=src python3 -m pytest tests -q
+python3 -m pytest sim/tests -q          # 시뮬 계층. mujoco 가 없으면 건너뜀
 ```
 
 ```
