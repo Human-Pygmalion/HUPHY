@@ -54,7 +54,18 @@ DEFAULT_LOG_DIR = HERE / "logs"
 폴더가 달라도 나란히 볼 수 있음.
 """
 
-DEFAULT_APPROACH_S = 2.0
+DEFAULT_APPROACH_S = 0.2
+"""기준 자세로 옮기는 시간. **짧게 둠.**
+
+시뮬은 기준 자세에 **이미 놓고** 시작하므로 (`world.reset(default_qpos(...))`)
+옮길 거리가 없음. 그런데 이 구간에는 정책이 안 돌고 기준 자세를 정지 명령으로
+붙잡는데, 그 자세는 가만히 못 버팀 -- 1.1초쯤에 발끝을 축으로 앞으로 기욺
+(`sim/README.md` 5절). 그래서 실물 기본값(2초)을 그대로 쓰면 **정책이 시작되기도
+전에 넘어짐.**
+
+실물에서 2초인 이유는 사람이 로봇에서 손을 떼고 자리를 잡을 시간이기 때문임.
+시뮬에는 그럴 사람이 없음.
+"""
 FALL_HEIGHT_M = 0.25
 FALL_TILT = 0.7
 """넘어짐 판정. 몸통이 이보다 낮거나, 기울기가 이보다 크면 멈춤.
@@ -110,7 +121,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", type=Path, help=f"로봇 설정 (기본 {DEFAULT_CONFIG})")
     p.add_argument("--duration", type=float, default=10.0, help="돌릴 시간 (초)")
     p.add_argument("--approach", type=float, default=DEFAULT_APPROACH_S,
-                   help="기준 자세로 옮기는 시간 (초). 그 뒤 정책이 시작됨")
+                   help=f"기준 자세로 옮기는 시간 (초, 기본 {DEFAULT_APPROACH_S}). "
+                        "그 뒤 정책이 시작됨. **1초를 넘기면 정책이 시작되기 전에 "
+                        "넘어짐** -- 기준 자세는 가만히 못 버팀")
     p.add_argument("--hz", type=float, help="전송 주기. 기본은 정책 주기")
     p.add_argument("--cmd", action="append", default=[], metavar="이름=값",
                    help="정책 명령 (예: vx=0.5). 여러 번 줄 수 있음")
@@ -221,6 +234,10 @@ def main(argv=None) -> int:
         if (height < FALL_HEIGHT_M or tilt > FALL_TILT) and not fallen[0]:
             fallen[0] = True
             print(f"  ** 넘어짐: 몸통 {height:.3f} m, 기울기 {tilt:.2f}, {t:.2f}초 **")
+            if t < args.approach:
+                # 정책이 아직 시작도 안 했음. 넘어진 것은 정책이 아니라 정지 자세임.
+                print(f"     정책이 시작되기 전임 (--approach {args.approach:g}초 구간). "
+                      f"기준 자세는 가만히 못 버팀 -- --approach 를 줄일 것")
             loop.stop()
         return motion(t, observation)
 
