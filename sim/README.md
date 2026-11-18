@@ -40,6 +40,18 @@ python3 sim/rollout.py --policy walk --cmd vx=0.3 --log      # sim/logs/ 에 기
 **실시간으로 돎.** `--duration 10` 이면 벽시계로 약 12초 (정지 감쇠 5초 포함).
 `Ctrl-C` 로 멈춤. 넘어지면 스스로 멈춤.
 
+### `--view` 로 창을 띄울 때
+
+`mujoco 3.17` + `glfw 2.11` 조합에서 뷰어를 닫은 뒤 프로세스가 끝날 때 glfw 가
+죽음 (`posix_thread.c:70` assertion, 코어 덤프). **창을 열고 닫기만 하는 10줄짜리
+예제도 같이 죽어서** 우리 코드와는 무관함. `with launch_passive(...)` 로 바꿔도 같음.
+
+`rollout.py` 는 `--view` 일 때 요약을 찍은 뒤 `os._exit` 로 바로 나감 -- 인터프리터
+종료를 건너뜀. 롤아웃·기록·요약은 그 전에 다 끝나 있음.
+
+glfw 파이썬 패키지 버전을 내리면 없어질 수 있지만 확인하지 않았음.
+
+
 ### 기록
 
 ```

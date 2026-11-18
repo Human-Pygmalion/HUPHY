@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 import time
@@ -262,6 +263,19 @@ def main(argv=None) -> int:
         "  넘어짐" if fallen[0] else "  서 있음",
         "",
     ]))
+    if args.view:
+        # MuJoCo 창을 띄웠으면 **인터프리터 종료를 건너뛰고 바로 나감.**
+        #
+        # mujoco 3.17 + glfw 2.11 조합에서 뷰어를 닫은 뒤 프로세스가 끝날 때
+        # glfw 가 죽음 (`posix_thread.c:70 _glfwPlatformSetTls` assertion, 코어 덤프).
+        # 우리 코드와 무관함 -- 창을 열고 닫기만 하는 10줄짜리 예제도 같이 죽고,
+        # `with launch_passive(...)` 로 바꿔도 같음.
+        #
+        # 롤아웃·기록·요약은 이 줄 전에 다 끝나 있음. 뒤에 남은 것은 파이썬이
+        # 객체를 정리하는 일뿐이라 건너뛰어도 잃는 것이 없음.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(1 if fallen[0] else 0)
     return 1 if fallen[0] else 0
 
 
