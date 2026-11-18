@@ -46,6 +46,14 @@ from huphy.telemetry import policy_log, run_name                        # noqa: 
 
 from huphy_sim.build import DEFAULT_CONFIG, build_sim_biped, default_qpos  # noqa: E402
 
+DEFAULT_LOG_DIR = HERE / "logs"
+"""기록 폴더. **실물 기록(`logs/`)과 섞이지 않게 `sim/logs/` 에 둠.**
+
+이름 끝에 `_sim` 이 붙고 파일 안 `run` 에 `sim: true` 가 있어서 구분은 되지만,
+폴더가 같으면 목록을 볼 때마다 가려내야 함. 뷰어는 파일을 골라 여는 방식이라
+폴더가 달라도 나란히 볼 수 있음.
+"""
+
 DEFAULT_APPROACH_S = 2.0
 FALL_HEIGHT_M = 0.25
 FALL_TILT = 0.7
@@ -106,8 +114,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--hz", type=float, help="전송 주기. 기본은 정책 주기")
     p.add_argument("--cmd", action="append", default=[], metavar="이름=값",
                    help="정책 명령 (예: vx=0.5). 여러 번 줄 수 있음")
-    p.add_argument("--log", nargs="?", type=Path, const=Path("logs"),
-                   help="기록을 남길 폴더 (기본 logs). 열 이름은 실물 로그와 같음")
+    p.add_argument("--log", nargs="?", type=Path, const=DEFAULT_LOG_DIR,
+                   help=f"기록을 남길 폴더 (기본 {DEFAULT_LOG_DIR}). "
+                        "열 이름은 실물 로그와 같고 이름 끝에 _sim 이 붙음")
     p.add_argument("--log-skip", type=float, default=0.0, help=argparse.SUPPRESS)
     p.add_argument("--drain-ms", type=float, default=0.0, help=argparse.SUPPRESS)
     p.add_argument("--extra", type=int, default=0, help=argparse.SUPPRESS)

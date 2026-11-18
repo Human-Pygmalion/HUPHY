@@ -1309,11 +1309,12 @@ huphy-test       --config config/robot_v1.0.yaml --limb right_leg zero
 ```bash
 pip install mujoco                                  # 또는 pip install -e .[sim]
 python3 sim/rollout.py --policy walk
-python3 sim/rollout.py --policy motion399 --duration 10 --log logs
+python3 sim/rollout.py --policy motion399 --duration 10 --log
 python3 sim/rollout.py --policy walk --view         # MuJoCo 창
 ```
 
-기록 열 이름이 실물 로그와 같아서 `tools/policy_viewer.html` 로 겹쳐 볼 수 있음.
+기록은 `sim/logs/policy/<월일>_policy_<정책>_sim.json` 으로 **실물 기록과 폴더를
+나눠** 남음. 열 이름은 실물과 같아서 `tools/policy_viewer.html` 로 나란히 볼 수 있음.
 
 **잡히는 것**: 관측 칸 순서, 단위 변환(도/초 <-> rad/s), 중력 부호, 행동 스케일,
 발목 기구학 부호, 왼·오른 순서, 가드가 정상 동작을 자르는지, `robot.yaml` 게인으로

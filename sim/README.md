@@ -3,15 +3,68 @@
 정책 꾸러미를 **이 저장소의 제어 경로 그대로** MuJoCo 안에서 돌림. 실물에 올리기
 전에 우리 코드가 정상인지 보는 것이 목적임.
 
-```bash
-pip install mujoco                      # 또는 pip install -e .[sim]
-python3 sim/rollout.py --policy walk
-python3 sim/rollout.py --policy motion399 --duration 10 --log logs
-python3 sim/rollout.py --policy walk --view        # MuJoCo 창
-```
-
 이 폴더는 `ros/` 와 같은 급임 -- 최상위에 따로 있고, `huphy` 패키지에 들어가지
 않고, `huphy` 를 가져다 쓰기만 함. 통째로 지워도 나머지가 멀쩡함.
+
+
+## 0. 실행
+
+```bash
+pip install mujoco                 # 한 번만. 또는 pip install -e .[sim]
+```
+
+레포 루트에서 돌림. `huphy` 를 설치하지 않아도 됨 -- `rollout.py` 가 `src/` 를
+경로에 넣음.
+
+```bash
+python3 sim/rollout.py --policy walk
+python3 sim/rollout.py --policy walk --cmd vx=0.3 --duration 10
+python3 sim/rollout.py --policy motion399 --duration 10
+python3 sim/rollout.py --policy squat --cmd h_star=0.8
+python3 sim/rollout.py --policy walk --view                  # MuJoCo 창
+python3 sim/rollout.py --policy walk --cmd vx=0.3 --log      # sim/logs/ 에 기록
+```
+
+| 인자 | |
+|---|---|
+| `--policy` | **필수.** `config/policies/` 의 꾸러미 이름 |
+| `--checkpoint` | 가중치 파일. 생략하면 계약의 기본값 |
+| `--duration` | 돌릴 초. 기본 10 |
+| `--approach` | 기준 자세로 옮기는 시간. 기본 2초. 끝나면 정책이 바로 시작됨 |
+| `--cmd 이름=값` | 정책 명령. 여러 번 줄 수 있음 |
+| `--hz` | 전송 주기. 기본은 정책 주기(50). 정수 배만 됨 |
+| `--log [폴더]` | 기록. 기본 `sim/logs/` |
+| `--view` | MuJoCo 창 |
+| `--config` | 로봇 설정. 기본 `config/robot.yaml` |
+
+**실시간으로 돎.** `--duration 10` 이면 벽시계로 약 12초 (정지 감쇠 5초 포함).
+`Ctrl-C` 로 멈춤. 넘어지면 스스로 멈춤.
+
+### 기록
+
+```
+sim/logs/policy/<월일>_policy_<정책>[_인자]_sim.json
+```
+
+**실물 기록(`logs/`)과 폴더를 나눠 둠** -- 이름 끝의 `_sim` 과 파일 안
+`run.sim: true` 로 구분되지만, 폴더가 같으면 목록을 볼 때마다 가려내야 함.
+열 이름은 실물과 같아서 `tools/policy_viewer.html` 로 나란히 볼 수 있음.
+
+열 구성 (`walk` 기준 81열, `PolicyLog` 이 만듦):
+
+```
+t                    1    제어 시작부터 흐른 초
+obs/...             44    정책에 들어간 입력 벡터 (gyro 3, grav 3, q_prev 12, q 12, last_act 12, cmd 2)
+act/<관절>          12    정책이 뱉은 날값 (스케일 전)
+tgt/<관절>          12    각도로 바꾼 목표 (도)
+pos/<관절>          12    시뮬 모터가 실제로 간 각도 (도)
+```
+
+머리말 `run` 에 `sim`, `mjcf`(모델 파일 이름), `timestep_ms` 가 더 들어감 -- 모델이
+바뀌면 결과가 달라지므로 파일에 남아야 함.
+
+**안 남는 것**: 모터 속도·토크·온도(값은 있지만 `PolicyLog` 이 `pos` 만 남김),
+상전류·버스전압(시뮬이 모름), 몸통 높이·기울기(화면 요약에만 찍힘).
 
 
 ## 1. 무엇이 바뀌고 무엇이 그대로인가
