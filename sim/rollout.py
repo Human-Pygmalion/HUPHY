@@ -153,20 +153,6 @@ def _echo(elapsed, height, tilt, command, observation, order,
     return "\n".join(lines)
 
 
-class _now:
-    """`--now` 용. `EnterWatcher` 자리에 들어가 바로 시작시킴."""
-
-    def __init__(self, motion) -> None:
-        self.motion = motion
-
-    def __enter__(self):
-        self.motion.start()
-        return self
-
-    def __exit__(self, *exc) -> bool:
-        return False
-
-
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -175,8 +161,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--checkpoint", help="가중치 파일. 생략하면 계약의 기본값")
     p.add_argument("--config", type=Path, help=f"로봇 설정 (기본 {DEFAULT_CONFIG})")
     p.add_argument("--duration", type=float,
-                   help="이 초만큼만 돌고 나옴. **생략하면 멈출 때까지 돎** -- "
-                        "Ctrl-C, 창의 Esc, 또는 넘어짐 (huphy-run 과 같음)")
+                   help="이 초만큼만 돌고 나옴. **생략하면 Ctrl-Q 까지** "
+                        "(huphy-run 과 같음). 넘어지면 스스로 멈춤")
     p.add_argument("--approach", type=float, default=DEFAULT_APPROACH_S,
                    help=f"기준 자세로 옮기는 시간 (초, 기본 {DEFAULT_APPROACH_S}). "
                         "이 구간과 Enter 대기 구간에는 물리를 굴리지 않음")
@@ -264,9 +250,9 @@ def main(argv=None) -> int:
         + (" (pygame 창에서도 됨)" if pad is not None else ""),
         (f"  정책이 {args.duration:g}초 돌면 멈춥니다."
          if args.duration is not None else
-         "  멈출 때까지 돕니다. Ctrl-C"
-         + (", 창의 Esc" if pad is not None else "")
-         + " 로 멈춤."),
+         "  Ctrl-Q 로 멈출 때까지 돕니다"
+         + (" (창의 Esc 도 됨)" if pad is not None else "")
+         + ". 멈출 때 kp=0 으로 5초 감쇠한 뒤 토크를 끊습니다."),
         "",
         "  ** 실물이 아님. 게인·지연·인코더 영점·발열은 이 경로로 검증되지 않음 **",
         "",
@@ -355,9 +341,14 @@ def main(argv=None) -> int:
     wall = time.perf_counter()
     world.frozen = True
     try:
-        # 실물과 같은 시작 방식임 -- Enter 를 누르면 `staged` 가 정책으로 넘어감.
-        # 화면이 아니면(파이프, 시험) `EnterWatcher` 가 바로 시작시킴.
-        with EnterWatcher(motion, loop) if not args.now else _now(motion):
+        # 실물과 같은 시작·멈춤임 -- Enter 로 시작, Ctrl-Q 로 멈춤
+        # (`EnterWatcher` 가 `QuitWatcher` 를 이어받음). 화면이 아니면(파이프,
+        # 시험) 누를 사람이 없으므로 들어가는 자리에서 바로 시작됨.
+        #
+        # `--now` 여도 감시자를 그대로 씀 -- 안 그러면 Ctrl-Q 가 안 먹음.
+        with EnterWatcher(motion, loop):
+            if args.now:
+                motion.start()
             stats = loop.run(looped)
     finally:
         robot.disconnect()
