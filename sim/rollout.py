@@ -228,6 +228,11 @@ def main(argv=None) -> int:
 
     target_pose = policy.default_pose()
     world.reset(default_qpos(target_pose))
+    # **루프가 돌기 전에 이미 멈춰 둠.** 아래의 connect/get_observation 이 버스를
+    # 거쳐 상태를 읽는데, 그때마다 세계가 한 주기(20 ms)씩 토크 없이 굴러감.
+    # 멈추지 않으면 정책이 시작되기도 전에 몇 주기를 떨어져, 첫 관찰에 없어야 할
+    # 각속도가 들어감 (motion399 에서 20도/초).
+    world.frozen = True
     robot.connect()
 
     loop = ControlLoop(robot, hz=args.hz, mode=Mode.CONTROL)
@@ -339,7 +344,6 @@ def main(argv=None) -> int:
         looped = teleop.teleop_motion(watch, pad, loop, motion)
 
     wall = time.perf_counter()
-    world.frozen = True
     try:
         # 실물과 같은 시작·멈춤임 -- Enter 로 시작, Ctrl-Q 로 멈춤
         # (`EnterWatcher` 가 `QuitWatcher` 를 이어받음). 화면이 아니면(파이프,
