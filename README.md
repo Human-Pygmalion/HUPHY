@@ -1022,7 +1022,7 @@ huphy-run --policy squat --teleop                     # squat
 
 | 설정 | 기본 | 뜻 |
 |---|---|---|
-| `--max 이름=값` | 1.0 | 속도 상한 (vx m/s, wz rad/s). 학습 범위는 vx −1 ~ 2, wz −1 ~ 1 |
+| `--max 이름=값` | **계약의 학습 범위** (없으면 1.0) | 속도 상한 (vx m/s, wz rad/s). `newwalk` 은 vx 1.5 · vy 1.0 · wz 1.0, `stair_slope` 는 vx 2.0, `walk` 은 범위가 없어 1.0. 더 크게 줘도 계약 범위에서 깎임 |
 | `--accel 이름=값` | 0.5 (h_star 0.05) | 누르는 동안의 가속도. h_star 는 움직이는 속도 m/s |
 | `--decel 이름=값` | 1.0 | 뗐을 때의 감속도. 반대 키로 멈출 때도 이 값 |
 

@@ -349,6 +349,8 @@ ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/squat
 창 맨 위에 지금 상태가 뜸 -- `Torque OFF` / `R: go to ready pose` / `Moving to ready pose` /
 `Ready. Enter: start policy` / `POLICY RUNNING`. **토크 켜기(`enable`)는 키로 안 함** -- 명령으로
 침. 속도 상한 등은 `max:="vx=0.8" accel:="vx=0.4" decel:="vx=1.5"` (`--max` 등과 같음).
+**상한 기본값은 그 정책이 학습한 범위임** -- `newwalk` 은 vx 1.5 · vy 1.0 · wz 1.0,
+`stair_slope` 는 vx 2.0, `walk` 은 계약에 범위가 없어 1.0. 줄일 때만 `max:=` 를 주면 됨.
 
 창을 쓰면 A-4·A-5·A-6 의 명령을 대신함 (enable 만 명령).
 
@@ -1118,7 +1120,7 @@ off -> approach -> ready -> running -> done
 | 이름 | 기본 | 무엇 |
 |---|---|---|
 | `policy` | 없음. **필수** | 정책 꾸러미 폴더. 정책 노드와 같은 것 -- 그 정책의 명령만 조작함 |
-| `max` / `accel` / `decel` | 빈 값 = 기본 | `"vx=0.8 wz=1.0"` 꼴. `huphy-run --max/--accel/--decel` 과 같음 |
+| `max` / `accel` / `decel` | 빈 값 = 기본 | `"vx=0.8 wz=1.0"` 꼴. `huphy-run --max/--accel/--decel` 과 같음. **상한 기본값은 정책 계약의 범위** |
 
 **게인·관절 한계·모터 id 는 양쪽 다 없음.** `robot.yaml` 과
 `config/calibration/*.json` 이 유일한 출처임. 파라미터로 또 받으면 어긋났을 때 어느

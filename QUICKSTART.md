@@ -142,7 +142,8 @@ pygame 창이 뜸. 창에서 **Enter 시작**, **Space 속도 0**, **Esc 멈춤*
 | `walk` | `W`/`S` 앞뒤, `A`/`D` 돌기. 누르는 동안 가속, 떼면 0 으로 |
 | `squat` | `↑`/`↓` 높이 |
 
-상한과 가감속.
+상한과 가감속. **상한은 안 주면 그 정책이 학습한 범위**임 (`newwalk` vx 1.5,
+`stair_slope` vx 2.0, `walk` 은 계약에 범위가 없어 1.0). 줄일 때 주면 됨.
 
 ```bash
 huphy-run --policy walk --teleop \
