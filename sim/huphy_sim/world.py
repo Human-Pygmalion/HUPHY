@@ -84,14 +84,15 @@ PLACE_BISECTIONS = 40
 FREE_HEIGHT_M = 2.0
 """이분법의 위쪽 끝. 이 높이에서는 바닥에 안 닿는다는 전제임."""
 
-GHOST_GROUP = 2
-"""고스트로 그릴 geom 의 group. MJCF 의 `class="visual"` 이 group 2 임.
-
-충돌용(group 3)·외피(group 4)까지 그리면 겹쳐서 어느 쪽이 목표인지 안 보임.
-"""
-
 GHOST_RGBA = (0.25, 0.6, 1.0, 0.35)
 """고스트 색. 반투명이라 실제 로봇이 뒤에 비침."""
+
+GHOST_COPY = (
+    "type", "dataid", "objtype", "objid", "matid", "texid", "texcoord",
+    "texrepeat", "texuniform", "emission", "specular", "shininess",
+    "reflectance", "modelrbound", "transparent",
+)
+"""고스트 geom 에 그대로 옮기는 칸들. 색(`rgba`)·분류(`category`)·`segid` 만 덮어씀."""
 
 SUNK_HEIGHT_M = -1.0
 """이분법의 아래쪽 끝. 이 높이에서는 반드시 바닥을 파고든다는 전제임."""
@@ -208,7 +209,7 @@ class SimWorld:
         """이번 주기에 명령이 들어왔는지. 버스가 세움, `advance_cycle` 이 내림."""
         self.drivers: List["object"] = []
         self._ghost_data = None
-        self._ghost_geoms: Tuple[int, ...] = ()
+        self._ghost_scene = None
         self._ghost_rgba = None
         self._jnt_adr: Dict[str, int] = dict(self._qpos)
         self.viewer = None
@@ -387,6 +388,12 @@ class SimWorld:
 
         물리에 영향이 없음 -- 별도 `MjData` 에 자세를 넣고 순기구학만 풀어
         뷰어의 `user_scn` 에 장식 geom 으로 넣음.
+
+        **장면을 손으로 만들지 않고 `mjv_updateScene` 에 맡김.** `mjv_initGeom` 에
+        모델 값을 그대로 넘기면 모양이 깨짐 -- 장면 geom 의 `size` 규약이 모델의
+        `geom_size` 와 달라서임 (원기둥은 모델이 `[반지름, 반길이]`, 장면이
+        `[반지름, 반지름, 반길이]`). MuJoCo 가 쓰는 변환을 그대로 쓰고 색과 분류만
+        덮어씀. 뷰어의 `opt` 를 같이 넘기므로 **뷰어에서 켠 것만 고스트로도 보임.**
         """
         if self.viewer is None:
             return 0
@@ -395,10 +402,7 @@ class SimWorld:
         mujoco = self._mujoco
         if self._ghost_data is None:
             self._ghost_data = mujoco.MjData(self.model)
-            self._ghost_geoms = tuple(
-                i for i in range(self.model.ngeom)
-                if int(self.model.geom_group[i]) == GHOST_GROUP
-            )
+            self._ghost_scene = mujoco.MjvScene(self.model, self.model.ngeom + 16)
             self._ghost_rgba = np.array(GHOST_RGBA, dtype=np.float32)
 
         gd = self._ghost_data
@@ -407,26 +411,32 @@ class SimWorld:
             gd.qpos[self.qpos_adr(name)] = float(value)
         mujoco.mj_kinematics(self.model, gd)
 
+        ghost = self._ghost_scene
+        mujoco.mjv_updateScene(
+            self.model, gd,
+            getattr(self.viewer, "opt", None) or mujoco.MjvOption(),
+            None,
+            getattr(self.viewer, "cam", None) or mujoco.MjvCamera(),
+            # 움직이는 몸통의 geom 만. 바닥은 static 이라 안 들어옴.
+            mujoco.mjtCatBit.mjCAT_DYNAMIC,
+            ghost,
+        )
+
         scene = self.viewer.user_scn
         scene.ngeom = 0
-        for i in self._ghost_geoms:
+        for k in range(int(ghost.ngeom)):
             if scene.ngeom >= scene.maxgeom:
                 break
-            geom = scene.geoms[scene.ngeom]
-            mujoco.mjv_initGeom(
-                geom,
-                int(self.model.geom_type[i]),
-                self.model.geom_size[i],
-                gd.geom_xpos[i],
-                gd.geom_xmat[i],
-                self._ghost_rgba,
-            )
-            # 메시는 `mjv_initGeom` 이 dataid 를 -1 로 두므로 뒤에 넣어 줘야 그려짐.
-            geom.dataid = int(self.model.geom_dataid[i])
-            geom.objtype = int(mujoco.mjtObj.mjOBJ_UNKNOWN)
-            geom.objid = -1
-            geom.category = int(mujoco.mjtCatBit.mjCAT_DECOR)
-            geom.segid = scene.ngeom
+            src, dst = ghost.geoms[k], scene.geoms[scene.ngeom]
+            for field in GHOST_COPY:
+                setattr(dst, field, getattr(src, field))
+            dst.size[:] = src.size
+            dst.pos[:] = src.pos
+            dst.mat[:] = src.mat
+            dst.rgba[:] = self._ghost_rgba
+            dst.category = int(mujoco.mjtCatBit.mjCAT_DECOR)
+            dst.segid = scene.ngeom
+            dst.label = b""
             scene.ngeom += 1
         return int(scene.ngeom)
 
