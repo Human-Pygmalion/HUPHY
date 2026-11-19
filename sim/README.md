@@ -31,7 +31,7 @@ python3 sim/rollout.py --policy walk --cmd vx=0.3 --log      # sim/logs/ 에 기
 |---|---|
 | `--policy` | **필수.** `config/policies/` 의 꾸러미 이름 |
 | `--checkpoint` | 가중치 파일. 생략하면 계약의 기본값 |
-| `--duration` | 돌릴 초. 기본 10 |
+| `--duration` | 이 초만큼만 돎. **생략하면 멈출 때까지** (`huphy-run` 과 같음) |
 | `--approach` | 기준 자세로 옮기는 시간. 기본 0.2초 |
 | `--now` | Enter 를 기다리지 않고 바로 시작 |
 | `--teleop` | pygame 창으로 명령을 실시간 조작 |
@@ -45,7 +45,12 @@ python3 sim/rollout.py --policy walk --cmd vx=0.3 --log      # sim/logs/ 에 기
 | `--config` | 로봇 설정. 기본 `config/robot.yaml` |
 
 **실시간으로 돎.** `--duration 10` 이면 벽시계로 약 12초 (정지 감쇠 5초 포함).
-`Ctrl-C` 로 멈춤. 넘어지면 스스로 멈춤.
+`--duration` 을 생략하면 `huphy-run` 처럼 **멈출 때까지 돎** -- `Ctrl-C`, `--teleop`
+창의 `Esc`, 또는 넘어짐.
+
+멈추면 **`kp=0` 으로 5초 감쇠한 뒤 토크를 끊음** (`ControlLoop._exit`, 실물과 같음).
+그때 로봇이 주저앉는 것은 정상이고 넘어진 것이 아님 -- 창을 띄워 두면 이것이 제일
+먼저 눈에 띔. 넘어짐은 돌고 있는 중에 `** 넘어짐 **` 으로 찍힘.
 
 ### 시작은 실물과 같음 -- Enter
 

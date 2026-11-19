@@ -174,7 +174,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--policy", required=True, help="config/policies/ 안의 꾸러미 이름")
     p.add_argument("--checkpoint", help="가중치 파일. 생략하면 계약의 기본값")
     p.add_argument("--config", type=Path, help=f"로봇 설정 (기본 {DEFAULT_CONFIG})")
-    p.add_argument("--duration", type=float, default=10.0, help="돌릴 시간 (초)")
+    p.add_argument("--duration", type=float,
+                   help="이 초만큼만 돌고 나옴. **생략하면 멈출 때까지 돎** -- "
+                        "Ctrl-C, 창의 Esc, 또는 넘어짐 (huphy-run 과 같음)")
     p.add_argument("--approach", type=float, default=DEFAULT_APPROACH_S,
                    help=f"기준 자세로 옮기는 시간 (초, 기본 {DEFAULT_APPROACH_S}). "
                         "이 구간과 Enter 대기 구간에는 물리를 굴리지 않음")
@@ -260,7 +262,11 @@ def main(argv=None) -> int:
         f"  {args.approach:g}초에 걸쳐 기준 자세로 옮긴 뒤 그 자세로 기다립니다.",
         "  Enter 를 누르면 정책이 시작됩니다. 그때까지 물리를 굴리지 않습니다."
         + (" (pygame 창에서도 됨)" if pad is not None else ""),
-        f"  정책이 {args.duration:g}초 돌면 멈춥니다.",
+        (f"  정책이 {args.duration:g}초 돌면 멈춥니다."
+         if args.duration is not None else
+         "  멈출 때까지 돕니다. Ctrl-C"
+         + (", 창의 Esc" if pad is not None else "")
+         + " 로 멈춤."),
         "",
         "  ** 실물이 아님. 게인·지연·인코더 영점·발열은 이 경로로 검증되지 않음 **",
         "",
@@ -336,7 +342,7 @@ def main(argv=None) -> int:
             print(f"  ** 넘어짐: 몸통 {height:.3f} m, 기울기 {tilt:.2f}, "
                   f"정책 {elapsed:.2f}초 **")
             loop.stop()
-        elif elapsed >= args.duration:
+        elif args.duration is not None and elapsed >= args.duration:
             loop.stop()
         return command
 
@@ -366,8 +372,9 @@ def main(argv=None) -> int:
         f"  시뮬 시간 {world.sim_time_s:.2f}초  물리 스텝 {world.steps}"
         f"  제어 주기 {stats.cycles}"
         f"  벽시계 {time.perf_counter() - wall:.1f}초",
-        f"  몸통 높이 끝 {last[0]:.3f} m  최저 {lowest[0]:.3f} m"
-        f"   (정지 감쇠 뒤 {world.base_height_m:.3f} m -- 토크를 끊으면 주저앉음)",
+        f"  몸통 높이 끝 {last[0]:.3f} m  최저 {lowest[0]:.3f} m",
+        f"  멈춘 뒤 {world.base_height_m:.3f} m 로 주저앉음 -- **정상임.**"
+        " 멈출 때 kp=0 으로 5초 감쇠한 뒤 토크를 끊음 (실물과 같음).",
         f"  기울기 최대 {tilted[0]:.2f}",
         f"  주기 {stats.mean_hz:.1f}Hz" + ("" if stats.kept_up else "  (주기를 못 지킴)"),
         "  넘어짐" if fallen[0] else "  서 있음",

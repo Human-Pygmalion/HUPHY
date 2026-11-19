@@ -1313,6 +1313,7 @@ python3 sim/rollout.py --policy motion399 --duration 10 --log
 python3 sim/rollout.py --policy walk --view         # MuJoCo 창
 python3 sim/rollout.py --policy walk --cmd vx=0.3   # 고정 명령
 python3 sim/rollout.py --policy walk --teleop       # 키로 조작 (pip install pygame)
+python3 sim/rollout.py --policy walk --duration 10  # 생략하면 멈출 때까지 돎
 ```
 
 시작 방식도 실물과 같음 -- 기준 자세로 옮긴 뒤 그 자세로 기다리고, **Enter 를
