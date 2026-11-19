@@ -124,7 +124,9 @@ const EXTRA_TITLE = { iq: ["추가 값 · 전류 iq", "A"], temp: ["추가 값 �
 // 읽을 때만 있음. 구리 손실만 넣은 값이라 dc_a_lo 는 하한임 (docs/motor_power.md).
 const POWER_TITLE = { copper_w: ["전력 합", "W"], dc_a_lo: ["DC 전류 합", "A"] };
 // 목록에 이 순서로 둠. 열 순서(모터별 둘 -> 합 둘)대로 두면 전력과 DC 가 섞여 보임.
-const POWER_ORDER = ["power/motor", "power/copper_w", "power/motor_dc", "power/dc_a_lo"];
+// 전류계 실측(current/)은 계산값 바로 뒤.
+const POWER_ORDER = ["power/motor", "power/copper_w", "power/motor_dc", "power/dc_a_lo",
+                     "current/total_a", "current/age"];
 const UNITS = { gyro: "rad/s", grav: "", q: "rad (기본자세 기준)", q_prev: "rad (기본자세 기준)",
   pos: "rad", vel: "rad/s", last_act: "모델 출력", cmd: "", phase: "" };
 
@@ -236,11 +238,13 @@ function load(name, text) {
       // 전류계 실측. 계산 하한(power/dc_a_lo)과 **같은 그래프**에 겹쳐 둠 -- 두 값을
       // 나란히 보는 것이 이 열의 목적임. 둘이 같아지지 않는 이유는 docs/motor_power.md.
       const g = add("power/dc_a_lo", POWER_TITLE.dc_a_lo[0], "A", false);
-      g.title = "DC 전류 — 계산 하한(dc_a_lo) vs 전류계 실측(total_a)";
+      g.title = "DC 전류 합 — 계산 하한(dc_a_lo) vs 전류계 실측(total_a)";
       g.cols.push(i);
+      // 목록에서 "전류계" 로 바로 찾게 실측만 따로도 둠
+      add("current/total_a", "DC 전류 - 전류계 실측", "A", false).cols.push(i);
     }
     else if (c === "current/age") {
-      add("current/age", "전류계 수신 나이", "ms", false).cols.push(i);
+      add("current/age", "전류계 - 수신 나이", "ms", false).cols.push(i);
     }
     else if (p[0] === "power" && p[p.length - 1] === "dc_a_lo") {
       // 예전 기록에는 이 열이 없음 -- 그때는 그래프가 안 생김
@@ -260,7 +264,7 @@ function load(name, text) {
   }
   // 전류계 열이 있으면 DC 전류 그래프를 처음부터 펴 둠 -- 그 열을 켠 이유가 비교임.
   const defaults = ["each", "err", "obs/gyro", "obs/grav"]
-    .concat(cols.includes("current/total_a") ? ["power/dc_a_lo"] : []);
+    .concat(cols.includes("current/total_a") ? ["power/dc_a_lo", "current/total_a"] : []);
   S.shown = new Set(S.panels.map((p) => p.key).filter((k) =>
     defaults.includes(k) || k === "extra/iq" || k === "power/copper_w"
     || /^imu\/[^/]+\/(att|gyro)$/.test(k)));
