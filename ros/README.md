@@ -21,12 +21,12 @@
 | `huphy_ros_interfaces` | `ament_cmake` | 기록용 메시지 6개. 제어 토픽은 표준 타입 그대로임 |
 
 D455 를 쓸 때는 노드가 하나 더 돎. **그건 우리가 만든 것이 아니라 인텔 공식
-패키지임** -- 아래 [카메라 (D455)](#카메라-d455).
+패키지임** -- 아래 [카메라 (D455)](#c-카메라-d455).
 
 | 노드 | 하는 일 | 어디서 | 누가 만든 것 |
 |---|---|---|---|
 | `realsense2_camera_node` | D455 를 열어 깊이·색·IMU 를 토픽으로 냄 | 카메라가 USB 로 꽂힌 기계 | 인텔 (`realsense2_camera`) |
-| `robot_state_publisher` · `rviz2` | 관절각으로 3D 모델을 움직여 보여 줌 ([3D 로 보기](#3d-로-보기-rviz)) | 화면 있는 기계 | ROS 기본 |
+| `robot_state_publisher` · `rviz2` | 관절각으로 3D 모델을 움직여 보여 줌 ([3D 로 보기](#e-3d-로-보기-rviz)) | 화면 있는 기계 | ROS 기본 |
 
 그림은 [`ros.drawio`](ros.drawio). 설계 근거는 **아래쪽 "아래는 설계"** 부터.
 
@@ -81,7 +81,7 @@ ros/install.sh
 |---|---|---|
 | RViz 로 3D 보기 | 화면 있는 기계 (작업 기계) | `sudo apt install ros-humble-rviz2` |
 | 로그를 걸러 보기 (rqt_console) | 보는 기계 | `sudo apt install ros-humble-rqt-console` |
-| D455 카메라 | 카메라가 꽂힌 기계 | [카메라 (D455)](#카메라-d455) |
+| D455 카메라 | 카메라가 꽂힌 기계 | [카메라 (D455)](#c-카메라-d455) |
 
 ### 다시 빌드할 때
 
@@ -128,12 +128,29 @@ lsusb | grep -i intel                    # 꽂혀 있으면 Intel RealSense 가 
 
 ## 실행
 
-**띄우는 방법이 둘임. 해당하는 단락 하나만 따라감** -- 두 단락은 서로를 참조하지 않음.
+이 장은 **따라 치는 순서대로** 되어 있음.
+
+```
+A 또는 B   로봇을 움직이는 데 필요한 전부 (제어 노드 -> 정책 노드 -> 토크 -> 기준 자세 -> 정책 -> 명령 -> 멈춤)
+   C       카메라를 쓸 때만       -- 혼자 돌아서 언제 띄워도 됨
+   D       기록을 남길 때만       -- **정책 시작 전에** 띄울 것
+   E       3D 로 볼 때만 (RViz)   -- 제어 노드만 떠 있으면 됨
+```
+
+**A 와 B 는 둘 중 하나만 따라감** -- 서로를 참조하지 않음.
 
 | 띄우는 방법 | 언제 | 단락 |
 |---|---|---|
 | **두 기계** | 실제 배치. 모션보드는 로봇에, 작업 기계는 사람 앞에 | [A. 두 기계](#a-두-기계) |
 | **한 기계** | 개발·점검. CAN·IMU 가 붙은 기계 하나에서 노드 둘 다 | [B. 한 기계](#b-한-기계) |
+
+C·D·E 는 **A·B 어느 쪽을 따라왔든 같음.** 터미널을 하나씩 더 쓰는 선택 사항임.
+
+| | 언제 쓰나 | 단락 |
+|---|---|---|
+| 카메라 | D455 로 깊이·색을 볼 때 | [C. 카메라 (D455)](#c-카메라-d455) |
+| 기록 | 관절·관찰·지연을 JSON 으로 남길 때 | [D. 기록 (log_node)](#d-기록-log_node) |
+| 뷰어 | 관절각을 3D 로 볼 때 | [E. 3D 로 보기 (RViz)](#e-3d-로-보기-rviz) |
 
 | 기계 | 붙은 것 | 띄우는 노드 |
 |---|---|---|
@@ -197,8 +214,10 @@ ROS 없이 돌리는 `huphy-run` 한 번이 아래처럼 쪼개져 있음. **ROS
 - **기록은 터미널 4 하나로 끝남.** 1·2 에 붙일 것 없음 -- 기록 노드가 뜨면 두 노드가 알아서
   기록용 토픽을 내기 시작하고, 안 뜨면 안 냄.
 - 기록 파일은 터미널 4 를 띄운 기계의 `~/HUPHY/ros/logs/policy/`, `.../latency/` 에 생김.
-  `stop_policy` (Esc, 패드 B 포함) 한 번에 한 쌍. 자세한 것은 [기록](#기록).
+  `stop_policy` (Esc, 패드 B 포함) 한 번에 한 쌍. 자세한 것은 [기록](#d-기록-log_node).
 - 토크 켜기·기준 자세·정책 시작·멈춤은 런치가 아니라 서비스임 -- A-3 부터.
+- 카메라·3D 뷰어를 쓰면 터미널이 하나씩 더 늘어남 ([C](#c-카메라-d455),
+  [E](#e-3d-로-보기-rviz)).
 
 #### A-1. CAN 올리고 제어 노드 띄우기  `[모션보드]`
 
@@ -486,6 +505,10 @@ ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔
 | `topic hz/echo joint_targets` | 목표각이 정책 주기(50Hz 근처)로, −2 ~ 2 rad 안에서 나오는지 | (없음) |
 | `stop_policy` | 정책 끔. 이 뒤에 A-3 으로 | (없음) |
 
+**여기까지가 로봇을 움직이는 전부임.** 더 필요하면 이어서 -- 카메라는
+[C](#c-카메라-d455), 기록은 [D](#d-기록-log_node), 3D 뷰어는 [E](#e-3d-로-보기-rviz).
+A 를 따라왔으면 [B. 한 기계](#b-한-기계) 는 읽을 것 없음.
+
 ---
 
 ### B. 한 기계
@@ -505,8 +528,11 @@ ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔
 | 1 | `huphy-can up` 후 `ros2 launch huphy_ros local.launch.py config:=$HOME/HUPHY/config/robot.yaml policy:=$HOME/HUPHY/config/policies/walk` |
 | 2 | 조작 하나: 창 `teleop.launch.py policy:=...` / 패드 `gamepad.launch.py policy:=...` / 명령 `ros2 topic pub ...` (B-5) |
 
-- **기록할 때만** 다른 터미널에서 `ros2 launch huphy_ros log.launch.py` -- 정책 시작 전에.
+- **기록할 때만** 다른 터미널에서 `ros2 launch huphy_ros log.launch.py` -- 정책 시작 전에
+  ([D. 기록](#d-기록-log_node)).
 - 기록 파일은 `~/HUPHY/ros/logs/policy/`, `.../latency/`. `stop_policy` 한 번에 한 쌍.
+- 3D 로 보려면 한 터미널 더 ([E. 3D 로 보기](#e-3d-로-보기-rviz)). 카메라는
+  [C. 카메라](#c-카메라-d455).
 
 #### B-1. CAN 올리고 노드 둘 띄우기
 
@@ -524,7 +550,7 @@ ros2 launch huphy_ros local.launch.py \
 
 로그 끝에 `approach 를 기다림` 과 `OBSERVE 로 시작` 이 나오면 된 것임.
 
-기록은 다른 터미널에서 `ros2 launch huphy_ros log.launch.py` (아래 [기록](#기록)).
+기록은 다른 터미널에서 `ros2 launch huphy_ros log.launch.py` (아래 [기록](#d-기록-log_node)).
 
 로봇 없이 점검할 때는 `huphy-can up` 대신 가짜 채널을 올리고 `config:=/tmp/robot_vcan.yaml`
 -- [`without_robot.md`](without_robot.md).
@@ -625,9 +651,15 @@ ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔. 이 �
 
 `huphy-run` 에는 없는 단계임 -- 토크 없이 정책이 무엇을 내는지만 봄.
 
+**여기까지가 로봇을 움직이는 전부임.** 아래 C·D·E 는 터미널을 하나씩 더 쓰는 선택
+사항이고, A 를 따라왔든 B 를 따라왔든 같음.
+
 ---
 
-## 카메라 (D455)
+### C. 카메라 (D455)
+
+**A·B 와 무관하게 혼자 돎.** 제어·정책 노드가 떠 있든 말든 상관없고, 구독자가 없어도
+토픽을 냄. 카메라를 안 쓰면 이 단락은 건너뜀.
 
 **지금은 카메라가 무엇을 내는지 보는 데까지임.** 깊이를 지형으로 바꿔 정책에
 넣는 노드는 아직 없음 -- 아래 [지형 -- 아직 정하는 중](#지형--아직-정하는-중).
@@ -636,7 +668,7 @@ ros2 service call /huphy/stop_policy std_srvs/srv/Trigger    # 정책 끔. 이 �
 그걸 우리 설정으로 부르는 런치 파일 하나
 ([`camera.launch.py`](huphy_ros/launch/camera.launch.py)) 뿐임.
 
-### C-1. 띄우기  `[카메라가 꽂힌 기계]`
+#### C-1. 띄우기  `[카메라가 꽂힌 기계]`
 
 ```bash
 ros2 launch huphy_ros camera.launch.py
@@ -666,7 +698,7 @@ ros2 launch huphy_ros camera.launch.py initial_reset:=true
 
 인자 전체는 런치 파일 맨 위 주석과 `ARGUMENTS` 목록에 있음.
 
-### C-2. 나오는 토픽
+#### C-2. 나오는 토픽
 
 | 토픽 | 타입 | 무엇 |
 |---|---|---|
@@ -680,7 +712,7 @@ ros2 launch huphy_ros camera.launch.py initial_reset:=true
 이름공간을 `/huphy/d455` 로 바꿔 둔 것임 (드라이버 기본값은 `/camera/camera`).
 런치 인자 `namespace:=`, `name:=` 로 바꿀 수 있음.
 
-### C 확인. 실제로 무엇을 얼마나 내는지
+#### C 확인. 실제로 무엇을 얼마나 내는지
 
 ```bash
 ros2 topic list                                              # 토픽이 다 떴는지
@@ -693,7 +725,7 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 `hz` 와 `bw` 가 **지형 노드를 설계할 때 필요한 숫자**임 -- 얼마나 자주 오는지,
 기계 사이로 보내면 얼마를 먹는지.
 
-### 안 될 때
+#### C 안 될 때
 
 | 증상 | 이유·할 것 |
 |---|---|
@@ -703,7 +735,7 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 | 프레임이 뚝뚝 끊김 | USB 2.0 포트에 꽂힘. USB 3 포트(보통 파란색)로 |
 | 깊이가 다 0 | 너무 가까움. D455 최소 거리가 대략 0.5m |
 
-### 지형 -- 아직 정하는 중
+#### 지형 -- 아직 정하는 중
 
 깊이를 정책 입력으로 바꾸는 노드(`terrain_node`)는 **아직 안 만듦.** 만들려면
 학습 쪽에서 다음이 정해져야 함.
@@ -727,6 +759,266 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 
 ---
 
+### D. 기록 (log_node)
+
+**A 는 터미널 4, B 는 터미널 3 에 해당하는 단락임.** 남길 때만 띄우고, **정책을 시작하기
+전에** 띄움 -- 그 전에 흘러간 줄은 못 받음.
+
+`huphy-run --log` 이 남기는 JSON 두 파일을 ROS 로 돌릴 때도 남기는 것임. 터미널에 찍히는
+글 메시지는 이것이 아니라 [로그 메시지](#로그-메시지) 쪽임.
+
+#### D-1. 켜는 법
+
+**기록 노드 하나만 띄우면 됨.** 제어·정책 노드는 평소대로 띄우고 따로 켤 것 없음.
+
+```bash
+ros2 launch huphy_ros log.launch.py      # 아무 기계 (보통 작업 기계)
+```
+
+두 노드는 기록용 토픽(`/huphy/debug/*`)을 **구독자가 있을 때만** 냄 -- 기록 노드가 없으면
+50Hz·100Hz 메시지를 만들지도 않음. 시작할 때 한 번 내는 설명 두 개(`policy_info`,
+`control_info`)는 늘 내 두고 `transient_local` 이라 기록 노드를 나중에 띄워도 받음.
+
+**`log_node` 를 정책 시작 전에 띄울 것.** 그 전에 흘러간 줄은 못 받음. 시작할 때
+어디에 쓸 것인지가 로그에 찍힘.
+
+#### D-2. 나오는 파일
+
+```
+$HOME/HUPHY/ros/logs/policy/<월일>_policy_<정책>.json     tools/policy_viewer.html
+$HOME/HUPHY/ros/logs/latency/<월일>_latency_<정책>.json   tools/latency_viewer.html
+```
+
+`log_node` 를 띄운 기계의 디스크임. `log:=` 로 바꿀 수 있음.
+
+기본값이 **절대경로**인 이유: 상대경로면 런치를 어느 폴더에서 쳤는지에 따라 파일이
+다른 데 생김. `log_node` 자체는 경로를 모름 -- 설치된 노드는
+`~/ros2_ws/install/huphy_ros/lib/huphy_ros/log_node` 에서 돌고 소스 폴더가 어디인지
+알 길이 없음 (`__file__` 은 빌드 방식에 달리고, `share/` 는 다시 빌드하면 지워지고,
+`huphy.__file__` 은 `pip install -e` 여서 소스를 가리키는 것임). 그래서 경로는
+**소스에 있는 런치 파일**이 정함.
+
+`ros/logs/` 에 두는 이유: 이 폴더를 새 레포로 분리하면 기록도 같이 감. `huphy-run`
+쪽은 `<레포>/logs/` 로 따로 남음.
+
+같은 날 같은 정책으로 또 돌리면 `_2`, `_3` 이 붙음. **덮어쓰지 않음.** 두 파일의
+이름을 `log_node` 한 곳에서 지으므로 번호가 같이 올라감.
+
+#### D-3. 무엇이 담기나
+
+`huphy-run --log` 과 **같은 모양임.** 같은 코드가 씀
+(`src/huphy/telemetry/policy_log.py`, `latency_log.py`). 다른 것은 `power/` 열
+하나임 -- 이쪽에만 있음 (아래 [전력 열](#전력-열)).
+
+| 파일 | 열 |
+|---|---|
+| `policy` | `t`, `obs/...`(정규화 전), `act/...`(모델 출력 날값), `tgt/...`(도), `pos/...`(도), `extra/...`(전류·전압·온도. `extra` 를 켰을 때만), `power/...`(구리 손실·DC 전류 하한. `extra` 를 켰을 때만. **`huphy-run` 기록에는 없음**) |
+| `latency` | `t`, `joint`, `latency_ms`, `status`(제때/늦음/유실) |
+
+`run` 칸에 `source: "ros"` 가 들어감 -- `huphy-run` 기록과 한 폴더에 섞여도
+구별됨. 게인 배율은 ROS 에 파라미터가 없어 안 들어감.
+
+#### D-4. 모터 전류·전압·온도
+
+`control.launch.py` 의 `extra` 인자로 켬. 기본값은 0 (끔) 이라 안 켜면 명령이
+그대로임.
+
+```bash
+ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml extra:=2
+ros2 launch huphy_ros local.launch.py config:=... policy:=... extra:=2
+```
+
+**`extra` 는 읽기만 켬. 기록 노드를 띄우지 않음.** 파일에 남기려면 다른 터미널에서
+`log.launch.py` 를 정책 시작 전에 띄울 것 (위 [켜는 법](#d-1-켜는-법)).
+
+```bash
+ros2 launch huphy_ros log.launch.py      # 터미널 2
+```
+
+값은 **한 주기에 다리마다 보낼 파라미터 읽기 요청 수**임. 전류·전압은 상태 응답
+프레임에 없어서 따로 요청해야 함. 한 다리가 읽을 항목이 모터 6개 x 값 2개 =
+12개이므로 `extra:=2` 면 6주기에 한 바퀴 -- 100Hz 기준 값 하나가 **약 17Hz** 로
+갱신됨. 올리면 빨라지고 그만큼 CAN 프레임이 늘어남.
+
+온도는 상태 응답 프레임에 있어서 매 주기 갱신됨. 다만 세 값을 한 메시지로 두므로
+`extra` 가 0 이면 온도도 안 나감 -- 열이 중간부터 생기면 줄마다 열 수가 달라짐.
+
+주기는 이렇게 흐름.
+
+| 무엇 | 주기 |
+|---|---|
+| `control_node` 가 `/huphy/debug/motor_extra` 발행 | `state_hz` (기본 100Hz) |
+| `log_node` 가 구독 | 100Hz. 마지막 메시지만 둠 |
+| 파일에 기록 | 정책 줄 주기 (50Hz). 줄이 올 때 마지막 값을 넣음 |
+| `iq`·`vbus` 값 갱신 | `extra:=2` 면 약 17Hz. 연속 두세 줄에 같은 값이 기록됨 |
+| `temp` 값 갱신 | 100Hz |
+
+파일의 열 이름은 `huphy-run --extra` 와 같음 (`extra/<모터>/iq`, `/temp`, `/vbus`).
+같은 뷰어로 봄. `run` 칸에 `extra` 값이 들어감.
+
+##### 전력 열
+
+`extra` 를 켜면 `log_node` 가 받은 상전류로 구리 손실을 계산해 열을 더 만듦. 따로
+켜는 인자는 없음.
+
+```
+power/<모터>/copper_w   그 모터의 구리 손실 (W)
+power/<모터>/dc_a_lo    그 모터의 DC 전류 하한 (A) = 그 모터의 구리 손실 / 그 모터의 vbus
+power/copper_w          모터 전부의 합 (W)
+power/dc_a_lo           DC 전류 하한 합 (A) = 합 / vbus 평균
+```
+
+    P_cu = 1.5 * iq**2 * R_phase
+
+`R_phase` 는 모델별 사양값임. `control_node` 가 `control_info` 에 모델명
+(`motor_models`, `robot.yaml` 의 `model`) 을 실어 보내고 `log_node` 가 상수로 바꿈
+-- 모터가 다른 기계에 있어서 설정 파일을 못 읽음.
+
+**`dc_a_lo` 는 하한임.** 모터가 DC 전류도 전력도 안 내서(매뉴얼의 읽기 가능 항목이
+네 개뿐임) 구리 손실만 계산함. 기계 출력·철손·인버터 손실·감속기 손실이 빠져 있음
+([docs/motor_power.md](../docs/motor_power.md)).
+
+한 모터라도 상전류를 아직 못 받았으면 그 줄의 합이 `null` 임 -- 일부만 더한 값을
+전체 합으로 읽지 않게 함. 사양을 안 넣은 모델(RS00·RS02)뿐이면 열을 아예 안 만듦.
+`huphy-run --extra` 기록에는 이 열이 없음.
+
+**`send_mode` 가 `burst` 여야 함.** 읽기 응답에 모터 id 가 없어서 CAN id 로 가름.
+`seq` 로 띄우면 `control_node` 가 시작할 때 멈춤.
+
+구독자가 없으면 `control_node` 가 이 토픽을 안 냄. 다만 **CAN 읽기 요청은 `extra`
+파라미터로 켜는 것이라 `log_node` 가 없어도 보냄.** 안 보내려면 `extra:=0` 으로
+띄울 것.
+
+##### 전류 실측 열
+
+전류계를 꽂았으면 `current_node` 를 같이 띄움 (아래 [노드](#3-노드) 3-4).
+`log_node` 가 그 토픽을 받아 열을 더 만듦.
+
+```bash
+ros2 launch huphy_ros log.launch.py        # 터미널 2
+ros2 launch huphy_ros current.launch.py    # 터미널 3. 포트가 헷갈리면 port:= 로
+```
+
+```
+current/total_a   전류계가 잰 로봇 전체 DC 전류 (A). 실측
+current/age       그 값이 장비에서 온 뒤 흐른 시간 (ms). 못 받았으면 -1
+```
+
+**계산값 `power/dc_a_lo` 와 같아질 수 없음.** 차이가 두 가지에서 옴.
+
+| | |
+|---|---|
+| 빠진 손실 | 철손 + 인버터 + 감속기 + 기계 출력 -> 계산값이 작음 |
+| 범위 차이 | 실측은 모터 말고 연산보드·팬·통신까지 다 포함 -> 실측이 큼 |
+
+그래서 두 열을 바로 빼서 손실로 읽으면 안 됨. 로봇을 세워 둔 채 잰 값을 기준선으로
+빼면 비교가 됨 (`huphy-current` 가 평균을 찍어 줌).
+
+`age` 가 따로 있는 이유: 장비 출력 주기가 정책 줄 주기(50Hz)보다 느려 같은 값이 여러
+줄에 반복됨. 없으면 "전류가 안 변함" 과 "장비가 멈춤" 이 구분되지 않음. 이 값은
+`current_node` 가 재서 실어 보낸 것이므로 **그 기계 기준**임 -- 두 기계 시계를 안
+맞추므로 전달 시간은 안 들어 있음 (`freshness.py` 와 같은 이유).
+
+열은 **첫 `bus_current` 가 왔을 때 생김.** 정책이 도는 중에 `current_node` 를 띄우면
+그 실행은 열 없이 끝나고 다음 실행부터 생김 -- 이미 쌓인 줄이 있는데 기록을 다시
+만들면 그 줄들이 날아감. 열이 생긴 뒤에는 값이 안 와도 남고 `age` 가 `-1` 임.
+
+파일의 열 이름은 `huphy-run --current` 와 같음. 같은 뷰어로 봄.
+
+#### D-5. 어느 구간이 담기나
+
+`policy_status` 의 단계가 `running` 인 동안만. 접근·대기·감쇠가 빠짐 --
+`huphy-run` 이 맞추는 구간과 같음.
+
+`stop_policy` 한 번이 한 실행임. 그때 두 파일을 씀. Ctrl-C 로 끝내도 남음.
+
+#### D-6. 파일을 쓰는 것이 왜 따로 있나
+
+**기계가 둘임** (결정 13). 두 노드가 각자 쓰면 정책 기록은 작업 기계에, 지연 기록은
+모션보드에 떨어짐.
+
+그리고 쓰는 데 **1분 기록이 220~260ms, 5분이면 1.2~1.3초** 걸림 (측정). 두 노드는
+단일 스레드 executor 에서 100Hz·50Hz 타이머를 돌리므로 그 안에서 쓰면 낡음 기준
+60ms/100ms 를 넘겨 감쇠 정지로 번짐 (결정 12). `log_node` 에는 타이머가 없음.
+
+#### D 안 될 때
+
+| 증상 | 이유·할 것 |
+|---|---|
+| 파일이 안 생김 | `stop_policy` 를 안 불렀거나 `running` 구간이 없었음. `ros2 topic echo /huphy/policy_status --once` 로 단계 확인 |
+| `log_node` 가 "정책 줄 N개를 못 받음" | 정책이 시작한 뒤에 띄웠음. 먼저 띄울 것 |
+| 지연 파일만 안 생김 | 모션보드와 기록 노드 기계가 서로 안 보임 (`ROS_DOMAIN_ID`). `ros2 topic info /huphy/debug/latency` 의 구독자 수 확인 |
+| 정책 파일만 안 생김 | 정책 노드가 기록 노드를 못 봄. `ros2 topic info /huphy/debug/policy_row` 의 구독자 수 확인 |
+| `loop_status` 의 `latency_pending` 이 계속 큼 | 발행이 밀림. 24 안쪽이 정상. `ros/huphy_ros/huphy_ros/latency_tap.py` 의 `MAX_EVENTS` 를 넘으면 오래된 사건이 버려짐 |
+| `limits` 칸이 빈 파일 | `control_info` 를 못 받았음. `control_node` 가 떠 있는지, 두 기계가 서로 보이는지 확인 |
+
+---
+
+### E. 3D 로 보기 (RViz)
+
+**`control_node` 만 떠 있으면 됨** -- A-1 이나 B-1 까지만 따라와도 보임. 토크도 정책도
+필요 없음.
+
+로봇이 실물 관절각대로 RViz 에서 움직임. **화면이 있는 기계**(보통 작업 기계)에서 띄움.
+`control_node` 가 떠 있으면 됨 -- OBSERVE 면 충분하니 토크 없이 손으로 다리를 움직여 봄.
+
+처음 한 번 (화면 있는 기계):
+
+```bash
+sudo apt install ros-humble-rviz2
+```
+
+```bash
+ros2 launch huphy_ros view.launch.py
+```
+
+| 보이는 것 | 뜻 |
+|---|---|
+| 몸통이 공중에 고정, 다리만 움직임 | 정상. 몸통 위치·자세를 추정하는 것이 없어 `world -> base_link` 를 0 으로 박음 |
+| 막대 끝이 발에서 떨어짐 | 크랭크각이 모델 범위 밖이라 못 풀었음. launch 화면에 `발목 링키지를 못 풂` 경고가 뜨고 직전 자세로 그림 |
+| 로봇이 아예 안 움직임 | `ros2 topic hz /huphy/joint_states` 부터. 두 기계면 `ROS_DOMAIN_ID` 확인 |
+| 한 관절만 안 움직임 | URDF 관절 이름이 다름. robot_state_publisher 는 **모르는 이름을 경고 없이 버림** |
+| 실물과 반대로 돎 | 0점·방향이 학습 모델과 다름 -- 캘리브레이션 문제 (`config/README.md`) |
+| 반투명 로봇이 하나 더 겹쳐 있음 | 목표 자세 (아래). `target:=false` 로 안 띄움 |
+| 반투명 로봇이 안 보임 / Target 이 `No transform` | 정책 노드가 아직 목표각을 안 냄. `approach` 부터 나옴 |
+
+**목표 자세 (반투명).** 정책 노드가 낸 `/huphy/joint_targets` 를 반투명한 두 번째 로봇으로
+겹쳐 그림 -- 실측(진한 쪽)이 목표를 얼마나 따라가는지 바로 보임. 같은 세 노드(링키지·
+robot_state_publisher·고정 TF)를 한 벌 더 띄우고 TF 이름에 `target/` 을 붙임. 목표각은
+기준 자세로 가는 중·대기·정책 중에만 와서, 그 밖에는 마지막 목표 자세에 멈춰 있음. 색은 메시
+색 그대로라 투명도로만 구분됨.
+
+```bash
+ros2 launch huphy_ros view.launch.py target:=false   # 실측만
+```
+
+URDF 는 학습 레포(Human-Pygmalion/HuphyChan-dev) 의 `LegOnly_..._v30_proxyfix_loop.urdf` 를
+이름만 바꾼 사본임 (`urdf/huphy.urdf`, 메시는 `meshes/`). 원본이 바뀌면 다시 만듦:
+
+```bash
+A=<원본 레포>/pygmalion_locomotion/assets/pygmalion_v2/LegOnly_prototype-tempmass-motormeasured-armfix_v30_proxyfix_loop
+python3 ros/huphy_ros/urdf/make_urdf.py $A.urdf $A.xml <원본 레포>/tools/robot_model/fusion_snapshots/v30_inspection/meshes_armfix
+rm -rf ~/ros2_ws/build/huphy_ros/meshes ~/ros2_ws/install/huphy_ros/share/huphy_ros/meshes  # 메시 이름이 바뀌면 옛 링크가 남아 빌드가 실패함
+ros/install.sh      # 새 파일을 설치 폴더에 넣음
+```
+
+정강이·발은 원본 URDF 의 메시 대신 MJCF 가 쓰는 `*_noloop.stl` 을 씀. 원본 메시에는 크랭크·막대가
+0 자세로 붙어 있어서, 그대로 쓰면 움직이는 막대 옆에 고정된 막대가 하나 더 보임.
+
+**발목.** URDF 는 크랭크 -> 막대 -> 발 고리를 못 적어서 발(`ankle_pitch/roll`)과 막대가 따로
+매달려 있음. `joint_states` 에는 크랭크각(`ankle_a/b`)만 있으므로, `view.launch.py` 가 같이
+띄우는 `linkage_node` 가 **URDF 치수로** 발 자세와 막대 각도를 풀어 붙임
+(`/huphy/joint_states_view`). RViz 는 계산을 안 하고 받은 각도대로 그리기만 함.
+
+`huphy` 의 `kinematics/ankle.py` 값을 안 쓰는 이유: 그쪽 링키지 치수가 학습 모델과 달라서
+(크랭크 반지름 40mm 대 약 65mm 등) 그 발 자세를 URDF 에 넣으면 막대 끝이 발에서 수 mm ~
+2cm 어긋남.
+
+---
+
+여기부터는 **찾아보는 쪽**임 -- 순서대로 읽을 것이 아니라 필요할 때 펴 보는 것임
+(파라미터 -> 로그 메시지 -> 안 될 때 -> 테스트). 설계 근거는 더 아래 "아래는 설계".
+
 ## 파라미터
 
 ### `control_node`
@@ -743,7 +1035,7 @@ ros2 run rqt_image_view rqt_image_view                       # 눈으로 봄
 | `input_timeout_ms` | 500.0 | 조작 노드(패드·teleop)의 명령 토픽(`cmd_vel`/`h_star`)이 이보다 끊기면 CONTROL 을 멈춤 -> 감쇠 5초 후 토크 끔 |
 | `stop_on_input_loss` | true | 위를 켜고 끔. 명령 토픽을 한 번도 안 받았으면(조작 노드 없이 씀) 걸리지 않음. `enable` 때마다 새로 셈 |
 | `allow_uncalibrated` | false | 실측 전에도 토크를 넣음 |
-| `extra` | 0 | 한 주기에 다리마다 보낼 파라미터 읽기 요청 수. 0 이면 전류·전압을 안 읽고 `motor_extra` 토픽도 안 냄. `burst` 에서만 됨 (아래 [모터 전류·전압·온도](#모터-전류전압온도)) |
+| `extra` | 0 | 한 주기에 다리마다 보낼 파라미터 읽기 요청 수. 0 이면 전류·전압을 안 읽고 `motor_extra` 토픽도 안 냄. `burst` 에서만 됨 (아래 [모터 전류·전압·온도](#d-4-모터-전류전압온도)) |
 
 ### `policy_node`
 
@@ -842,106 +1134,7 @@ off -> approach -> ready -> running -> done
 
 ---
 
----
-
-## 테스트
-
-`convert.py` 와 `freshness.py` 는 ROS 없이 돎.
-
-```bash
-cd ~/HUPHY
-PYTHONPATH=src python3 -m pytest tests/test_ros_convert.py tests/test_ros_freshness.py -q
-```
-
-`tests/conftest.py` 가 `ros/huphy_ros` 를 경로에 넣으므로 `PYTHONPATH` 에 따로 안
-적어도 됨. 노드 둘은 `rclpy` 가 있어야 import 되어 여기서 안 봄.
-
----
-
----
-
-## 안 될 때
-
-```bash
-echo $ROS_DOMAIN_ID          # 양쪽 같아야 함
-echo $ROS_LOCALHOST_ONLY     # 비어 있거나 0
-echo $RMW_IMPLEMENTATION     # 양쪽 같아야 함
-ros2 node list               # 상대 노드가 보여야 함
-ros2 topic info -v /huphy/joint_states    # QoS 가 양쪽 맞는지
-```
-
-| 증상 | 흔한 원인 |
-|---|---|
-| `ros2 node list` 에 상대가 없음 | `ROS_DOMAIN_ID` 가 다름 / 멀티캐스트가 막힘 |
-| 토픽은 보이는데 값이 안 옴 | QoS 가 다름 |
-| `joint_states` 가 안 뜸 | `control_node` 가 CAN 을 못 열었음. 로그를 볼 것 |
-| `control_node` 가 시작하자마자 `호스트 id 가 규칙과 다른 모터` 로 끝남 | 갈아 끼운 모터의 호스트 id 를 안 맞춤. `python3 tools/can_scan.py` 로 보고 맞추거나 `-p send_mode:=seq` |
-
-ROS 1(Noetic)이 같이 깔려 있으면 **같은 셸에서 둘 다 `source` 하지 말 것.**
-`ROS_DISTRO`, `PYTHONPATH`, `CMAKE_PREFIX_PATH` 가 서로 덮어씀.
-
----
-
-## 3D 로 보기 (RViz)
-
-로봇이 실물 관절각대로 RViz 에서 움직임. **화면이 있는 기계**(보통 작업 기계)에서 띄움.
-`control_node` 가 떠 있으면 됨 -- OBSERVE 면 충분하니 토크 없이 손으로 다리를 움직여 봄.
-
-처음 한 번 (화면 있는 기계):
-
-```bash
-sudo apt install ros-humble-rviz2
-```
-
-```bash
-ros2 launch huphy_ros view.launch.py
-```
-
-| 보이는 것 | 뜻 |
-|---|---|
-| 몸통이 공중에 고정, 다리만 움직임 | 정상. 몸통 위치·자세를 추정하는 것이 없어 `world -> base_link` 를 0 으로 박음 |
-| 막대 끝이 발에서 떨어짐 | 크랭크각이 모델 범위 밖이라 못 풀었음. launch 화면에 `발목 링키지를 못 풂` 경고가 뜨고 직전 자세로 그림 |
-| 로봇이 아예 안 움직임 | `ros2 topic hz /huphy/joint_states` 부터. 두 기계면 `ROS_DOMAIN_ID` 확인 |
-| 한 관절만 안 움직임 | URDF 관절 이름이 다름. robot_state_publisher 는 **모르는 이름을 경고 없이 버림** |
-| 실물과 반대로 돎 | 0점·방향이 학습 모델과 다름 -- 캘리브레이션 문제 (`config/README.md`) |
-| 반투명 로봇이 하나 더 겹쳐 있음 | 목표 자세 (아래). `target:=false` 로 안 띄움 |
-| 반투명 로봇이 안 보임 / Target 이 `No transform` | 정책 노드가 아직 목표각을 안 냄. `approach` 부터 나옴 |
-
-**목표 자세 (반투명).** 정책 노드가 낸 `/huphy/joint_targets` 를 반투명한 두 번째 로봇으로
-겹쳐 그림 -- 실측(진한 쪽)이 목표를 얼마나 따라가는지 바로 보임. 같은 세 노드(링키지·
-robot_state_publisher·고정 TF)를 한 벌 더 띄우고 TF 이름에 `target/` 을 붙임. 목표각은
-기준 자세로 가는 중·대기·정책 중에만 와서, 그 밖에는 마지막 목표 자세에 멈춰 있음. 색은 메시
-색 그대로라 투명도로만 구분됨.
-
-```bash
-ros2 launch huphy_ros view.launch.py target:=false   # 실측만
-```
-
-URDF 는 학습 레포(Human-Pygmalion/HuphyChan-dev) 의 `LegOnly_..._v30_proxyfix_loop.urdf` 를
-이름만 바꾼 사본임 (`urdf/huphy.urdf`, 메시는 `meshes/`). 원본이 바뀌면 다시 만듦:
-
-```bash
-A=<원본 레포>/pygmalion_locomotion/assets/pygmalion_v2/LegOnly_prototype-tempmass-motormeasured-armfix_v30_proxyfix_loop
-python3 ros/huphy_ros/urdf/make_urdf.py $A.urdf $A.xml <원본 레포>/tools/robot_model/fusion_snapshots/v30_inspection/meshes_armfix
-rm -rf ~/ros2_ws/build/huphy_ros/meshes ~/ros2_ws/install/huphy_ros/share/huphy_ros/meshes  # 메시 이름이 바뀌면 옛 링크가 남아 빌드가 실패함
-ros/install.sh      # 새 파일을 설치 폴더에 넣음
-```
-
-정강이·발은 원본 URDF 의 메시 대신 MJCF 가 쓰는 `*_noloop.stl` 을 씀. 원본 메시에는 크랭크·막대가
-0 자세로 붙어 있어서, 그대로 쓰면 움직이는 막대 옆에 고정된 막대가 하나 더 보임.
-
-**발목.** URDF 는 크랭크 -> 막대 -> 발 고리를 못 적어서 발(`ankle_pitch/roll`)과 막대가 따로
-매달려 있음. `joint_states` 에는 크랭크각(`ankle_a/b`)만 있으므로, `view.launch.py` 가 같이
-띄우는 `linkage_node` 가 **URDF 치수로** 발 자세와 막대 각도를 풀어 붙임
-(`/huphy/joint_states_view`). RViz 는 계산을 안 하고 받은 각도대로 그리기만 함.
-
-`huphy` 의 `kinematics/ankle.py` 값을 안 쓰는 이유: 그쪽 링키지 치수가 학습 모델과 달라서
-(크랭크 반지름 40mm 대 약 65mm 등) 그 발 자세를 URDF 에 넣으면 막대 끝이 발에서 수 mm ~
-2cm 어긋남.
-
----
-
-## 로그
+## 로그 메시지
 
 노드 메시지와 `huphy` 라이브러리(CAN·모터·루프) 메시지가 **같은 ROS 로그**로 나감.
 이름 앞에 노드가 붙어서 어디서 온 줄인지 보임.
@@ -970,198 +1163,39 @@ ros2 run huphy_ros control_node --ros-args -p config:=... --log-level huphy_cont
 
 ---
 
-## 기록
-
-위 "로그" 는 **글 메시지**임. 이 절은 **숫자 기록** -- `huphy-run --log` 이 남기는
-JSON 두 파일을 ROS 로 돌릴 때도 남기는 것임.
-
-### 켜는 법
-
-**기록 노드 하나만 띄우면 됨.** 제어·정책 노드는 평소대로 띄우고 따로 켤 것 없음.
+## 안 될 때
 
 ```bash
-ros2 launch huphy_ros log.launch.py      # 아무 기계 (보통 작업 기계)
+echo $ROS_DOMAIN_ID          # 양쪽 같아야 함
+echo $ROS_LOCALHOST_ONLY     # 비어 있거나 0
+echo $RMW_IMPLEMENTATION     # 양쪽 같아야 함
+ros2 node list               # 상대 노드가 보여야 함
+ros2 topic info -v /huphy/joint_states    # QoS 가 양쪽 맞는지
 ```
 
-두 노드는 기록용 토픽(`/huphy/debug/*`)을 **구독자가 있을 때만** 냄 -- 기록 노드가 없으면
-50Hz·100Hz 메시지를 만들지도 않음. 시작할 때 한 번 내는 설명 두 개(`policy_info`,
-`control_info`)는 늘 내 두고 `transient_local` 이라 기록 노드를 나중에 띄워도 받음.
-
-**`log_node` 를 정책 시작 전에 띄울 것.** 그 전에 흘러간 줄은 못 받음. 시작할 때
-어디에 쓸 것인지가 로그에 찍힘.
-
-### 나오는 파일
-
-```
-$HOME/HUPHY/ros/logs/policy/<월일>_policy_<정책>.json     tools/policy_viewer.html
-$HOME/HUPHY/ros/logs/latency/<월일>_latency_<정책>.json   tools/latency_viewer.html
-```
-
-`log_node` 를 띄운 기계의 디스크임. `log:=` 로 바꿀 수 있음.
-
-기본값이 **절대경로**인 이유: 상대경로면 런치를 어느 폴더에서 쳤는지에 따라 파일이
-다른 데 생김. `log_node` 자체는 경로를 모름 -- 설치된 노드는
-`~/ros2_ws/install/huphy_ros/lib/huphy_ros/log_node` 에서 돌고 소스 폴더가 어디인지
-알 길이 없음 (`__file__` 은 빌드 방식에 달리고, `share/` 는 다시 빌드하면 지워지고,
-`huphy.__file__` 은 `pip install -e` 여서 소스를 가리키는 것임). 그래서 경로는
-**소스에 있는 런치 파일**이 정함.
-
-`ros/logs/` 에 두는 이유: 이 폴더를 새 레포로 분리하면 기록도 같이 감. `huphy-run`
-쪽은 `<레포>/logs/` 로 따로 남음.
-
-같은 날 같은 정책으로 또 돌리면 `_2`, `_3` 이 붙음. **덮어쓰지 않음.** 두 파일의
-이름을 `log_node` 한 곳에서 지으므로 번호가 같이 올라감.
-
-### 무엇이 담기나
-
-`huphy-run --log` 과 **같은 모양임.** 같은 코드가 씀
-(`src/huphy/telemetry/policy_log.py`, `latency_log.py`). 다른 것은 `power/` 열
-하나임 -- 이쪽에만 있음 (아래 [전력 열](#전력-열)).
-
-| 파일 | 열 |
+| 증상 | 흔한 원인 |
 |---|---|
-| `policy` | `t`, `obs/...`(정규화 전), `act/...`(모델 출력 날값), `tgt/...`(도), `pos/...`(도), `extra/...`(전류·전압·온도. `extra` 를 켰을 때만), `power/...`(구리 손실·DC 전류 하한. `extra` 를 켰을 때만. **`huphy-run` 기록에는 없음**) |
-| `latency` | `t`, `joint`, `latency_ms`, `status`(제때/늦음/유실) |
+| `ros2 node list` 에 상대가 없음 | `ROS_DOMAIN_ID` 가 다름 / 멀티캐스트가 막힘 |
+| 토픽은 보이는데 값이 안 옴 | QoS 가 다름 |
+| `joint_states` 가 안 뜸 | `control_node` 가 CAN 을 못 열었음. 로그를 볼 것 |
+| `control_node` 가 시작하자마자 `호스트 id 가 규칙과 다른 모터` 로 끝남 | 갈아 끼운 모터의 호스트 id 를 안 맞춤. `python3 tools/can_scan.py` 로 보고 맞추거나 `-p send_mode:=seq` |
 
-`run` 칸에 `source: "ros"` 가 들어감 -- `huphy-run` 기록과 한 폴더에 섞여도
-구별됨. 게인 배율은 ROS 에 파라미터가 없어 안 들어감.
-
-### 모터 전류·전압·온도
-
-`control.launch.py` 의 `extra` 인자로 켬. 기본값은 0 (끔) 이라 안 켜면 명령이
-그대로임.
-
-```bash
-ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml extra:=2
-ros2 launch huphy_ros local.launch.py config:=... policy:=... extra:=2
-```
-
-**`extra` 는 읽기만 켬. 기록 노드를 띄우지 않음.** 파일에 남기려면 다른 터미널에서
-`log.launch.py` 를 정책 시작 전에 띄울 것 (위 [켜는 법](#켜는-법)).
-
-```bash
-ros2 launch huphy_ros log.launch.py      # 터미널 2
-```
-
-값은 **한 주기에 다리마다 보낼 파라미터 읽기 요청 수**임. 전류·전압은 상태 응답
-프레임에 없어서 따로 요청해야 함. 한 다리가 읽을 항목이 모터 6개 x 값 2개 =
-12개이므로 `extra:=2` 면 6주기에 한 바퀴 -- 100Hz 기준 값 하나가 **약 17Hz** 로
-갱신됨. 올리면 빨라지고 그만큼 CAN 프레임이 늘어남.
-
-온도는 상태 응답 프레임에 있어서 매 주기 갱신됨. 다만 세 값을 한 메시지로 두므로
-`extra` 가 0 이면 온도도 안 나감 -- 열이 중간부터 생기면 줄마다 열 수가 달라짐.
-
-주기는 이렇게 흐름.
-
-| 무엇 | 주기 |
-|---|---|
-| `control_node` 가 `/huphy/debug/motor_extra` 발행 | `state_hz` (기본 100Hz) |
-| `log_node` 가 구독 | 100Hz. 마지막 메시지만 둠 |
-| 파일에 기록 | 정책 줄 주기 (50Hz). 줄이 올 때 마지막 값을 넣음 |
-| `iq`·`vbus` 값 갱신 | `extra:=2` 면 약 17Hz. 연속 두세 줄에 같은 값이 기록됨 |
-| `temp` 값 갱신 | 100Hz |
-
-파일의 열 이름은 `huphy-run --extra` 와 같음 (`extra/<모터>/iq`, `/temp`, `/vbus`).
-같은 뷰어로 봄. `run` 칸에 `extra` 값이 들어감.
-
-#### 전력 열
-
-`extra` 를 켜면 `log_node` 가 받은 상전류로 구리 손실을 계산해 열을 더 만듦. 따로
-켜는 인자는 없음.
-
-```
-power/<모터>/copper_w   그 모터의 구리 손실 (W)
-power/<모터>/dc_a_lo    그 모터의 DC 전류 하한 (A) = 그 모터의 구리 손실 / 그 모터의 vbus
-power/copper_w          모터 전부의 합 (W)
-power/dc_a_lo           DC 전류 하한 합 (A) = 합 / vbus 평균
-```
-
-    P_cu = 1.5 * iq**2 * R_phase
-
-`R_phase` 는 모델별 사양값임. `control_node` 가 `control_info` 에 모델명
-(`motor_models`, `robot.yaml` 의 `model`) 을 실어 보내고 `log_node` 가 상수로 바꿈
--- 모터가 다른 기계에 있어서 설정 파일을 못 읽음.
-
-**`dc_a_lo` 는 하한임.** 모터가 DC 전류도 전력도 안 내서(매뉴얼의 읽기 가능 항목이
-네 개뿐임) 구리 손실만 계산함. 기계 출력·철손·인버터 손실·감속기 손실이 빠져 있음
-([docs/motor_power.md](../docs/motor_power.md)).
-
-한 모터라도 상전류를 아직 못 받았으면 그 줄의 합이 `null` 임 -- 일부만 더한 값을
-전체 합으로 읽지 않게 함. 사양을 안 넣은 모델(RS00·RS02)뿐이면 열을 아예 안 만듦.
-`huphy-run --extra` 기록에는 이 열이 없음.
-
-**`send_mode` 가 `burst` 여야 함.** 읽기 응답에 모터 id 가 없어서 CAN id 로 가름.
-`seq` 로 띄우면 `control_node` 가 시작할 때 멈춤.
-
-구독자가 없으면 `control_node` 가 이 토픽을 안 냄. 다만 **CAN 읽기 요청은 `extra`
-파라미터로 켜는 것이라 `log_node` 가 없어도 보냄.** 안 보내려면 `extra:=0` 으로
-띄울 것.
-
-#### 전류 실측 열
-
-전류계를 꽂았으면 `current_node` 를 같이 띄움 (아래 [노드](#3-노드) 3-4).
-`log_node` 가 그 토픽을 받아 열을 더 만듦.
-
-```bash
-ros2 launch huphy_ros log.launch.py        # 터미널 2
-ros2 launch huphy_ros current.launch.py    # 터미널 3. 포트가 헷갈리면 port:= 로
-```
-
-```
-current/total_a   전류계가 잰 로봇 전체 DC 전류 (A). 실측
-current/age       그 값이 장비에서 온 뒤 흐른 시간 (ms). 못 받았으면 -1
-```
-
-**계산값 `power/dc_a_lo` 와 같아질 수 없음.** 차이가 두 가지에서 옴.
-
-| | |
-|---|---|
-| 빠진 손실 | 철손 + 인버터 + 감속기 + 기계 출력 -> 계산값이 작음 |
-| 범위 차이 | 실측은 모터 말고 연산보드·팬·통신까지 다 포함 -> 실측이 큼 |
-
-그래서 두 열을 바로 빼서 손실로 읽으면 안 됨. 로봇을 세워 둔 채 잰 값을 기준선으로
-빼면 비교가 됨 (`huphy-current` 가 평균을 찍어 줌).
-
-`age` 가 따로 있는 이유: 장비 출력 주기가 정책 줄 주기(50Hz)보다 느려 같은 값이 여러
-줄에 반복됨. 없으면 "전류가 안 변함" 과 "장비가 멈춤" 이 구분되지 않음. 이 값은
-`current_node` 가 재서 실어 보낸 것이므로 **그 기계 기준**임 -- 두 기계 시계를 안
-맞추므로 전달 시간은 안 들어 있음 (`freshness.py` 와 같은 이유).
-
-열은 **첫 `bus_current` 가 왔을 때 생김.** 정책이 도는 중에 `current_node` 를 띄우면
-그 실행은 열 없이 끝나고 다음 실행부터 생김 -- 이미 쌓인 줄이 있는데 기록을 다시
-만들면 그 줄들이 날아감. 열이 생긴 뒤에는 값이 안 와도 남고 `age` 가 `-1` 임.
-
-파일의 열 이름은 `huphy-run --current` 와 같음. 같은 뷰어로 봄.
-
-### 어느 구간이 담기나
-
-`policy_status` 의 단계가 `running` 인 동안만. 접근·대기·감쇠가 빠짐 --
-`huphy-run` 이 맞추는 구간과 같음.
-
-`stop_policy` 한 번이 한 실행임. 그때 두 파일을 씀. Ctrl-C 로 끝내도 남음.
-
-### 파일을 쓰는 것이 왜 따로 있나
-
-**기계가 둘임** (결정 13). 두 노드가 각자 쓰면 정책 기록은 작업 기계에, 지연 기록은
-모션보드에 떨어짐.
-
-그리고 쓰는 데 **1분 기록이 220~260ms, 5분이면 1.2~1.3초** 걸림 (측정). 두 노드는
-단일 스레드 executor 에서 100Hz·50Hz 타이머를 돌리므로 그 안에서 쓰면 낡음 기준
-60ms/100ms 를 넘겨 감쇠 정지로 번짐 (결정 12). `log_node` 에는 타이머가 없음.
-
-### 안 될 때
-
-| 증상 | 이유·할 것 |
-|---|---|
-| 파일이 안 생김 | `stop_policy` 를 안 불렀거나 `running` 구간이 없었음. `ros2 topic echo /huphy/policy_status --once` 로 단계 확인 |
-| `log_node` 가 "정책 줄 N개를 못 받음" | 정책이 시작한 뒤에 띄웠음. 먼저 띄울 것 |
-| 지연 파일만 안 생김 | 모션보드와 기록 노드 기계가 서로 안 보임 (`ROS_DOMAIN_ID`). `ros2 topic info /huphy/debug/latency` 의 구독자 수 확인 |
-| 정책 파일만 안 생김 | 정책 노드가 기록 노드를 못 봄. `ros2 topic info /huphy/debug/policy_row` 의 구독자 수 확인 |
-| `loop_status` 의 `latency_pending` 이 계속 큼 | 발행이 밀림. 24 안쪽이 정상. `ros/huphy_ros/huphy_ros/latency_tap.py` 의 `MAX_EVENTS` 를 넘으면 오래된 사건이 버려짐 |
-| `limits` 칸이 빈 파일 | `control_info` 를 못 받았음. `control_node` 가 떠 있는지, 두 기계가 서로 보이는지 확인 |
+ROS 1(Noetic)이 같이 깔려 있으면 **같은 셸에서 둘 다 `source` 하지 말 것.**
+`ROS_DISTRO`, `PYTHONPATH`, `CMAKE_PREFIX_PATH` 가 서로 덮어씀.
 
 ---
 
+## 테스트
+
+`convert.py` 와 `freshness.py` 는 ROS 없이 돎.
+
+```bash
+cd ~/HUPHY
+PYTHONPATH=src python3 -m pytest tests/test_ros_convert.py tests/test_ros_freshness.py -q
+```
+
+`tests/conftest.py` 가 `ros/huphy_ros` 를 경로에 넣으므로 `PYTHONPATH` 에 따로 안
+적어도 됨. 노드 둘은 `rclpy` 가 있어야 import 되어 여기서 안 봄.
 
 ---
 
@@ -1183,7 +1217,7 @@ current/age       그 값이 장비에서 온 뒤 흐른 시간 (ms). 못 받았
 | 8 | `/huphy/joint_targets` **하나**를 정책과 pose 가 같이 씀. 중재 없음 |
 | 9 | 기계 간 **시계 동기 없음.** 각 노드가 자기 시계로 도착 간격만 봄 |
 | 10 | 상태 발행 주기는 파라미터, **기본 100Hz** |
-| 11 | 제어 토픽은 **표준 메시지**만. 기록 토픽 4개만 직접 정의 (`huphy_ros_interfaces`) — 아래 [기록](#기록) |
+| 11 | 제어 토픽은 **표준 메시지**만. 기록 토픽 4개만 직접 정의 (`huphy_ros_interfaces`) — 아래 [기록](#d-기록-log_node) |
 | 12 | 낡음 기준 **60ms / 100ms**, 통신두절 5주기 |
 | 13 | **기계 둘.** 모션보드에 `control_node`, 작업 기계에 `policy_node` 와 사람 |
 
@@ -1206,8 +1240,6 @@ current/age       그 값이 장비에서 온 뒤 흐른 시간 (ms). 못 받았
 
 ---
 
----
-
 ## 1. ROS 개념 — 이 로봇에 짝지어서
 
 | 개념 | 무엇 | 여기서 |
@@ -1222,8 +1254,6 @@ current/age       그 값이 장비에서 온 뒤 흐른 시간 (ms). 못 받았
 
 **액션은 안 씀.** 오래 걸리는 것이 접근 단계 하나인데 그건 `policy_node` 안에서
 끝남 (결정 3).
-
----
 
 ---
 
@@ -1324,8 +1354,6 @@ policy_node
 
 ---
 
----
-
 ## 3. 노드
 
 ### 3-1. `control_node` — 모션보드
@@ -1378,7 +1406,7 @@ policy_node
 `*Info` 토픽으로 옴 (`transient_local` 이라 늦게 띄워도 받음). 모델명은 전력 열의
 상저항을 가르는 데 씀 (`ControlInfo.motor_models`).
 
-따로 있는 이유와 파일 경로는 위 [기록](#기록).
+따로 있는 이유와 파일 경로는 위 [기록](#d-기록-log_node).
 
 ### 3-4. `current_node` — 전류계를 꽂은 기계 (선택)
 
@@ -1407,7 +1435,7 @@ ros2 launch huphy_ros current.launch.py port:=/dev/ttyUSB1
 프로세스에 둘 이유가 없음.
 
 이 값은 `power/dc_a_lo`(모터 상전류로 계산한 하한)와 **같아질 수 없음.** 위
-[기록](#기록) 의 전류 실측 열 절.
+[기록](#d-기록-log_node) 의 전류 실측 열 절.
 
 ### 3-5. 사람이 치는 것
 
@@ -1419,8 +1447,6 @@ ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist '{}'
 ros2 bag record -a
 rqt_plot /huphy/joint_states/position[3]
 ```
-
----
 
 ---
 
@@ -1450,7 +1476,7 @@ rqt_plot /huphy/joint_states/position[3]
 
 `policy_row` · `latency` · `motor_extra` 는 구독자(`log_node`)가 있을 때만 나감.
 `bus_current` 는 구독자와 무관하게 나감 -- `current_node` 를 띄운 것 자체가 "지금
-재겠다" 는 뜻임. 쓰는 쪽은 `log_node` 하나임 -- 아래 [기록](#기록).
+재겠다" 는 뜻임. 쓰는 쪽은 `log_node` 하나임 -- 아래 [기록](#d-기록-log_node).
 
 ### 4-0. 기록용 토픽만 직접 정의한 이유
 
@@ -1503,8 +1529,6 @@ rqt_plot /huphy/joint_states/position[3]
 
 ---
 
----
-
 ## 5. 단위와 이름
 
 ### 5-1. 단위
@@ -1532,8 +1556,6 @@ ROS 에서 `/` 는 네임스페이스 구분자라 사람이 토픽 이름과 �
 huphy   right_leg/knee
 ROS     right_leg__knee
 ```
-
----
 
 ---
 
@@ -1595,8 +1617,6 @@ control_node 가 목표각을 100ms 넘게 못 받음
 
 ---
 
----
-
 ## 7. 안전
 
 | 상황 | 막는 것 | 어디 |
@@ -1613,8 +1633,6 @@ control_node 가 목표각을 100ms 넘게 못 받음
 
 **정책과 pose 를 동시에 쓰면 안 됨** (결정 8). 토픽 하나를 같이 쓰므로 둘 다 쏘면
 번갈아 들어감. 사람이 `policy_node` 를 시작·정지해서 정함.
-
----
 
 ---
 
@@ -1738,8 +1756,6 @@ targets = self.runner.step(observation, imu_state)     # 20ms 타이머
 
 ---
 
----
-
 ## 9. `huphy` 와의 경계
 
 `ros/` 는 `huphy` 를 **라이브러리로 씀.** 지켜야 하는 것이 둘임.
@@ -1796,8 +1812,6 @@ targets = self.runner.step(observation, imu_state)     # 20ms 타이머
 
 ---
 
----
-
 ## 10. 스레드
 
 `control_node` 한 프로세스 안에 넷임.
@@ -1819,8 +1833,6 @@ targets = self.runner.step(observation, imu_state)     # 20ms 타이머
 **콜백 안에서 계산하지 않음.** 파이썬은 GIL 을 쥔 스레드가
 `sys.getswitchinterval()`(기본 0.005초) 동안 시스템콜 없이 계속 돌 수 있음. 수거
 예산이 2ms 이므로, 계산만 하는 콜백 하나가 그 주기의 수거를 통째로 넘기게 만듦.
-
----
 
 ---
 
@@ -1854,8 +1866,6 @@ GIL 문제는 안 생김. CPU 와 대역은 남음.
 
 **붙이기 전에 재야 할 것**: 센서 노드를 띄운 상태에서 `/huphy/joint_targets` 의
 주기가 50Hz 를 지키는지. `ros2 topic hz` 로 보면 됨.
-
----
 
 ---
 
