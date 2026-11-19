@@ -11,6 +11,7 @@
 
 ```bash
 pip install mujoco                 # 한 번만. 또는 pip install -e .[sim]
+pip install pygame                 # --teleop 으로 키 조작할 때만
 ```
 
 레포 루트에서 돌림. `huphy` 를 설치하지 않아도 됨 -- `rollout.py` 가 `src/` 를
@@ -22,6 +23,7 @@ python3 sim/rollout.py --policy walk --cmd vx=0.3 --duration 10
 python3 sim/rollout.py --policy motion399 --duration 10
 python3 sim/rollout.py --policy squat --cmd h_star=0.8
 python3 sim/rollout.py --policy walk --view                  # MuJoCo 창
+python3 sim/rollout.py --policy walk --teleop --view         # 키로 조작
 python3 sim/rollout.py --policy walk --cmd vx=0.3 --log      # sim/logs/ 에 기록
 ```
 

@@ -216,7 +216,9 @@ huphy-can down                                        # 끝나고
 멈춤은 **Ctrl-Q**. 멈출 때 `kp=0` 으로 속도를 죽인 뒤 토크를 끊음 (5초).
 
 로봇에 올리기 전에 같은 꾸러미를 시뮬에서 돌려 볼 수 있음 -- `python3 sim/rollout.py
---policy walk` (`pip install mujoco` 필요, [sim/README.md](sim/README.md)).
+--policy walk` (`pip install mujoco` 필요, [sim/README.md](sim/README.md)). 시작도
+명령도 실물과 같음 -- 기준 자세로 기다리다 Enter 로 시작하고, `--cmd` 나 `--teleop`
+으로 명령을 넣음.
 
 ---
 

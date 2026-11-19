@@ -1311,13 +1311,21 @@ pip install mujoco                                  # 또는 pip install -e .[si
 python3 sim/rollout.py --policy walk
 python3 sim/rollout.py --policy motion399 --duration 10 --log
 python3 sim/rollout.py --policy walk --view         # MuJoCo 창
+python3 sim/rollout.py --policy walk --cmd vx=0.3   # 고정 명령
+python3 sim/rollout.py --policy walk --teleop       # 키로 조작 (pip install pygame)
 ```
 
 시작 방식도 실물과 같음 -- 기준 자세로 옮긴 뒤 그 자세로 기다리고, **Enter 를
 누르면 정책이 시작됨** (`EnterWatcher` 를 그대로 씀). 기다리는 동안은 물리를 멈춰
-둠 (기준 자세는 가만히 못 버팀. 실물에서 사람이 붙잡고 있는 자리임). `--view` 면
-**정책이 명령한 자세를 반투명 로봇으로 겹쳐 그려서** 추종 오차가 보이고, 창 없이
-돌릴 때는 `--echo` 간격마다 목표각이 글자로 찍힘.
+둠 (기준 자세는 가만히 못 버팀. 실물에서 사람이 붙잡고 있는 자리임).
+
+명령도 실물과 같은 두 가지임. `--cmd vx=0.3` 으로 고정값을 주거나, `--teleop` 으로
+pygame 창에서 키로 조작함 (`walk` 은 `W`/`S`·`A`/`D`, `squat` 은 위/아래 화살표 --
+`control/teleop.py` 를 그대로 씀).
+
+정책이 낸 값은 두 가지로 보임. `--view` 면 **명령한 자세를 반투명 로봇으로 겹쳐
+그려서** 추종 오차가 눈에 보이고, 창 없이 돌릴 때는 `--echo` 간격마다 목표각과
+실측 오차가 글자로 찍힘.
 
 기록은 `sim/logs/policy/<월일>_policy_<정책>_sim.json` 으로 **실물 기록과 폴더를
 나눠** 남음. 열 이름은 실물과 같아서 `tools/policy_viewer.html` 로 나란히 볼 수 있음.
