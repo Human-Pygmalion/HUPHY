@@ -773,7 +773,7 @@ huphy-run --policy squat --checkpoint 4500
 
 | | 기본 | 무엇 |
 |---|---|---|
-| `--policy` | **필수** | 꾸러미 이름 또는 폴더 (`walk`, `stair_slope`, `squat`) |
+| `--policy` | **필수** | 꾸러미 이름 또는 폴더 (`walk`, `newwalk`, `stair_slope`, `squat`, `motion399`, `motion545`) |
 | `--checkpoint` | 계약의 `default_checkpoint` | 같은 꾸러미의 다른 체크포인트 |
 | `--cmd 이름=값` | 계약의 시작값 | 정책 명령. 여러 번. `--teleop` 없으면 실행 내내 고정 |
 | `--teleop` | 끔 | pygame 창으로 실시간 조작 (`control/teleop.py`, 별도 프로세스). W/S vx, A/D wz, ↑/↓ h_star, Space 0, Enter 시작, Esc·Ctrl-C·Ctrl-Q 멈춤 |

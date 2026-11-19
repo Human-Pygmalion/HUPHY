@@ -1194,6 +1194,7 @@ current/age       그 값이 장비에서 온 뒤 흐른 시간 (ms). 못 받았
 | 정책 | 관찰 | 명령 토픽 |
 |---|---|---|
 | `walk` | 44 | `/huphy/cmd_vel` (Twist) 의 `linear.x` -> `vx`, `angular.z` -> `wz`. `vy` 칸 없음 |
+| `newwalk` | 45 | 같은 토픽, `linear.x` -> `vx`, **`linear.y` -> `vy`**, `angular.z` -> `wz`. `vy` 칸이 있는 유일한 정책임 |
 | `stair_slope` | 44 | 같은 토픽, `linear.x` -> `vx` 만. **`angular.z` 는 0 으로 잘림** |
 | `squat` | 43 | `/huphy/h_star` (Float64) -> `h_star` [m]. 0.1 m/s 로 다가감 |
 

@@ -72,8 +72,8 @@ python3 sim/rollout.py --policy walk --cmd vx=0.3 --log      # sim/logs/ 에 기
 
 ### 명령 넣기 -- 고정값 또는 키 조작
 
-명령 이름은 꾸러미 계약이 정함. `walk`·`stair_slope` 는 `vx`·`wz`, `squat` 은
-`h_star`, `motion399`·`motion545` 는 명령이 없음.
+명령 이름은 꾸러미 계약이 정함. `walk`·`stair_slope` 는 `vx`·`wz`, `newwalk` 은
+`vx`·`vy`·`wz`, `squat` 은 `h_star`, `motion399`·`motion545` 는 명령이 없음.
 
 **고정값**은 `--cmd` 임. 실행 내내 그 값으로 감.
 
@@ -97,6 +97,7 @@ python3 sim/rollout.py --policy squat --teleop --max h_star=0.9
 
 ```
 walk, stair_slope   W/S 로 vx, A/D 로 wz. 누르는 동안 가속, 떼면 0 으로 감속
+newwalk             위에 더해 Q/E 로 vy (옆걸음)
 squat               위/아래 화살표로 h_star
 창 안에서            Enter 시작, Space 속도 0, Esc 멈춤
 ```
@@ -321,6 +322,7 @@ PD 토크를 48 V 실측 곡선으로 깎음. 구동(토크와 속도가 같은 
 
 ```
 walk          서 있음   기울기 최대 0.01
+newwalk       서 있음   기울기 최대 0.02   (vx=0.5 에서 0.07, vy=0.4 에서 0.11)
 stair_slope   서 있음   기울기 최대 0.08
 motion399     서 있음   기울기 최대 0.52
 squat         서 있음   기울기 최대 0.03

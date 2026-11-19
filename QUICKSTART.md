@@ -67,6 +67,7 @@ Ctrl-Q 로 멈춤. 끝나면 실패 집계가 찍힘.
 | `--policy` | 무엇 | 명령 (`--cmd`) | 단위 | 체크포인트 |
 |---|---|---|---|---|
 | `walk` | 속도 명령으로 걷기 | `vx` 앞뒤<br>`wz` 돌기 | m/s<br>rad/s | `49999`(기본) `37400` |
+| `newwalk` | 속도 명령으로 걷기. **평지만**, 옆걸음 있음 | `vx` 앞뒤<br>`vy` 옆<br>`wz` 돌기 | m/s<br>m/s<br>rad/s | `129400`(기본) |
 | `stair_slope` | 계단·경사 걷기. **앞으로만** | `vx` 앞뒤 | m/s. **0~2** | `99998`(기본) |
 | `squat` | 골반 높이를 잡고 서기 | `h_star` 높이 | m. **0.70~0.891** | `5000`(기본) `4500` `4000` |
 | `motion545` | 기준 궤적 재생 (13.18초) | **없음** | -- | `30000`(기본) |
@@ -78,6 +79,11 @@ Ctrl-Q 로 멈춤. 끝나면 실패 집계가 찍힘.
 아래 둘은 **모션 추종** 정책임. 사람이 줄 명령이 없고 꾸러미에 든 궤적을 재생함.
 ROS 에서는 `policy_node` 대신 `motion_node` 를 띄움
 ([docs/policies/motion.md](docs/policies/motion.md)).
+
+**`newwalk` 는 관찰이 45칸임** (`walk` 은 44칸). 늘어난 한 칸이 `vy` 이고,
+나머지 44칸은 `walk` 과 같은 순서임. 평지에서만 학습했고 **실물에서 돌려 본 적이
+없음** (릴리스의 `safety.real_robot_validated: false`). 게인은 지금 `robot.yaml`
+값(135/6, 75/4, 130/6, 60/2.7)으로 학습됨.
 
 **`stair_slope` 는 `wz` 를 못 씀.** `walk` 의 49999 에서 이어
 50,000번 더 학습한 것인데, 그 동안 `wz` 를 늘 0 으로만 줬음 (경사 5~30도, 계단
@@ -114,6 +120,7 @@ ROS 에서는 `policy_node` 대신 `motion_node` 를 띄움
 huphy-run --policy walk                       # 제자리
 huphy-run --policy walk --cmd vx=0.3          # 앞으로
 huphy-run --policy walk --cmd vx=0.3 --cmd wz=0.2
+huphy-run --policy newwalk --cmd vx=0.3 --cmd vy=0.2    # 평지. 옆걸음도 됨
 huphy-run --policy stair_slope --cmd vx=0.5             # 계단·경사. 앞으로만
 huphy-run --policy squat --cmd h_star=0.80
 huphy-run --policy squat --checkpoint 4500

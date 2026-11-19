@@ -26,6 +26,7 @@
 
 ```bash
 huphy-run --policy walk --cmd vx=0.5         # 걷기 (--policy 는 필수)
+huphy-run --policy newwalk --cmd vx=0.3 --cmd vy=0.2   # 평지 걷기 (옆걸음 있음)
 huphy-run --policy stair_slope --cmd vx=0.5     # 계단·경사 (앞으로만)
 huphy-run --policy squat --cmd h_star=0.80    # 스쿼트
 ```
@@ -38,6 +39,9 @@ config/policies/
     deploy_contract.json     이 저장소가 씀 (옛 walk.py 의 값 그대로)
     generalized_walk.pt      체크포인트 37400
     generalized_walk_49999.pt  체크포인트 49999 (기본)
+  newwalk/
+    deploy_contract.json     학습 쪽 deploy.yaml 에서 옮겨 적음. 관찰 45칸 (vy 가 있음)
+    flat_uniondr_kneeflex_129400.pt  체크포인트 129400. 평지 전용, 실물 미검증
   stair_slope/
     deploy_contract.json     학습 쪽 deploy.yaml 에서 옮겨 적음
     stairs_slopes12_99998.pt  체크포인트 99998. 49999 에서 이어 학습

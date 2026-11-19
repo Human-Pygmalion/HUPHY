@@ -1338,8 +1338,8 @@ pygame 창에서 키로 조작함 (`walk` 은 `W`/`S`·`A`/`D`, `squat` 은 위/
 **안 잡히는 것**: 캘리브레이션 sign/offset(왕복에서 상쇄됨), CAN 지연·응답 누락,
 인코더 영점 오차, 발열, IMU 노이즈, 지형, 외력.
 
-자세한 것은 [sim/README.md](sim/README.md). 지금 꾸러미 넷(`walk`·`stair_slope`·
-`motion399`·`squat`)이 모두 10초 동안 서 있음.
+자세한 것은 [sim/README.md](sim/README.md). 지금 꾸러미 다섯(`walk`·`newwalk`·
+`stair_slope`·`motion399`·`squat`)이 모두 서 있음.
 
 ---
 
