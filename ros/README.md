@@ -237,11 +237,14 @@ ros2 launch huphy_ros control.launch.py config:=$HOME/HUPHY/config/robot.yaml
 
 #### A-2. 정책 노드 띄우기  `[작업 기계]`
 
-**넷 중 하나만** 침 -- 어느 정책을 돌릴지 고르는 것. 마지막 하나는 런치가 다름.
+**다섯 중 하나만** 침 -- 어느 정책을 돌릴지 고르는 것. 마지막 하나는 런치가 다름.
 
 ```bash
 # 걷기 -- /huphy/cmd_vel 로 앞뒤·회전 속도를 줌
 ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/walk
+
+# 평지 걷기 (newwalk) -- 같은 토픽에 linear.y(옆걸음)까지 씀
+ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/newwalk
 
 # 계단·경사 걷기 -- /huphy/cmd_vel 의 linear.x 만. angular.z 는 0 으로 잘림
 ros2 launch huphy_ros policy.launch.py policy:=$HOME/HUPHY/config/policies/stair_slope
@@ -323,6 +326,9 @@ ros2 service call /huphy/start_policy std_srvs/srv/Trigger
 # 걷기 -- W/S 앞뒤, A/D 회전
 ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/walk
 
+# 평지 걷기 (newwalk) -- 위에 더해 Q/E 로 옆걸음
+ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/newwalk
+
 # 계단·경사 -- W/S 앞뒤만. A/D 키가 아예 안 생김
 ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/stair_slope
 
@@ -333,6 +339,7 @@ ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/squat
 | 창에서 누르는 키 | 하는 일 | 기존으로 치면 |
 |---|---|---|
 | W/S · A/D | 걷기 앞뒤 · 회전. 누르는 동안 가속, 떼면 감속해 0 | `--teleop` 의 W/S/A/D |
+| Q/E | 옆걸음 (`vy`). **`newwalk` 에만 생김** -- 다른 정책은 그 칸이 없음 | `--teleop` 의 Q/E |
 | ↑/↓ | 스쿼트 높이 | `--teleop` 의 ↑/↓ |
 | Space | 속도 즉시 0 | 같음 |
 | **R** | 기준 자세로 (`approach`). **토크가 켜져 있을 때만** -- 아니면 안 보내고 로그에 "먼저 enable" | (없음 -- `huphy-run` 은 켜자마자 감) |
@@ -355,6 +362,9 @@ ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/squat
 # 걷기 -- 왼쪽 스틱 앞뒤, 오른쪽 스틱 회전
 ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/walk
 
+# 평지 걷기 (newwalk) -- 왼쪽 스틱 가로(옆걸음)까지 먹음
+ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/newwalk
+
 # 계단·경사 -- 왼쪽 스틱 앞뒤만. 오른쪽 스틱이 아예 안 배정됨
 ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/stair_slope
 
@@ -376,7 +386,7 @@ ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/moti
 
 | 패드 | 하는 일 |
 |---|---|
-| 왼쪽 스틱 세로 · 가로 | `vx` 앞뒤 · `vy` 옆 (스틱값 × 그 명령의 `max`) |
+| 왼쪽 스틱 세로 · 가로 | `vx` 앞뒤 · `vy` 옆 (스틱값 × 그 명령의 `max`). **`vy` 는 `newwalk` 에만 있음** -- 다른 정책은 가로로 밀어도 아무 일이 없음 |
 | 오른쪽 스틱 가로 | `wz` 회전 |
 | 십자키 세로 | `h_star` 높이. `accel`(기본 0.05 m/s)씩 움직이고 계약의 범위에서 멈춤 |
 | **RB** | 누르고 있는 동안에만 명령이 먹음. 떼면 속도 0, 높이는 마지막 값 유지 |
@@ -432,6 +442,10 @@ ros2 launch huphy_ros gamepad.launch.py policy:=... \
 ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
   '{linear: {x: 0.2}, angular: {z: 0.0}}'
 
+# 평지 걷기(newwalk): linear.y 로 옆걸음까지 (-1 ~ 1 m/s)
+ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
+  '{linear: {x: 0.2, y: 0.1}, angular: {z: 0.0}}'
+
 # 계단·경사: 같은 토픽인데 linear.x 만 (0 ~ 2 m/s). angular.z 는 보내도 0 으로 잘림
 ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
   '{linear: {x: 0.3}}'
@@ -443,6 +457,7 @@ ros2 topic pub -r 20 /huphy/h_star std_msgs/msg/Float64 '{data: 0.80}'
 | 명령 | 하는 일 | 기존으로 치면 |
 |---|---|---|
 | `topic pub cmd_vel` | 걷기 속도 명령 | `--cmd vx=0.2 wz=0` 또는 `--teleop` 의 W·S·A·D |
+| `topic pub cmd_vel` (newwalk) | `linear.y` 까지 씀 | `--cmd vx=0.2 vy=0.1` 또는 `--teleop` 의 Q·E |
 | `topic pub cmd_vel` (계단·경사) | 전진 속도만. `angular.z` 는 무시됨 | `--cmd vx=0.3` 또는 `--teleop` 의 W·S |
 | `topic pub h_star` | 스쿼트 높이 명령 | `--cmd h_star=0.80` 또는 `--teleop` 의 ↑↓ |
 
@@ -606,6 +621,8 @@ ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/walk
 ```bash
 ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
   '{linear: {x: 0.2}, angular: {z: 0.0}}'                      # 걷기 (= --cmd vx=0.2)
+ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
+  '{linear: {x: 0.2, y: 0.1}}'                                 # newwalk (= --cmd vx=0.2 vy=0.1)
 ros2 topic pub -r 20 /huphy/cmd_vel geometry_msgs/msg/Twist \
   '{linear: {x: 0.3}}'                                         # 계단·경사 (= --cmd vx=0.3)
 ros2 topic pub -r 20 /huphy/h_star std_msgs/msg/Float64 '{data: 0.80}'   # 스쿼트 (= --cmd h_star=0.80)
