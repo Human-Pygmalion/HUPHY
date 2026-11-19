@@ -179,11 +179,11 @@ ROS 없이 돌리는 `huphy-run` 한 번이 아래처럼 쪼개져 있음. **ROS
 #### 띄울 것 한눈에
 
 런치 하나가 터미널 하나를 차지함. **위에서부터 순서대로** 띄움. 정책은 걷기 예시 --
-`walk` 자리를 `stair_slope` / `squat` 로 바꾸면 됨. 정책·창·패드에는
+`walk` 자리를 `newwalk` / `stair_slope` / `squat` 로 바꾸면 됨. 정책·창·패드에는
 **같은 정책**을 줌.
 
 터미널 2 는 **정책 종류에 따라 런치가 다름.** 속도 명령 정책(`walk`,
-`stair_slope`, `squat`)은 `policy.launch.py`, 모션 추종 정책
+`newwalk`, `stair_slope`, `squat`)은 `policy.launch.py`, 모션 추종 정책
 (`motion545` · `motion399`)은 `motion.launch.py` 임. **둘 중 하나만** 띄울 것 -- 둘 다 띄우면
 같은 `joint_targets` 에 두 노드가 목표각을 냄.
 
@@ -520,7 +520,7 @@ ros2 launch huphy_ros local.launch.py \
 | 명령 | 하는 일 | 기존으로 치면 |
 |---|---|---|
 | `huphy-can up` | CAN 채널을 1 Mbps 로 올림 | 같음 |
-| `local.launch.py` | 제어 노드(`OBSERVE`, 토크 없음)와 정책 노드(불러만 둠)를 **한 번에** 띄움. 정책은 `policy:=` 로 고름 -- `walk` / `stair_slope` / `squat`. **기록 노드는 안 띄움** | `huphy-test --robot watch` 상태 + `huphy-run --policy <이름>` 의 불러오기 |
+| `local.launch.py` | 제어 노드(`OBSERVE`, 토크 없음)와 정책 노드(불러만 둠)를 **한 번에** 띄움. 정책은 `policy:=` 로 고름 -- `walk` / `newwalk` / `stair_slope` / `squat`. **기록 노드는 안 띄움** | `huphy-test --robot watch` 상태 + `huphy-run --policy <이름>` 의 불러오기 |
 
 로그 끝에 `approach 를 기다림` 과 `OBSERVE 로 시작` 이 나오면 된 것임.
 
