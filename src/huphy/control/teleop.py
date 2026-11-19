@@ -82,7 +82,11 @@ VELOCITY_KEYS: Dict[str, Tuple[str, str]] = {
 HEIGHT_KEYS: Tuple[str, str] = ("up", "down")
 
 VELOCITY_DEFAULTS = {"max": 1.0, "accel": 0.5, "decel": 1.0}
-"""속도 명령 기본값. vx 는 m/s·m/s², wz 는 rad/s·rad/s². `--max/--accel/--decel` 로 바꿈."""
+"""속도 명령 기본값. vx 는 m/s·m/s², wz 는 rad/s·rad/s². `--max/--accel/--decel` 로 바꿈.
+
+**`max` 는 계약에 범위가 없는 정책에만 쓰는 대비값임** (`walk` 이 그럼). 범위가
+있으면 그 범위가 상한이 됨 -- `_velocity_max` 참조.
+"""
 
 HEIGHT_DEFAULTS = {"accel": 0.05}
 """높이 명령: 누르는 동안 목표가 움직이는 속도 [m/s]."""
@@ -120,6 +124,28 @@ class Axis:
     range: Optional[Tuple[float, float]] = None
 
 
+def _velocity_max(spec, given: Dict[str, float]) -> float:
+    """속도 축 하나의 상한. **정책 계약의 범위를 그대로 씀.**
+
+    `--max` 를 안 주면 계약 범위의 절댓값이 상한임 (`newwalk` 의 `vx` 는 1.5,
+    `stair_slope` 의 `vx` 는 2.0). 계약에 범위가 없는 정책(`walk`)만
+    `VELOCITY_DEFAULTS["max"]` 를 씀 -- 그때는 기준이 없음.
+
+    전에는 범위와 무관하게 1.0 에서 시작해 범위로 깎기만 했음. 그러면 스틱을 끝까지
+    밀어도 정책이 학습한 속도의 일부만 나가고, 꾸러미마다 다른 그 차이가 조작하는
+    사람에게 안 보였음.
+
+    `--max` 를 주면 그 값을 쓰되 **계약 범위를 넘지 못함** -- 넘겨 보내도 관찰에
+    들어가기 전에 `deploy._command` 가 잘라서, 패드만 더 큰 값을 믿게 됨.
+    """
+    limit = (max(abs(spec.range[0]), abs(spec.range[1]))
+             if spec.range is not None else None)
+    if spec.name in given:
+        want = float(given[spec.name])
+        return want if limit is None else min(want, limit)
+    return VELOCITY_DEFAULTS["max"] if limit is None else limit
+
+
 def make_axes(
     specs: Iterable,
     overrides: Optional[Dict[str, Dict[str, float]]] = None,
@@ -145,9 +171,9 @@ def make_axes(
             fixed.add(spec.name)
             continue
         if spec.name in VELOCITY_KEYS:
-            v = {k: float(overrides.get(k, {}).get(spec.name, d)) for k, d in VELOCITY_DEFAULTS.items()}
-            if spec.range is not None:
-                v["max"] = min(v["max"], max(abs(spec.range[0]), abs(spec.range[1])))
+            v = {k: float(overrides.get(k, {}).get(spec.name, d))
+                 for k, d in VELOCITY_DEFAULTS.items() if k != "max"}
+            v["max"] = _velocity_max(spec, overrides.get("max", {}))
             for k, value in v.items():
                 if not value > 0:
                     raise TeleopError(f"--{k} {spec.name} 는 0 보다 커야 함 (받은 값 {value})")

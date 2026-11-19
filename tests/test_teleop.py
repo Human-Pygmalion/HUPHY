@@ -17,6 +17,7 @@ POLICIES = Path(__file__).resolve().parent.parent / "config" / "policies"
 WALK = deploy.load(POLICIES / "walk")
 STAIRS = deploy.load(POLICIES / "stair_slope")
 SQUAT = deploy.load(POLICIES / "squat")
+NEWWALK = deploy.load(POLICIES / "newwalk")
 
 
 def walk_state(**overrides):
@@ -71,10 +72,27 @@ class TestAxes:
         assert axes["vx"].keys == ("w", "s")
 
     def test_the_trained_range_still_caps_the_speed(self):
-        """vx 범위가 [0, 2] 라서 기본 상한 1.0 은 그대로 쓰임."""
+        """--max 를 크게 줘도 계약 범위(vx [0, 2])를 못 넘음."""
         axes = {a.name: a for a in teleop.make_axes(
             STAIRS.commands.values(), {"max": {"vx": 5.0}})}
         assert axes["vx"].max == 2.0
+
+    def test_the_trained_range_is_the_default_max(self):
+        """상한의 기본값은 **계약 범위**임. 1.0 으로 깎지 않음.
+
+        stair_slope 의 vx 는 [0, 2] 라 2.0, newwalk 의 vx 는 [-1.5, 1.5] 라 1.5.
+        그러지 않으면 스틱을 끝까지 밀어도 학습한 속도의 일부만 나감.
+        """
+        assert {a.name: a for a in teleop.make_axes(
+            STAIRS.commands.values())}["vx"].max == 2.0
+        axes = {a.name: a for a in teleop.make_axes(NEWWALK.commands.values())}
+        assert (axes["vx"].max, axes["vy"].max, axes["wz"].max) == (1.5, 1.0, 1.0)
+
+    def test_without_a_range_the_fallback_is_used(self):
+        """`walk` 은 계약에 범위가 없음 -- 그때만 VELOCITY_DEFAULTS 를 씀."""
+        axes = {a.name: a for a in teleop.make_axes(WALK.commands.values())}
+        assert axes["vx"].range is None
+        assert axes["vx"].max == teleop.VELOCITY_DEFAULTS["max"]
 
     def test_overriding_a_pinned_command_is_refused(self):
         with pytest.raises(teleop.TeleopError, match="한 점"):
