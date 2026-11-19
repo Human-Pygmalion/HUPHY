@@ -36,6 +36,7 @@ if SRC.is_dir() and str(SRC) not in sys.path:
 
 from huphy.control import ControlLoop, Mode, deploy, held               # noqa: E402
 from huphy.scripts.run import (                                         # noqa: E402
+    EnterWatcher,
     _command_line,
     _parse_commands,
     _policy_folder,
@@ -59,14 +60,16 @@ DEFAULT_APPROACH_S = 0.2
 """기준 자세로 옮기는 시간. **짧게 둠.**
 
 시뮬은 기준 자세에 **이미 놓고** 시작하므로 (`world.reset(default_qpos(...))`)
-옮길 거리가 없음. 그런데 이 구간에는 정책이 안 돌고 기준 자세를 정지 명령으로
-붙잡는데, 그 자세는 가만히 못 버팀 -- 1.1초쯤에 발끝을 축으로 앞으로 기욺
-(`sim/README.md` 5절). 그래서 실물 기본값(2초)을 그대로 쓰면 **정책이 시작되기도
-전에 넘어짐.**
+옮길 거리가 없음. 실물에서 3초인 이유는 멀리 있는 목표로 관절이 튀지 않게 하려는
+것과, 사람이 로봇에서 손을 떼고 자리를 잡을 시간이기 때문임. 시뮬에는 둘 다 없음.
 
-실물에서 2초인 이유는 사람이 로봇에서 손을 떼고 자리를 잡을 시간이기 때문임.
-시뮬에는 그럴 사람이 없음.
+이 구간과 Enter 대기 구간에는 **물리를 굴리지 않음** (`world.frozen`). 기준 자세는
+가만히 못 버티므로(`sim/README.md` 5절) 굴리면 정책이 시작되기 전에 넘어짐.
+실물에서 그동안 사람이 붙잡고 있는 자리에 해당하는 것임.
 """
+ECHO_S = 1.0
+"""정책 출력값을 찍는 간격 (초). `--echo 0` 으로 끔."""
+
 FALL_HEIGHT_M = 0.25
 FALL_TILT = 0.7
 """넘어짐 판정. 몸통이 이보다 낮거나, 기울기가 이보다 크면 멈춤.
@@ -113,6 +116,47 @@ def naming(args, policy, model, commands, world) -> tuple:
     return parts, meta
 
 
+SHORT = {"hip_pitch": "hp", "hip_roll": "hr", "hip_yaw": "hy",
+         "knee": "kn", "ankle_a": "aa", "ankle_b": "ab"}
+
+
+def _echo(elapsed, height, tilt, command, observation, order) -> str:
+    """정책이 낸 목표각과 실제 각의 차이를 한 덩어리로 찍음.
+
+    창을 안 띄우고 돌릴 때(ssh, 시험) 정책이 무엇을 냈는지 볼 길이 이것뿐임.
+    창을 띄웠으면 같은 값이 반투명 로봇으로도 보임 (`SimWorld.ghost`).
+    """
+    lines = [f"  정책 {elapsed:5.2f}초  몸통 {height:.3f} m  기울기 {tilt:.2f}"]
+    limbs: dict = {}
+    for key in order:
+        limb, _, motor = key.partition("/")
+        limbs.setdefault(limb, []).append((motor, key))
+    for limb, motors in limbs.items():
+        target = "  ".join(
+            f"{SHORT.get(m, m)} {float(command[k]):+7.1f}" for m, k in motors
+        )
+        worst = max(
+            abs(float(command[k]) - float(observation.get(f"{k}.pos", 0.0)))
+            for _, k in motors
+        )
+        lines.append(f"    {limb:9s} 목표도 {target}   (실측과 최대 {worst:.1f}도)")
+    return "\n".join(lines)
+
+
+class _now:
+    """`--now` 용. `EnterWatcher` 자리에 들어가 바로 시작시킴."""
+
+    def __init__(self, motion) -> None:
+        self.motion = motion
+
+    def __enter__(self):
+        self.motion.start()
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        return False
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -123,8 +167,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--duration", type=float, default=10.0, help="돌릴 시간 (초)")
     p.add_argument("--approach", type=float, default=DEFAULT_APPROACH_S,
                    help=f"기준 자세로 옮기는 시간 (초, 기본 {DEFAULT_APPROACH_S}). "
-                        "그 뒤 정책이 시작됨. **1초를 넘기면 정책이 시작되기 전에 "
-                        "넘어짐** -- 기준 자세는 가만히 못 버팀")
+                        "이 구간과 Enter 대기 구간에는 물리를 굴리지 않음")
+    p.add_argument("--now", action="store_true",
+                   help="Enter 를 기다리지 않고 바로 시작. 화면이 아니면(파이프) 늘 그럼")
+    p.add_argument("--echo", type=float, default=ECHO_S, metavar="초",
+                   help=f"정책 출력값을 찍는 간격 (기본 {ECHO_S:g}초, 0 이면 안 찍음)")
+    p.add_argument("--no-ghost", dest="ghost", action="store_false",
+                   help="--view 창에 명령 자세(반투명 로봇)를 겹치지 않음")
     p.add_argument("--hz", type=float, help="전송 주기. 기본은 정책 주기")
     p.add_argument("--cmd", action="append", default=[], metavar="이름=값",
                    help="정책 명령 (예: vx=0.5). 여러 번 줄 수 있음")
@@ -182,6 +231,9 @@ def main(argv=None) -> int:
         f"  기준자세 무릎 {target_pose['right_leg/knee']:+.1f}도"
         f"  엉덩이 {target_pose['right_leg/hip_pitch']:+.1f}도",
         f"  몸통높이 {world.base_height_m:.3f} m 에서 시작",
+        f"  {args.approach:g}초에 걸쳐 기준 자세로 옮긴 뒤 그 자세로 기다립니다.",
+        "  Enter 를 누르면 정책이 시작됩니다. 그때까지 물리를 굴리지 않습니다.",
+        f"  정책이 {args.duration:g}초 돌면 멈춥니다.",
         "",
         "  ** 실물이 아님. 게인·지연·인코더 영점·발열은 이 경로로 검증되지 않음 **",
         "",
@@ -211,12 +263,6 @@ def main(argv=None) -> int:
     if args.hz != policy_hz:
         motion = held(motion, inner_hz=policy_hz, outer_hz=args.hz)
 
-    # 실물은 사람이 Enter 를 눌러 정책을 시작함 (`scripts/run.py` 의 EnterWatcher).
-    # 시뮬에는 누를 사람이 없으므로 바로 시작시킴 -- 안 부르면 `staged` 가 기준
-    # 자세만 계속 보냄. 그 자세를 가만히 붙잡는 것은 **넘어짐** -- 서 있게 하는
-    # 것이 정책임 (sim/README.md "기준 자세는 가만히 못 버팀").
-    motion.start()
-
     fallen = [False]
     lowest = [world.base_height_m]
     last = [world.base_height_m]
@@ -224,27 +270,55 @@ def main(argv=None) -> int:
 
     imu = robot.imus[0]
 
+    started_at = [None]
+    echoed = [0.0]
+
     def watch(t: float, observation):
-        """넘어지면 멈춤. 실물의 상태 기계 자리에 해당하는 것이 시뮬에는 없음."""
+        """넘어지면 멈춤. 실물의 상태 기계 자리에 해당하는 것이 시뮬에는 없음.
+
+        정책이 돌기 전(접근·Enter 대기)에는 물리를 멈춰 둠. `--duration` 도 그
+        구간은 안 셈 -- 사람이 Enter 를 늦게 누른 만큼 정책 시간이 줄면 안 됨.
+        """
+        running = motion.is_started() and t >= args.approach
+        world.frozen = not running
+        if running and started_at[0] is None:
+            started_at[0] = t
+            echoed[0] = t - args.echo
+        command = motion(t, observation)
+        if not running:
+            return command
+
+        elapsed = t - started_at[0]
         height = world.base_height_m
         lowest[0] = min(lowest[0], height)
         last[0] = height
         gravity = imu.read().gravity
         tilt = (gravity[0] ** 2 + gravity[1] ** 2) ** 0.5
         tilted[0] = max(tilted[0], tilt)
+
+        if args.ghost:
+            # 창에 명령 자세를 겹침. 창이 없으면 아무 일도 안 함.
+            world.ghost(default_qpos(command))
+        if args.echo > 0.0 and t - echoed[0] >= args.echo:
+            echoed[0] = t
+            print(_echo(elapsed, height, tilt, command, observation, policy.order))
+
         if (height < FALL_HEIGHT_M or tilt > FALL_TILT) and not fallen[0]:
             fallen[0] = True
-            print(f"  ** 넘어짐: 몸통 {height:.3f} m, 기울기 {tilt:.2f}, {t:.2f}초 **")
-            if t < args.approach:
-                # 정책이 아직 시작도 안 했음. 넘어진 것은 정책이 아니라 정지 자세임.
-                print(f"     정책이 시작되기 전임 (--approach {args.approach:g}초 구간). "
-                      f"기준 자세는 가만히 못 버팀 -- --approach 를 줄일 것")
+            print(f"  ** 넘어짐: 몸통 {height:.3f} m, 기울기 {tilt:.2f}, "
+                  f"정책 {elapsed:.2f}초 **")
             loop.stop()
-        return motion(t, observation)
+        elif elapsed >= args.duration:
+            loop.stop()
+        return command
 
     wall = time.perf_counter()
+    world.frozen = True
     try:
-        stats = loop.run(watch, duration_s=args.duration)
+        # 실물과 같은 시작 방식임 -- Enter 를 누르면 `staged` 가 정책으로 넘어감.
+        # 화면이 아니면(파이프, 시험) `EnterWatcher` 가 바로 시작시킴.
+        with EnterWatcher(motion, loop) if not args.now else _now(motion):
+            stats = loop.run(watch)
     finally:
         robot.disconnect()
         world.close()

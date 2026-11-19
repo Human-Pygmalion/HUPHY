@@ -84,6 +84,15 @@ PLACE_BISECTIONS = 40
 FREE_HEIGHT_M = 2.0
 """이분법의 위쪽 끝. 이 높이에서는 바닥에 안 닿는다는 전제임."""
 
+GHOST_GROUP = 2
+"""고스트로 그릴 geom 의 group. MJCF 의 `class="visual"` 이 group 2 임.
+
+충돌용(group 3)·외피(group 4)까지 그리면 겹쳐서 어느 쪽이 목표인지 안 보임.
+"""
+
+GHOST_RGBA = (0.25, 0.6, 1.0, 0.35)
+"""고스트 색. 반투명이라 실제 로봇이 뒤에 비침."""
+
 SUNK_HEIGHT_M = -1.0
 """이분법의 아래쪽 끝. 이 높이에서는 반드시 바닥을 파고든다는 전제임."""
 
@@ -187,9 +196,21 @@ class SimWorld:
         여기가 루프 주기와 다르면 시뮬 시간과 제어 시간이 어긋나 속도·중력이
         뒤틀림 -- 20 ms 마다 10 ms 만 굴리면 로봇이 두 배 느린 세계에 있게 됨.
         """
+        self.frozen = False
+        """참이면 `advance` 가 물리를 굴리지 않음. **창만 다시 그림.**
+
+        실물은 기준 자세로 옮긴 뒤 사람이 Enter 를 누를 때까지 그 자세로 기다림.
+        시뮬에서 그 구간에 물리를 굴리면 1.1초쯤에 발끝을 축으로 앞으로 기욺 --
+        기준 자세는 가만히 못 버팀(`sim/README.md` 5절). 실물에서는 그동안 사람이
+        로봇을 붙잡고 있음. 그 자리에 해당하는 것이 이 멈춤임.
+        """
         self.pending = False
         """이번 주기에 명령이 들어왔는지. 버스가 세움, `advance_cycle` 이 내림."""
         self.drivers: List["object"] = []
+        self._ghost_data = None
+        self._ghost_geoms: Tuple[int, ...] = ()
+        self._ghost_rgba = None
+        self._jnt_adr: Dict[str, int] = dict(self._qpos)
         self.viewer = None
         if view:
             import mujoco.viewer
@@ -325,15 +346,89 @@ class SimWorld:
         것임. 실물 모터 펌웨어도 명령 하나를 받아 자기 주기로 PD 를 다시 푸므로,
         20 ms 동안 토크를 고정하는 것보다 이쪽이 가까움.
         """
+        if self.frozen:
+            self.sync()
+            return 0
         count = int(round(float(seconds) / self.timestep_s))
         for _ in range(count):
             if on_substep is not None:
                 on_substep()
             self._mujoco.mj_step(self.model, self.data)
             self.steps += 1
+        self.sync()
+        return count
+
+    # ---- 창 ---------------------------------------------------------------
+    def sync(self) -> None:
         if self.viewer is not None:
             self.viewer.sync()
-        return count
+
+    def qpos_adr(self, name: str) -> int:
+        """관절 이름 -> qpos 자리. 모터·종속 관절 모두 됨."""
+        try:
+            return self._jnt_adr[name]
+        except KeyError:
+            pass
+        mujoco = self._mujoco
+        jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
+        if jid < 0:
+            raise KeyError(f"MJCF 에 관절 {name!r} 이 없음 ({self.mjcf})")
+        adr = int(self.model.jnt_qposadr[jid])
+        self._jnt_adr[name] = adr
+        return adr
+
+    def ghost(self, joint_rad: Mapping[str, float]) -> int:
+        """**명령받은 자세**를 반투명 로봇으로 창에 겹쳐 그림. 그린 geom 수를 냄.
+
+        정책이 낸 목표각을 그 자리에 그리는 것임 -- 실제 관절은 그 목표를 PD 로
+        따라가므로 둘 사이의 벌어짐이 곧 추종 오차임. 창이 없으면 아무 일도 안 함.
+
+        몸통 위치·자세는 **실측 그대로** 씀. 명령에는 몸통 얘기가 없음.
+
+        물리에 영향이 없음 -- 별도 `MjData` 에 자세를 넣고 순기구학만 풀어
+        뷰어의 `user_scn` 에 장식 geom 으로 넣음.
+        """
+        if self.viewer is None:
+            return 0
+        import numpy as np
+
+        mujoco = self._mujoco
+        if self._ghost_data is None:
+            self._ghost_data = mujoco.MjData(self.model)
+            self._ghost_geoms = tuple(
+                i for i in range(self.model.ngeom)
+                if int(self.model.geom_group[i]) == GHOST_GROUP
+            )
+            self._ghost_rgba = np.array(GHOST_RGBA, dtype=np.float32)
+
+        gd = self._ghost_data
+        gd.qpos[:] = self.data.qpos
+        for name, value in joint_rad.items():
+            gd.qpos[self.qpos_adr(name)] = float(value)
+        mujoco.mj_kinematics(self.model, gd)
+
+        scene = self.viewer.user_scn
+        scene.ngeom = 0
+        for i in self._ghost_geoms:
+            if scene.ngeom >= scene.maxgeom:
+                break
+            geom = scene.geoms[scene.ngeom]
+            mujoco.mjv_initGeom(
+                geom,
+                int(self.model.geom_type[i]),
+                self.model.geom_size[i],
+                gd.geom_xpos[i],
+                gd.geom_xmat[i],
+                self._ghost_rgba,
+            )
+            # 메시는 `mjv_initGeom` 이 dataid 를 -1 로 두므로 뒤에 넣어 줘야 그려짐.
+            geom.dataid = int(self.model.geom_dataid[i])
+            geom.objtype = int(mujoco.mjtObj.mjOBJ_UNKNOWN)
+            geom.objid = -1
+            geom.category = int(mujoco.mjtCatBit.mjCAT_DECOR)
+            geom.segid = scene.ngeom
+            scene.ngeom += 1
+        return int(scene.ngeom)
 
     def close(self) -> None:
         if self.viewer is not None:

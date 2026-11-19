@@ -27,6 +27,7 @@ from huphy_sim import actuator                                    # noqa: E402
 from huphy_sim.build import build_sim_biped, default_qpos         # noqa: E402
 from huphy_sim.imu import SimImu                                  # noqa: E402
 from huphy_sim.world import (                                     # noqa: E402
+    GHOST_RGBA,
     MOTOR_JOINT,
     MOTOR_SPEC,
     SIDE_PREFIX,
@@ -192,6 +193,69 @@ class TestLoop:
                 robot.disconnect()
         for key, value in runs[0].items():
             assert runs[1][key] == value or (value != value)      # NaN 은 비교 안 됨
+
+
+class TestFrozen:
+    """Enter 를 기다리는 동안 물리를 멈추는 것. `rollout.py` 가 그 구간에 켬."""
+
+    def test_frozen_world_does_not_move(self, default_pose):
+        robot, world = standing(default_pose)
+        world.frozen = True
+        before = world.base_height_m
+        time_before = world.sim_time_s
+        try:
+            for _ in range(100):            # 2초어치 주기
+                robot.send_action(default_pose)
+        finally:
+            robot.disconnect()
+        assert world.sim_time_s == time_before
+        assert world.base_height_m == before
+
+    def test_unfreezing_resumes(self, default_pose):
+        robot, world = standing(default_pose)
+        world.frozen = True
+        try:
+            robot.send_action(default_pose)
+            world.frozen = False
+            robot.send_action(default_pose)
+        finally:
+            robot.disconnect()
+        assert world.sim_time_s > 0.0
+
+
+class TestGhost:
+    """명령 자세를 창에 겹쳐 그리는 것. 창이 없으면 아무 일도 없어야 함."""
+
+    def test_no_viewer_draws_nothing(self, world, default_pose):
+        assert world.viewer is None
+        assert world.ghost(default_qpos(default_pose)) == 0
+
+    def test_draws_the_commanded_pose_without_touching_physics(self, default_pose):
+        import mujoco
+
+        robot, world = standing(default_pose)
+
+        class Window:
+            def __init__(self, model):
+                self.user_scn = mujoco.MjvScene(model, 2000)
+
+            def sync(self):
+                pass
+
+        try:
+            world.viewer = Window(world.model)
+            knee = world.qpos_adr(mjcf_joint("right_leg", "knee"))
+            before = float(world.data.qpos[knee])
+            moved = {k: v + 10.0 for k, v in default_pose.items()}
+            count = world.ghost(default_qpos(moved))
+            assert count > 0
+            assert float(world.data.qpos[knee]) == before
+            geom = world.viewer.user_scn.geoms[0]
+            assert geom.rgba[3] == pytest.approx(GHOST_RGBA[3])
+            assert int(geom.category) == int(mujoco.mjtCatBit.mjCAT_DECOR)
+        finally:
+            world.viewer = None
+            robot.disconnect()
 
 
 @pytest.mark.slow
