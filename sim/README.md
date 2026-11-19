@@ -32,6 +32,8 @@ python3 sim/rollout.py --policy walk --cmd vx=0.3 --log      # sim/logs/ 에 기
 | `--duration` | 돌릴 초. 기본 10 |
 | `--approach` | 기준 자세로 옮기는 시간. 기본 0.2초 |
 | `--now` | Enter 를 기다리지 않고 바로 시작 |
+| `--teleop` | pygame 창으로 명령을 실시간 조작 |
+| `--max`/`--accel`/`--decel` | `--teleop` 의 상한·가속·감속 |
 | `--echo 초` | 정책 출력값을 찍는 간격. 기본 1초, `0` 이면 안 찍음 |
 | `--no-ghost` | `--view` 창에 명령 자세를 겹치지 않음 |
 | `--cmd 이름=값` | 정책 명령. 여러 번 줄 수 있음 |
@@ -59,6 +61,44 @@ python3 sim/rollout.py --policy walk --cmd vx=0.3 --log      # sim/logs/ 에 기
 
 화면이 아니면(파이프, 시험) Enter 를 누를 사람이 없으므로 바로 시작함 --
 `EnterWatcher` 가 원래 그렇게 함. `--now` 는 화면에서도 그렇게 하는 것임.
+
+### 명령 넣기 -- 고정값 또는 키 조작
+
+명령 이름은 꾸러미 계약이 정함. `walk`·`stair_slope` 는 `vx`·`wz`, `squat` 은
+`h_star`, `motion399`·`motion545` 는 명령이 없음.
+
+**고정값**은 `--cmd` 임. 실행 내내 그 값으로 감.
+
+```bash
+python3 sim/rollout.py --policy walk  --cmd vx=0.3 --cmd wz=0.1
+python3 sim/rollout.py --policy squat --cmd h_star=0.80
+```
+
+`squat` 의 `h_star` 만 계약에 변화 속도 상한(`max_rate 0.1`)과 범위(`0.65~0.895`)가
+있어서, 그 자리에서 뛰지 않고 시작값 0.8914 에서 0.1 m/s 로 내려감. 범위를 벗어난
+값은 실행 전에 거부됨.
+
+**키 조작**은 `--teleop` 임. **실물과 같은 코드·같은 키임** (`control/teleop.py`,
+pygame 창을 별도 프로세스로 띄움).
+
+```bash
+pip install pygame                                    # 한 번만
+python3 sim/rollout.py --policy walk  --teleop --view
+python3 sim/rollout.py --policy squat --teleop --max h_star=0.9
+```
+
+```
+walk, stair_slope   W/S 로 vx, A/D 로 wz. 누르는 동안 가속, 떼면 0 으로 감속
+squat               위/아래 화살표로 h_star
+창 안에서            Enter 시작, Space 속도 0, Esc 멈춤
+```
+
+상한·가속·감속은 `--max vx=1.0 --accel vx=2.0 --decel vx=3.0` 으로 바꿈. 키가
+만든 값은 매 주기 정책에 들어가고 `--echo` 줄과 기록의 `obs/cmd/<이름>` 열에 그대로
+남음. 속도 명령은 `--teleop` 과 `--cmd` 를 같이 주지 못함 (키를 떼면 0 이 되므로
+고정값이 뜻을 잃음).
+
+화면이 없으면(ssh) 창을 못 띄우고 멈춤 -- 그때는 `--cmd` 로 줄 것.
 
 ### 정책이 낸 값 보기
 
@@ -265,26 +305,30 @@ PD 토크를 48 V 실측 곡선으로 깎음. 구동(토크와 속도가 같은 
 10초 롤아웃이 10초 걸림. 더 빨리 돌리려면 `control/loop.py` 를 고쳐야 해서 넣지
 않았음.
 
-### `squat` 은 지금 넘어짐 (미해결)
+### 꾸러미 넷이 다 서 있음
 
-`walk`·`stair_slope`·`motion399` 는 서 있고, `squat` 은 1초 안에 기욺(기울기 0.74).
-원인을 아직 모름. 후보:
+10초씩, 명령 없이 (`--duration 10`):
 
 ```
-우리 쪽 관측 조립이 squat 계약(43칸, h_star)에서 틀림      <- 그렇다면 이 도구가 찾은 첫 버그임
-squat 이 다른 저장소(huphy_squat)에서 다른 조건으로 학습됨
+walk          서 있음   기울기 최대 0.01
+stair_slope   서 있음   기울기 최대 0.08
+motion399     서 있음   기울기 최대 0.52
+squat         서 있음   기울기 최대 0.03
 ```
 
-MJCF 자체는 거의 같음 (`huphy_squat/assets/huphy_legonly_ab.xml` 과 51줄 차이이고
-대부분 주석·이름임). 가중치와 계약은 참조 입출력 검사를 통과함(2.0e-06)이라
-신경망과 계약 읽기는 정상임 -- 남은 것은 **살아 있는 관측을 만드는 경로**와 학습
-조건 차이임.
+`squat` 이 한동안 1초 안에 넘어졌는데, **넘어진 것은 정책이 아니라 정책이
+시작되기 전 구간이었음** -- 기준 자세를 정지 명령으로 붙잡고 있던 `--approach`
+2초 구간임. 지금은 그 구간에 물리를 멈추므로 안 생김
+([docs/issues.md #17](../docs/issues.md)).
+
+`motion399` 의 0.52 는 넘어짐 판정(0.7)에 가까움. 동작 재생이라 몸통을 크게
+쓰는 것이지만 꾸러미를 바꿀 때 같이 볼 것.
 
 
 ## 6. 시험
 
 ```bash
-python3 -m pytest sim/tests -q                 # 17개
+python3 -m pytest sim/tests -q                 # 21개
 python3 -m pytest sim/tests -q -m "not slow"   # 정책을 굴리는 것 빼고
 ```
 

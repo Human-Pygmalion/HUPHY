@@ -1329,8 +1329,8 @@ python3 sim/rollout.py --policy walk --view         # MuJoCo 창
 **안 잡히는 것**: 캘리브레이션 sign/offset(왕복에서 상쇄됨), CAN 지연·응답 누락,
 인코더 영점 오차, 발열, IMU 노이즈, 지형, 외력.
 
-자세한 것은 [sim/README.md](sim/README.md). 지금 `walk`·`stair_slope`·`motion399`
-는 서 있고 **`squat` 은 넘어짐 (원인 미해결)**.
+자세한 것은 [sim/README.md](sim/README.md). 지금 꾸러미 넷(`walk`·`stair_slope`·
+`motion399`·`squat`)이 모두 10초 동안 서 있음.
 
 ---
 

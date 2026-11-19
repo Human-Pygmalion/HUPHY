@@ -34,10 +34,11 @@ SRC = HERE.parent / "src"
 if SRC.is_dir() and str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))   # 설치하지 않고 돌릴 수 있게. ros/ 도 같은 방식임
 
-from huphy.control import ControlLoop, Mode, deploy, held               # noqa: E402
+from huphy.control import ControlLoop, Mode, deploy, held, teleop       # noqa: E402
 from huphy.scripts.run import (                                         # noqa: E402
     EnterWatcher,
     _command_line,
+    _make_teleop,
     _parse_commands,
     _policy_folder,
     _save_log,
@@ -98,6 +99,7 @@ def naming(args, policy, model, commands, world) -> tuple:
     parts = run_name.tags(
         commands=targets,
         defaults=starts,
+        teleop=bool(args.teleop),
         extra={
             "sim": True,
             "hz": args.hz if args.hz and args.hz != policy.hz else None,
@@ -111,6 +113,7 @@ def naming(args, policy, model, commands, world) -> tuple:
         timestep_ms=world.timestep_s * 1000.0,
         hz=args.hz or policy.hz,
         approach=args.approach,
+        teleop=bool(args.teleop),
         **{k: float(v) for k, v in targets.items()},
     )
     return parts, meta
@@ -120,13 +123,20 @@ SHORT = {"hip_pitch": "hp", "hip_roll": "hr", "hip_yaw": "hy",
          "knee": "kn", "ankle_a": "aa", "ankle_b": "ab"}
 
 
-def _echo(elapsed, height, tilt, command, observation, order) -> str:
+def _echo(elapsed, height, tilt, command, observation, order,
+          commands=None) -> str:
     """정책이 낸 목표각과 실제 각의 차이를 한 덩어리로 찍음.
 
     창을 안 띄우고 돌릴 때(ssh, 시험) 정책이 무엇을 냈는지 볼 길이 이것뿐임.
     창을 띄웠으면 같은 값이 반투명 로봇으로도 보임 (`SimWorld.ghost`).
     """
-    lines = [f"  정책 {elapsed:5.2f}초  몸통 {height:.3f} m  기울기 {tilt:.2f}"]
+    now = ""
+    if commands is not None and getattr(commands, "targets", None):
+        # `--teleop` 이면 매 주기 바뀜. 어떤 명령으로 그 자세가 나왔는지 같이 봐야 함.
+        now = "  명령 " + " ".join(
+            f"{k} {float(v):+.2f}" for k, v in commands.targets.items()
+        )
+    lines = [f"  정책 {elapsed:5.2f}초  몸통 {height:.3f} m  기울기 {tilt:.2f}{now}"]
     limbs: dict = {}
     for key in order:
         limb, _, motor = key.partition("/")
@@ -176,7 +186,17 @@ def build_parser() -> argparse.ArgumentParser:
                    help="--view 창에 명령 자세(반투명 로봇)를 겹치지 않음")
     p.add_argument("--hz", type=float, help="전송 주기. 기본은 정책 주기")
     p.add_argument("--cmd", action="append", default=[], metavar="이름=값",
-                   help="정책 명령 (예: vx=0.5). 여러 번 줄 수 있음")
+                   help="정책 명령 (예: vx=0.5). 여러 번 줄 수 있음. "
+                        "--teleop 없으면 실행 내내 고정")
+    p.add_argument("--teleop", action="store_true",
+                   help="pygame 창으로 명령을 실시간 조작. walk: W/S vx, A/D wz, "
+                        "squat: 위/아래 화살표로 h_star. 창에서 Enter 시작, "
+                        "Space 속도 0, Esc 멈춤. 화면이 필요함")
+    for name, what in (("max", "속도 상한"),
+                       ("accel", "누르는 동안의 가속도 (높이는 변화 속도 m/s)"),
+                       ("decel", "뗐을 때의 감속도")):
+        p.add_argument(f"--{name}", action="append", default=[], metavar="이름=값",
+                       help=f"--teleop 의 {what}. 예: --{name} vx=0.5")
     p.add_argument("--log", nargs="?", type=Path, const=DEFAULT_LOG_DIR,
                    help=f"기록을 남길 폴더 (기본 {DEFAULT_LOG_DIR}). "
                         "열 이름은 실물 로그와 같고 이름 끝에 _sim 이 붙음")
@@ -209,6 +229,12 @@ def main(argv=None) -> int:
     if args.hz < policy_hz or (args.hz / policy_hz) % 1.0 > 1e-6:
         raise SystemExit(f"--hz 는 {policy_hz:.0f} 의 정수 배여야 함 (받은 값 {args.hz})")
 
+    # 창을 먼저 띄움 -- 안 뜨면 시뮬을 세우기 전에 멈춰야 함 (실물에서 CAN 을 열기
+    # 전에 띄우는 것과 같은 순서임).
+    pad = _make_teleop(args, policy, commands, f"sim {policy.name}")
+    if pad is not None:
+        commands.source = pad.targets
+
     robot, world = build_sim_biped(config=config, view=args.view)
     world.cycle_s = 1.0 / float(args.hz)
 
@@ -227,12 +253,13 @@ def main(argv=None) -> int:
         f"  정책     {policy.name}  (입력 {policy.obs_dim}, 출력 {len(policy.order)})",
         f"  가중치   {model.path}"
         + (f"  (참조 입출력 통과 {golden:.1e})" if golden is not None else ""),
-        _command_line(commands),
+        pad.help_line() if pad is not None else _command_line(commands),
         f"  기준자세 무릎 {target_pose['right_leg/knee']:+.1f}도"
         f"  엉덩이 {target_pose['right_leg/hip_pitch']:+.1f}도",
         f"  몸통높이 {world.base_height_m:.3f} m 에서 시작",
         f"  {args.approach:g}초에 걸쳐 기준 자세로 옮긴 뒤 그 자세로 기다립니다.",
-        "  Enter 를 누르면 정책이 시작됩니다. 그때까지 물리를 굴리지 않습니다.",
+        "  Enter 를 누르면 정책이 시작됩니다. 그때까지 물리를 굴리지 않습니다."
+        + (" (pygame 창에서도 됨)" if pad is not None else ""),
         f"  정책이 {args.duration:g}초 돌면 멈춥니다.",
         "",
         "  ** 실물이 아님. 게인·지연·인코더 영점·발열은 이 경로로 검증되지 않음 **",
@@ -301,7 +328,8 @@ def main(argv=None) -> int:
             world.ghost(default_qpos(command))
         if args.echo > 0.0 and t - echoed[0] >= args.echo:
             echoed[0] = t
-            print(_echo(elapsed, height, tilt, command, observation, policy.order))
+            print(_echo(elapsed, height, tilt, command, observation,
+                        policy.order, commands))
 
         if (height < FALL_HEIGHT_M or tilt > FALL_TILT) and not fallen[0]:
             fallen[0] = True
@@ -312,16 +340,24 @@ def main(argv=None) -> int:
             loop.stop()
         return command
 
+    # 조작 창의 Enter·Esc 는 매 주기 이 래퍼가 봄. 시작은 원래 `motion` 을 켜야
+    # 하므로 `staged` 쪽을 그대로 넘김 (`huphy-run` 과 같음).
+    looped = watch
+    if pad is not None:
+        looped = teleop.teleop_motion(watch, pad, loop, motion)
+
     wall = time.perf_counter()
     world.frozen = True
     try:
         # 실물과 같은 시작 방식임 -- Enter 를 누르면 `staged` 가 정책으로 넘어감.
         # 화면이 아니면(파이프, 시험) `EnterWatcher` 가 바로 시작시킴.
         with EnterWatcher(motion, loop) if not args.now else _now(motion):
-            stats = loop.run(watch)
+            stats = loop.run(looped)
     finally:
         robot.disconnect()
         world.close()
+        if pad is not None:
+            pad.close()
         if log is not None:
             _save_log(log, args, policy.name, *log_naming)
 
