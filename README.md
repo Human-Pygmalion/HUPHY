@@ -962,12 +962,14 @@ Ctrl-Q 까지 계속함. 끝나면 실패 집계를 찍음. 자세한 것은 [6�
 | `--policy` | 무엇 | 입력 | 명령 (`--cmd`) |
 |---|---|---|---|
 | `walk` | 속도 명령 걷기 | 44 | `vx` m/s, `wz` rad/s. 기본 0 |
+| `newwalk` | 속도 명령 걷기. 평지 전용, 옆걸음 있음 | 45 | `vx`·`vy` m/s, `wz` rad/s. 기본 0 |
 | `squat` | 목표 골반 높이로 앉았다 일어섬 | 43 | `h_star` m. 0.65~0.895, 기본 0.8914 |
 | `motion545` | 기준 궤적 659프레임 재생 (모션 추종) | 114 | **없음** -- 따라갈 궤적이 꾸러미 안에 있음 |
 | `motion399` | 기준 궤적 1511프레임 재생 (모션 추종) | 114 | **없음** -- 같음 |
 
 ```bash
 huphy-run --policy walk --cmd vx=0.5   # 걷기, 앞으로 0.5m/s
+huphy-run --policy newwalk --cmd vx=0.3 --cmd vy=0.2   # 평지 걷기. vy 는 옆걸음
 huphy-run --policy squat --cmd h_star=0.80  # 스쿼트, 0.8914 -> 0.80 m 를 0.1 m/s 로
 huphy-run --policy squat --checkpoint 4500  # 같은 꾸러미의 다른 체크포인트
 huphy-run --policy walk --checkpoint 37400  # 걷기 예전 기본. 지금 기본은 49999 (terrain10 Union-DR, 37400 에서 이어 학습)
@@ -1321,8 +1323,8 @@ python3 sim/rollout.py --policy walk --duration 10  # 생략하면 Ctrl-Q 까지
 둠 (기준 자세는 가만히 못 버팀. 실물에서 사람이 붙잡고 있는 자리임).
 
 명령도 실물과 같은 두 가지임. `--cmd vx=0.3` 으로 고정값을 주거나, `--teleop` 으로
-pygame 창에서 키로 조작함 (`walk` 은 `W`/`S`·`A`/`D`, `squat` 은 위/아래 화살표 --
-`control/teleop.py` 를 그대로 씀).
+pygame 창에서 키로 조작함 (`walk` 은 `W`/`S`·`A`/`D`, `newwalk` 은 거기에 `Q`/`E`,
+`squat` 은 위/아래 화살표 -- `control/teleop.py` 를 그대로 씀).
 
 정책이 낸 값은 두 가지로 보임. `--view` 면 **명령한 자세를 반투명 로봇으로 겹쳐
 그려서** 추종 오차가 눈에 보이고, 창 없이 돌릴 때는 `--echo` 간격마다 목표각과
