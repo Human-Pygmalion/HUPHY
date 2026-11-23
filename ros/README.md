@@ -10,6 +10,7 @@
 | `motion_node` | 갈 자세를 냄. **모션 추종** 정책 (기준 궤적 재생). 50Hz. `policy_node` 와 둘 중 하나만 | 작업 기계 (사람이 쓰는 쪽) |
 | `teleop_node` | (선택) `huphy-run --teleop` 과 같은 창으로 명령·시작·멈춤 | 작업 기계 (화면 있는 쪽) |
 | `gamepad_node` | (선택) Xbox 패드로 명령·토크·시작·멈춤. `joy_node` 와 같이 띄움. 명령 없는 정책은 버튼만 | 작업 기계 (패드 꽂은 쪽) |
+| `cmd_node` | (선택) **디버깅·시험용.** 터미널 안에 칸을 띄워 명령을 숫자로 줌. 화면·패드 불필요 | 작업 기계 (`ros2 run` 으로만) |
 | `log_node` | (선택) `huphy-run --log` 과 같은 JSON 기록. 구독만 함 | 아무 기계 (파일이 거기 모임) |
 | `current_node` | (선택) 전류계로 로봇 전체 DC 전류를 재서 냄. 제어도 추론도 안 함 | 전류계를 꽂은 기계 (CAN 과 무관) |
 
@@ -315,7 +316,7 @@ ros2 service call /huphy/start_policy std_srvs/srv/Trigger
 
 #### A-6. 명령 주기 (cmd)  `[작업 기계]`
 
-**방법 셋 -- 창(teleop), 패드(gamepad), 또는 명령.**
+**방법 넷 -- 창(teleop), 패드(gamepad), 숫자 칸(cmd), 또는 명령.**
 
 창으로 조작 -- `huphy-run --teleop` 과 같은 pygame 창. 화면이 있는 **작업 기계**에서 (ssh 면 `-X`).
 `policy:=` 는 정책 노드에 준 것과 같은 꾸러미.
@@ -429,6 +430,55 @@ ros2 launch huphy_ros gamepad.launch.py policy:=... \
 ```
 
 패드 하나로 A-3·A-4·A-5·A-6·A-7 을 다 함.
+
+---
+
+숫자 칸으로 조작 -- **디버깅·시험용.** 값을 눈으로 보면서 정확히 넣고 싶을 때. 터미널 안에
+칸을 그리므로 화면도 패드도 필요 없음 (ssh 로도 됨). 터미널 입력이 일의 전부라
+`ros2 launch` 가 아니라 **`ros2 run`** 으로 띄움 -- 런치는 띄운 프로세스에 입력을 넘기지 않음.
+
+```bash
+ros2 run huphy_ros cmd_node --ros-args -p policy:=$HOME/HUPHY/config/policies/newwalk
+```
+
+```
+ huphy cmd — newwalk        20Hz 로 보냄
+ 명령
+       vx [  0.300]                  -1.500 .. 1.500
+       vy [  0.250]                  -1.000 .. 1.000
+ >     wz [  0.000]  < 1.05_         -1.000 .. 1.000
+ 상태
+   control_node  control          policy  running
+ 키
+  Tab 칸 이동   숫자 입력 후 Enter   j/k ∓0.05
+  Space 속도 전부 0   e 토크   r 기준 자세   s 정책 시작
+  Ctrl-C 끔 + 종료
+ /huphy/start_policy: started
+```
+
+`>` 가 지금 칸, `<` 뒤가 치고 있는 글자임. 칸과 범위는 **정책 계약에서 읽음** -- `squat` 는
+`h_star` 한 칸(0.65 ~ 0.895), `stair_slope` 는 `vx` 한 칸이 됨.
+
+| 키 | 하는 일 |
+|---|---|
+| 숫자 · `.` · `-` | 지금 칸에 글자로 쌓임. **Enter 에 적용됨** -- 그때까지는 전 값이 계속 나감 |
+| Enter | 친 값을 넣음. 학습 범위 밖이면 거절하고 맨 아래 줄에 이유 (보내도 관찰 전에 잘리므로) |
+| Backspace | 치던 글자 하나 지움. Tab 으로 옮기면 치던 것을 버림 |
+| Tab | 다음 칸 |
+| `j` / `k` | 그 칸을 ∓`step` 즉시 (속도 0.05, 높이 0.01. `-p step:=`, `-p height_step:=`) |
+| Space | 속도 전부 0 즉시. **높이는 안 건드림** -- 0 은 바닥까지 내려가라는 뜻 |
+| `e` / `r` / `s` | `enable` / `approach` / `start_policy`. 응답과 거절 이유가 맨 아래 줄에 |
+| Ctrl-C | 속도 0 -> `stop_policy` -> `disable` -> 노드 끝. 응답을 기다리는 중에 한 번 더 누르면 바로 나감 (그때는 명령이 끊겨 `control_node` 가 감쇠 후 토크를 끊음) |
+
+`0` 을 "전부 0" 으로 안 쓰는 이유: 가장 많이 치는 값이 `0.3` 처럼 0 으로 시작해서 첫 글자가
+급정지로 먹힘. Esc 도 안 씀 -- `curses` 가 방향키와 구분하려고 기다리는 구간이 있어 급한 키로
+못 씀. 그래서 칸 이동도 Tab 만 씀.
+
+**정책만 끄고 다시 켜는 키는 없음.** 껐다 켜려면 Ctrl-C 로 끝내고 다시 띄움.
+
+**데드맨이 없음.** 패드는 RB 를 쥔 동안만 속도가 나가지만 타이핑에는 그런 것이 없어서, 손을
+떼도 로봇이 계속 그 명령으로 감. 사람이 로봇을 조작하는 데는 패드를 쓸 것. 그리고 패드·창과
+**같이 띄우면 안 됨** -- 같은 토픽에 둘이 번갈아 써서 내 값과 0 이 섞임.
 
 ---
 
@@ -1215,7 +1265,14 @@ PYTHONPATH=src python3 -m pytest tests/test_ros_convert.py tests/test_ros_freshn
 ```
 
 `tests/conftest.py` 가 `ros/huphy_ros` 를 경로에 넣으므로 `PYTHONPATH` 에 따로 안
-적어도 됨. 노드 둘은 `rclpy` 가 있어야 import 되어 여기서 안 봄.
+적어도 됨. 나머지 노드는 `rclpy` 가 있어야 import 되어 여기서 안 봄.
+
+`cmd_node` 는 ROS 를 `source` 하면 돎. 창(`curses`)을 안 띄우고 키 처리만 봄.
+
+```bash
+source /opt/ros/humble/setup.bash
+PYTHONPATH=ros/huphy_ros:src python3 -m pytest tests/test_ros_cmd.py -q
+```
 
 ---
 
