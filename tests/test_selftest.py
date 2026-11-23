@@ -103,9 +103,15 @@ class TestApproach:
         motion = selftest.approach({"knee": 0.0}, {"knee": 30.0}, 3.0)
         assert motion(99.0, {}) == {"knee": 0.0}
 
-    def test_moves_at_a_constant_rate(self):
+    def test_passes_the_middle_at_half_time(self):
         motion = selftest.approach({"knee": 0.0}, {"knee": 30.0}, 3.0)
         assert motion(1.5, {})["knee"] == pytest.approx(15.0)
+
+    def test_starts_and_ends_gently(self):
+        """선형 보간보다 양 끝의 목표 속도가 작아 토크가 갑자기 꺾이지 않음."""
+        motion = selftest.approach({"knee": 30.0}, {"knee": 0.0}, 3.0)
+        assert motion(0.03, {})["knee"] < 0.001
+        assert 30.0 - motion(2.97, {})["knee"] < 0.001
 
     def test_unknown_start_holds_the_target(self):
         """상태를 못 읽은 관절이 있어도 다른 관절이 멈추면 안 됨."""
@@ -115,6 +121,19 @@ class TestApproach:
     def test_zero_seconds_is_refused(self):
         with pytest.raises(ValueError, match="0보다 커야 함"):
             selftest.approach({"knee": 0.0}, {"knee": 0.0}, 0.0)
+
+
+class TestFurthestTarget:
+    def test_reports_the_worst_joint(self):
+        assert selftest.furthest_target(
+            {"hip": 10.0, "knee": 30.0}, {"hip": 8.0, "knee": 35.5}
+        ) == ("knee", 5.5)
+
+    def test_missing_or_non_finite_measurement_is_refused(self):
+        with pytest.raises(ValueError, match="knee"):
+            selftest.furthest_target({"knee": 30.0}, {})
+        with pytest.raises(ValueError, match="유한한 수"):
+            selftest.furthest_target({"knee": 30.0}, {"knee": float("nan")})
 
 
 class TestCycle:

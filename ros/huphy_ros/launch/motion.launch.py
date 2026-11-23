@@ -48,6 +48,7 @@ def generate_launch_description():
         DeclareLaunchArgument("motion_hz", default_value="0.0"),
         DeclareLaunchArgument("state_stale_ms", default_value="60.0"),
         DeclareLaunchArgument("approach_s", default_value="3.0"),
+        DeclareLaunchArgument("start_pose_tolerance_deg", default_value="3.0"),
         DeclareLaunchArgument("start_frame", default_value="0"),
         Node(
             package="huphy_ros",
@@ -60,6 +61,8 @@ def generate_launch_description():
                 "hz": LaunchConfiguration("motion_hz"),
                 "state_stale_ms": LaunchConfiguration("state_stale_ms"),
                 "approach_s": LaunchConfiguration("approach_s"),
+                "start_pose_tolerance_deg": LaunchConfiguration(
+                    "start_pose_tolerance_deg"),
                 "start_frame": LaunchConfiguration("start_frame"),
             }],
             output="screen",
