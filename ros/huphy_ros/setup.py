@@ -33,6 +33,7 @@ setup(
             "motion_node = huphy_ros.motion_node:main",
             "teleop_node = huphy_ros.teleop_node:main",
             "gamepad_node = huphy_ros.gamepad_node:main",
+            "cmd_node = huphy_ros.cmd_node:main",
             "log_node = huphy_ros.log_node:main",
             "linkage_node = huphy_ros.linkage_node:main",
             "current_node = huphy_ros.current_node:main",
