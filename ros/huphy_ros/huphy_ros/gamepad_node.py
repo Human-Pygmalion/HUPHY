@@ -23,8 +23,8 @@
 ## 조작 (버튼 번호는 연결 방식마다 다름 -- 아래 "배치")
 
     왼쪽 스틱 세로     vx        위로 밀면 +
-    왼쪽 스틱 가로     vy        왼쪽으로 밀면 +   (vy 가 있는 정책만)
-    오른쪽 스틱 가로   wz        왼쪽으로 밀면 +
+    오른쪽 스틱 가로   vy        왼쪽으로 밀면 +   (vy 가 있는 정책만)
+    십자키 가로        wz        왼쪽을 누르면 +
     십자키 세로        h_star    (h_star 가 있는 정책만)
 
     RB  누르고 있는 동안만 속도가 나감 (데드맨). 떼면 0
@@ -52,9 +52,9 @@ RB 를 먼저 쥐고 다시 눌러야 함. RB 를 떼면 정책은 계속 돌지
 
 같은 패드라도 `joy_node` 가 내는 번호가 연결 방식마다 다름. **버튼 수로 가림** (`LAYOUTS`):
 
-    배치        버튼 수  View  Menu  RB  A  B  오른쪽 스틱 가로
-    usb         11       6     7     5   0  1  축 3     (커널 xpad 기준)
-    bluetooth   16       10    11    7   0  1  축 2     (2026-10-29 Xbox Wireless 실측)
+    배치        버튼 수  View  Menu  RB  A  B  오른쪽 스틱 가로  십자키 가로
+    usb         11       6     7     5   0  1  축 3              축 6   (커널 xpad 기준)
+    bluetooth   16       10    11    7   0  1  축 2              축 6   (2026-10-29 Xbox Wireless 실측)
 
 **둘 다 아니면 버튼·스틱을 전부 무시하고 속도 0 만 냄** -- 번호를 모르는 채로 쓰면 엉뚱한
 버튼이 토크를 넣음 (블루투스로 붙였는데 usb 번호를 쓰면 LB 가 "View" 가 됐었음).
@@ -71,6 +71,11 @@ Series X 패드를 잘못 알아서 RB 가 안 잡히고 View 가 8번으로 나
 `max` 는 `teleop.make_axes` 가 정책 계약에서 뽑은 값임 (`--max` 로 덮을 수 있음).
 `teleop_node` 는 키가 켜짐/꺼짐뿐이라 `accel`/`decel` 로 값을 올리고 내리지만, 스틱은
 -1.0~+1.0 이 바로 오므로 그 램프를 안 씀.
+
+**십자키에 배정된 속도 명령(`wz`)만 그 램프를 씀** (`LAYOUTS` 의 `digital`). 십자키는
+스틱과 달리 0 아니면 ±1 뿐이라, 그대로 곱하면 한 번 누르는 것이 곧바로 `max` 가 됨
+-- 키보드(`teleop_node`)와 같게 누르는 동안 `accel` 로 올리고 떼면 `decel` 로 0 까지
+내림.
 
 `h_star` 는 범위 안에서 움직여야 하므로 십자키를 누른 동안 `accel`(기본 0.05 m/s)
 만큼 더하고 계약의 범위로 자름.
@@ -134,7 +139,8 @@ LAYOUTS = {
     "usb": {
         # 커널 xpad + joy_node(SDL joystick). 0 LX 1 LY 2 LT 3 RX 4 RY 5 RT 6 십자가로 7 십자세로
         "buttons_n": 11,
-        "axes": {"vx": 1, "vy": 0, "wz": 3, "h_star": 7},
+        "axes": {"vx": 1, "vy": 3, "wz": 6, "h_star": 7},
+        "digital": (6, 7),
         # 0 A 1 B 2 X 3 Y 4 LB 5 RB 6 View 7 Menu 8 Xbox 9 LS 10 RS
         "buttons": {"deadman": 5, "approach": 0, "start_policy": 7, "stop": 1, "enable": 6},
     },
@@ -144,7 +150,8 @@ LAYOUTS = {
         # 축 (joy_node 는 위·왼쪽을 + 로 뒤집어 냄):
         #   0 왼쪽 가로  1 왼쪽 세로  2 오른쪽 가로  3 오른쪽 세로  4 RT  5 LT  6 십자 가로  7 십자 세로
         "buttons_n": 16,
-        "axes": {"vx": 1, "vy": 0, "wz": 2, "h_star": 7},
+        "axes": {"vx": 1, "vy": 2, "wz": 6, "h_star": 7},
+        "digital": (6, 7),
         # 버튼: 0 A(아래)  1 B(오른쪽)  2 C(빈 칸)  3 X(왼쪽)  4 Y(위)  5 Z(빈 칸)  6 LB  7 RB
         #       8 LT 버튼  9 RT 버튼  10 View  11 Menu  12 Xbox  13 왼쪽 스틱 누름  14 오른쪽 스틱 누름
         #   C·Z 는 옛 게임패드 형식의 빈 자리라 USB 배치보다 X 부터 한 칸씩 밀림.
@@ -152,6 +159,19 @@ LAYOUTS = {
     },
 }
 """연결 방식별 번호. `joy_node` 가 내는 버튼 수로 고름 (`_pick_layout`)."""
+
+
+def _ramp(now: float, want: float, axis, dt: float) -> float:
+    """`now` 를 `want` 쪽으로 한 주기만큼 옮김. 0 으로 돌아가거나 방향을 바꾸는 쪽은
+    `decel`, 속도를 올리는 쪽은 `accel` 을 씀 (`teleop` 의 키 조작과 같은 규칙).
+    """
+    if now == want:
+        return want
+    rate = axis.accel if abs(want) > abs(now) and now * want >= 0 else axis.decel
+    step = rate * dt
+    if want > now:
+        return min(now + step, want)
+    return max(now - step, want)
 
 
 class GamepadNode(Node):
@@ -210,6 +230,8 @@ class GamepadNode(Node):
         self.layout: Optional[str] = None
         """지금 쓰는 배치. 첫 `/joy` 를 보고 정함. None 이면 번호를 몰라서 패드를 무시함."""
         self.axis_index: Dict[str, int] = {}
+        self.digital_axes: set = set()
+        """0 아니면 ±1 로만 오는 축 번호 (십자키). 이 축의 속도 명령은 램프를 씀."""
         self.button_index: Dict[str, int] = {}
         self._buttons_n: Optional[int] = None
         self.deadzone = float(self.get_parameter("deadzone").value)
@@ -303,6 +325,7 @@ class GamepadNode(Node):
                                else table["axes"][n]) for n in AXES}
         self.button_index = {k: (self.button_override[k] if self.button_override[k] >= 0
                                  else table["buttons"][k]) for k in BUTTONS}
+        self.digital_axes = set(table.get("digital", ()))
         if table["buttons_n"] != buttons_n:
             self.get_logger().warning(
                 f"layout:={name} 은 버튼 {table['buttons_n']}개 배치인데 패드는 {buttons_n}개")
@@ -419,8 +442,17 @@ class GamepadNode(Node):
 
         held = self._button("deadman")
         for name in self.velocity_names:
-            self.values[name] = (self._axis(self.axis_index.get(name, -1)) * self.axes[name].max
-                                 if held else 0.0)
+            index = self.axis_index.get(name, -1)
+            if not held:
+                self.values[name] = 0.0      # 데드맨을 떼면 램프 없이 바로 0
+                continue
+            want = self._axis(index) * self.axes[name].max
+            if index in self.digital_axes:
+                # 십자키는 0 아니면 ±1 임. 그대로 쓰면 한 번 누르는 것이 곧바로 max 가
+                # 되므로, 키보드 조작과 같게 accel/decel 로 올리고 내림.
+                self.values[name] = _ramp(self.values[name], want, self.axes[name], dt)
+            else:
+                self.values[name] = want
         for name in self.height_names:
             # 높이는 0 으로 돌리면 안 됨 (바닥까지 내려가라는 뜻이 됨). RB 를 떼면
             # 지금 값을 그대로 내보내고 십자키만 안 먹게 함.
