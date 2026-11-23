@@ -361,13 +361,13 @@ ros2 launch huphy_ros teleop.launch.py policy:=$HOME/HUPHY/config/policies/squat
 `policy:=` 는 정책 노드에 준 것과 같은 꾸러미.
 
 ```bash
-# 걷기 -- 왼쪽 스틱 앞뒤, 오른쪽 스틱 회전
+# 걷기 -- 왼쪽 스틱 앞뒤, 십자키 좌우로 회전
 ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/walk
 
-# 평지 걷기 (newwalk) -- 왼쪽 스틱 가로(옆걸음)까지 먹음
+# 평지 걷기 (newwalk) -- 오른쪽 스틱 가로(옆걸음)까지 먹음
 ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/newwalk
 
-# 계단·경사 -- 왼쪽 스틱 앞뒤만. 오른쪽 스틱이 아예 안 배정됨
+# 계단·경사 -- 왼쪽 스틱 앞뒤만. 십자키 가로가 아예 안 배정됨
 ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/stair_slope
 
 # 스쿼트 -- 십자키 위아래로 높이
@@ -388,8 +388,9 @@ ros2 launch huphy_ros gamepad.launch.py policy:=$HOME/HUPHY/config/policies/moti
 
 | 패드 | 하는 일 |
 |---|---|
-| 왼쪽 스틱 세로 · 가로 | `vx` 앞뒤 · `vy` 옆 (스틱값 × 그 명령의 `max`). **`vy` 는 `newwalk` 에만 있음** -- 다른 정책은 가로로 밀어도 아무 일이 없음 |
-| 오른쪽 스틱 가로 | `wz` 회전 |
+| 왼쪽 스틱 세로 | `vx` 앞뒤 (스틱값 × 그 명령의 `max`) |
+| 오른쪽 스틱 가로 | `vy` 옆걸음. **`newwalk` 에만 있음** -- 다른 정책은 밀어도 아무 일이 없음 |
+| 십자키 가로 | `wz` 회전. 십자키는 0 아니면 ±1 뿐이라 스틱과 달리 `accel`(기본 0.5 rad/s²)로 올리고 떼면 `decel`(1.0)로 0 까지 내림 |
 | 십자키 세로 | `h_star` 높이. `accel`(기본 0.05 m/s)씩 움직이고 계약의 범위에서 멈춤 |
 | **RB** | 누르고 있는 동안에만 명령이 먹음. 떼면 속도 0, 높이는 마지막 값 유지 |
 | **A** | 기준 자세로 (`approach`). **토크가 켜져 있을 때만** |
@@ -1255,7 +1256,7 @@ PYTHONPATH=src python3 -m pytest tests/test_ros_convert.py tests/test_ros_freshn
 [`control/deploy.py`](../src/huphy/control/deploy.py) 의 `_command` 가 관찰에 넣기 전에
 자름. `stair_slope` 는 전진만 학습해서 `vx` 가 `[0, 2]`, `wz` 가 `[0, 0]` 임 --
 `/huphy/cmd_vel` 의 `angular.z` 에 무엇을 보내도 신경망은 0 을 받고, 조작 노드 둘은
-그 칸에 키·스틱을 아예 안 배정함.
+그 칸에 키·스틱·십자키를 아예 안 배정함.
 
 ---
 

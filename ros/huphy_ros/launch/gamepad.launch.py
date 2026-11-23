@@ -7,7 +7,7 @@
 `policy` 는 policy_node 에 준 것과 같은 꾸러미여야 함 -- 그 정책의 명령만 조작함.
 화면은 필요 없음 (`teleop.launch.py` 와 다른 점).
 
-    왼쪽 스틱 세로 vx   왼쪽 스틱 가로 vy   오른쪽 스틱 가로 wz   십자키 세로 h_star
+    왼쪽 스틱 세로 vx   오른쪽 스틱 가로 vy   십자키 가로 wz   십자키 세로 h_star
     RB       누르고 있는 동안만 명령이 먹음 (데드맨). 떼면 속도 0
     A        기준 자세로 (/huphy/approach) -- 토크가 켜져 있을 때만
     RB+Menu  정책 시작 (/huphy/start_policy)
