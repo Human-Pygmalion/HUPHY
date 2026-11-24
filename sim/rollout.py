@@ -45,6 +45,7 @@ from huphy.scripts.run import (                                         # noqa: 
     staged,
 )
 from huphy.scripts.selftest import approach                             # noqa: E402
+from huphy.robots.biped import join_name                                # noqa: E402
 from huphy.telemetry import policy_log, run_name                        # noqa: E402
 
 from huphy_sim.build import DEFAULT_CONFIG, build_sim_biped, default_qpos  # noqa: E402
@@ -81,6 +82,40 @@ FALL_TILT = 0.7
 
 기울기는 중력벡터의 수평 성분 크기임 (`ImuState.gravity`). 0.7 은 약 45도.
 """
+
+
+def torque_source(robot):
+    """`{관절: (토크, 상한, 포화비)}` 를 내는 함수. `PolicyLog(torque_source=...)` 용.
+
+    값은 시뮬 버스가 주기마다 요약해 둔 것임 (`huphy_sim/bus.py` 의
+    `torque_report`). 관절 이름은 정책 계약과 같은 꼴(`right_leg/knee`)로 맞춤 --
+    모든 계약이 발목을 `crank_A/B` 로 내고 그것이 `ankle_a/b` 로 오므로 `order` 와
+    이름이 그대로 맞음 (`control/deploy.py` 의 `JOINTS`).
+
+    버스를 못 찾으면 `None` -- 기록에 토크 열이 안 생김.
+    """
+    taps = []
+    for part in getattr(robot, "parts", [robot]):
+        bus = getattr(part, "bus", None)
+        if not hasattr(bus, "torque_report"):
+            return None
+        for name, motor in part.config.motors.items():
+            taps.append((join_name(part.id, name), bus, motor.id))
+    if not taps:
+        return None
+
+    def read():
+        seen, out = {}, {}
+        for full, bus, mid in taps:
+            report = seen.get(id(bus))
+            if report is None:
+                report = seen[id(bus)] = bus.torque_report()
+            value = report.get(mid)
+            if value is not None:
+                out[full] = value
+        return out
+
+    return read
 
 
 def naming(args, policy, model, commands, world) -> tuple:
@@ -272,7 +307,10 @@ def main(argv=None) -> int:
     log_naming = (naming(args, policy, model, commands, world)
                   if args.log is not None else ((), ""))
     if args.log is not None:
-        log = policy_log.PolicyLog(policy.obs_names, policy.order, robot=robot)
+        log = policy_log.PolicyLog(
+            policy.obs_names, policy.order, robot=robot,
+            torque_source=torque_source(robot),   # 토크 열은 시뮬에서만 남음
+        )
         model = log.wrap_model(model)
     policy_motion = policy.motion(model, robot.imus[0], commands=commands)
     if log is not None:

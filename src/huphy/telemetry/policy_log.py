@@ -5,6 +5,9 @@
     act/<관절>         모델 출력 그대로 (배율·기본자세 입히기 전)
     tgt/<관절>         관절 목표각 (도). 실제로 루프에 넘긴 것
     pos/<관절>         그 순간의 실측 관절각 (도)
+    tau/<관절>         모터가 낸 토크 (Nm). **시뮬에서만** (`torque_source`)
+    tau_lim/<관절>     그때 걸려 있던 토크 상한 (Nm). 같이 남음
+    tau_sat/<관절>     그 주기에 상한에 잘린 물리 스텝의 비율 (0~1)
     extra/<모터>/<값>  추가 값 (iq A, temp C, vbus V). `--extra` 를 켰을 때만 (`track_log`)
     power/<모터>/...   전력 (W, A). 전기값을 읽는 ROS `log_node` 에서만 (`power`)
     current/total_a    전류계가 잰 로봇 전체 DC 전류 (A). 전류계를 켰을 때만 (`power`)
@@ -48,6 +51,14 @@ from .track_log import extra_columns, extra_values, joint_limits
 
 logger = logging.getLogger(__name__)
 
+TORQUE_FIELDS = ("tau", "tau_lim", "tau_sat")
+"""토크 열 세 가지. `torque_source` 가 내는 세 쪽과 같은 순서임."""
+
+
+def torque_columns(joints: Sequence[str]) -> tuple:
+    """관절 이름 목록 -> 토크 열 이름. 관절마다 셋이 붙어 다님."""
+    return tuple(f"{field}/{j}" for j in joints for field in TORQUE_FIELDS)
+
 
 class PolicyLog:
     """정책 한 번 실행의 입출력 기록."""
@@ -63,6 +74,7 @@ class PolicyLog:
         power_motors: Optional[Sequence[str]] = None,
         current: bool = False,
         current_source: Optional[Callable[[], Any]] = None,
+        torque_source: Optional[Callable[[], Mapping[str, Sequence[float]]]] = None,
     ) -> None:
         self.obs_names = tuple(obs_names)
         self.limits = (
@@ -83,6 +95,19 @@ class PolicyLog:
             + tuple(f"tgt/{j}" for j in self.order)
             + tuple(f"pos/{j}" for j in self.order)
         )
+        self.torque_source = torque_source
+        """`{관절: (토크, 상한, 포화비)}` 를 내는 함수. 주면 `tau/...` 열이 생김.
+
+        **시뮬에서만 씀** (`sim/rollout.py`). 실물은 안 넘기므로 열이 안 늘고 파일이
+        그대로임. 실물 관찰에도 `<모터>.torque` 가 있지만 그건 모터가 냈다고 보고하는
+        값이라 시뮬의 명령 토크와 같은 양이 아님 (`robots/leg.py` 의 `apply` 설명).
+
+        관찰을 안 보고 함수로 받는 이유: 상한과 포화는 토크를 만드는 자리
+        (`sim/huphy_sim/bus.py`)에만 있고 `MotorState` 에는 담을 칸이 없음. 관찰까지
+        올리려면 실물 경로(`robots/leg.py`)를 고쳐야 함.
+        """
+        if torque_source is not None:
+            self.base_columns += torque_columns(self.order)
         self.extra_cols: Optional[tuple] = None
         """`extra/...` 와 `power/...` 열. `None` 이면 첫 줄의 `extra` 로 정해짐.
 
@@ -178,6 +203,21 @@ class PolicyLog:
             self._extra(observation),
         )
 
+    def _torque(self) -> List[float]:
+        """그 줄의 `tau/...`. `torque_source` 를 안 줬으면 빈 목록 (열도 없음)."""
+        if self.torque_source is None:
+            return []
+        nan = float("nan")
+        report = self.torque_source() or {}
+        out: List[float] = []
+        for j in self.order:
+            value = report.get(j)
+            if value is None:
+                out += [nan] * len(TORQUE_FIELDS)
+            else:
+                out += [float(v) for v in value]
+        return out
+
     def _extra(self, observation: Mapping[str, Any]) -> Dict[str, float]:
         """그 줄의 `extra/...` 와 `current/...`. 전류계를 안 줬으면 앞의 것만."""
         out = extra_values(observation)
@@ -190,14 +230,18 @@ class PolicyLog:
         """한 줄을 `rows` 에 넣음. **열 순서를 정하는 곳은 여기 하나임.**
 
         `base_columns` 와 같은 순서여야 함 -- `t`, `obs/*`, `act/*`, `tgt/*`,
-        `pos/*`, `extra/*`. 들어오는 길이 둘(`_finish` 와 `add_row`)이 같은 파일을
-        내야 하므로 조립은 한 곳에서만 함.
+        `pos/*`, (`tau*/*`), `extra/*`. 들어오는 길이 둘(`_finish` 와 `add_row`)이
+        같은 파일을 내야 하므로 조립은 한 곳에서만 함.
+
+        토크 열은 `torque_source` 를 준 쪽에만 생김. 안 준 쪽은 `_torque()` 가 빈
+        목록을 내므로 열도 값도 안 늘어남.
 
         `extra_cols` 는 첫 줄의 `extra` 로 정해짐. `--extra` 를 안 켰으면 빈 것임.
         """
         row = [float(t)] + [float(v) for v in obs] + [float(v) for v in act]
         row += [float(v) for v in tgt]
         row += [float(v) for v in pos]
+        row += self._torque()
         if self.extra_cols is None:
             self.extra_cols = tuple(extra)
         row += [float(extra.get(c, float("nan"))) for c in self.extra_cols]

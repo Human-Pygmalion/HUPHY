@@ -134,3 +134,79 @@ class TestOutsideEntry:
         log.add_row(0.0, [0.0] * WALK.obs_dim, [0.0] * 12, [0.0] * 12, [0.0] * 12)
         doc = json.loads(log.save(tmp_path / "x.json").read_text())
         assert doc["limits"] == {"right_leg/knee": [6.0, 114.0]}
+
+
+class TestTorque:
+    """`tau/...` 열. **시뮬만 켬** -- 상한과 포화는 토크를 만드는 자리에만 있음."""
+
+    def report(self, joints=WALK.order, sat=0.0):
+        return {j: (1.0, 60.0, sat) for j in joints}
+
+    def run_motion(self, log, cycles=2):
+        model = log.wrap_model(lambda v: np.full(len(WALK.order), 0.1))
+        motion = log.wrap_motion(WALK.motion(model, FakeImu()))
+        for k in range(cycles):
+            motion(k * 0.02, gw_observation())
+
+    def test_off_by_default(self, tmp_path):
+        """실물·ROS 기록이 그대로여야 함 -- 열이 늘면 예전 기록과 못 겹쳐 봄."""
+        log = PolicyLog(WALK.obs_names, WALK.order)
+        self.run_motion(log)
+        cols = json.loads(log.save(tmp_path / "x.json").read_text())["columns"]
+        assert not any(c.startswith("tau") for c in cols)
+        assert len(cols) == 1 + WALK.obs_dim + 12 * 3
+
+    def test_three_columns_per_joint_after_pos(self, tmp_path):
+        log = PolicyLog(WALK.obs_names, WALK.order,
+                        torque_source=lambda: self.report())
+        self.run_motion(log)
+        doc = json.loads(log.save(tmp_path / "x.json").read_text())
+        cols = doc["columns"]
+        assert len(cols) == 1 + WALK.obs_dim + 12 * 6
+        assert all(len(r) == len(cols) for r in doc["rows"])
+        # 관절마다 셋이 붙어 다님. 뷰어가 `tau/` 로 관절 목록을 뽑음
+        at = cols.index("tau/right_leg/knee")
+        assert cols[at:at + 3] == ["tau/right_leg/knee", "tau_lim/right_leg/knee",
+                                   "tau_sat/right_leg/knee"]
+        # 실측 열 바로 뒤에 붙음 (`base_columns` 순서)
+        first = cols.index("tau/" + WALK.order[0])
+        assert cols[first - 1] == "pos/" + WALK.order[-1]
+        assert cols[-1] == "tau_sat/" + WALK.order[-1]
+
+    def test_the_values_land_in_order(self, tmp_path):
+        log = PolicyLog(WALK.obs_names, WALK.order,
+                        torque_source=lambda: {"right_leg/knee": (-7.5, -120.0, 0.3)})
+        self.run_motion(log, cycles=1)
+        doc = json.loads(log.save(tmp_path / "x.json").read_text())
+        row, cols = doc["rows"][0], doc["columns"]
+        assert row[cols.index("tau/right_leg/knee")] == -7.5
+        assert row[cols.index("tau_lim/right_leg/knee")] == -120.0
+        assert row[cols.index("tau_sat/right_leg/knee")] == 0.3
+
+    def test_a_missing_joint_is_null(self, tmp_path):
+        """첫 줄은 물리가 한 주기도 안 굴러간 상태임 -- 0 으로 적으면 안 됨."""
+        log = PolicyLog(WALK.obs_names, WALK.order, torque_source=lambda: {})
+        self.run_motion(log, cycles=1)
+        doc = json.loads(log.save(tmp_path / "x.json").read_text())
+        row, cols = doc["rows"][0], doc["columns"]
+        assert row[cols.index("tau/right_leg/knee")] is None
+        assert row[cols.index("tau_sat/right_leg/knee")] is None
+
+    def test_the_source_is_read_every_row(self):
+        """한 번 읽고 쓰면 모든 줄이 같은 값이 됨."""
+        seen = []
+
+        def source():
+            seen.append(len(seen))
+            return {"right_leg/knee": (float(len(seen)), 60.0, 0.0)}
+
+        log = PolicyLog(WALK.obs_names, WALK.order, torque_source=source)
+        self.run_motion(log, cycles=3)
+        at = log.columns.index("tau/right_leg/knee")
+        assert [r[at] for r in log.rows] == [1.0, 2.0, 3.0]
+
+    def test_add_row_keeps_the_same_shape(self):
+        """`log_node` 가 쓰는 입구. 토크를 안 켠 쪽은 줄 길이가 안 바뀜."""
+        log = PolicyLog(WALK.obs_names, WALK.order)
+        log.add_row(0.0, [0.0] * WALK.obs_dim, [0.0] * 12, [0.0] * 12, [0.0] * 12)
+        assert len(log.rows[0]) == len(log.columns)
