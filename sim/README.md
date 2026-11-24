@@ -24,7 +24,7 @@ python3 sim/rollout.py --policy motion399 --duration 10
 python3 sim/rollout.py --policy squat --cmd h_star=0.8
 python3 sim/rollout.py --policy walk --view                  # MuJoCo 창
 python3 sim/rollout.py --policy walk --teleop --view         # 키로 조작
-python3 sim/rollout.py --policy walk --cmd vx=0.3 --log      # sim/logs/ 에 기록
+python3 sim/rollout.py --policy walk --cmd vx=0.3 --log      # sim/logs/ 에 기록 (토크 포함)
 ```
 
 | 인자 | |
@@ -155,7 +155,7 @@ sim/logs/policy/<월일>_policy_<정책>[_인자]_sim.json
 `run.sim: true` 로 구분되지만, 폴더가 같으면 목록을 볼 때마다 가려내야 함.
 열 이름은 실물과 같아서 `tools/policy_viewer.html` 로 나란히 볼 수 있음.
 
-열 구성 (`walk` 기준 81열, `PolicyLog` 이 만듦):
+열 구성 (`walk` 기준 117열, `PolicyLog` 이 만듦):
 
 ```
 t                    1    제어 시작부터 흐른 초
@@ -163,13 +163,42 @@ obs/...             44    정책에 들어간 입력 벡터 (gyro 3, grav 3, q_p
 act/<관절>          12    정책이 뱉은 날값 (스케일 전)
 tgt/<관절>          12    각도로 바꾼 목표 (도)
 pos/<관절>          12    시뮬 모터가 실제로 간 각도 (도)
+tau/<관절>          12    모터가 낸 토크 (Nm)
+tau_lim/<관절>      12    그때 걸려 있던 토크 상한 (Nm)
+tau_sat/<관절>      12    상한에 잘린 물리 스텝의 비율 (0~1)
 ```
 
 머리말 `run` 에 `sim`, `mjcf`(모델 파일 이름), `timestep_ms` 가 더 들어감 -- 모델이
 바뀌면 결과가 달라지므로 파일에 남아야 함.
 
-**안 남는 것**: 모터 속도·토크·온도(값은 있지만 `PolicyLog` 이 `pos` 만 남김),
-상전류·버스전압(시뮬이 모름), 몸통 높이·기울기(화면 요약에만 찍힘).
+**안 남는 것**: 모터 속도·온도(온도는 시뮬이 모름), 상전류·버스전압(시뮬이 모름),
+몸통 높이·기울기(화면 요약에만 찍힘).
+
+
+#### 토크 세 열
+
+**시뮬 기록에만 있음.** 실물 기록에는 안 생김 -- 실물의 `<모터>.torque` 는 모터가
+냈다고 보고하는 값이라 같은 양이 아님. 켜는 자리는 `PolicyLog(torque_source=...)`
+하나이고 `rollout.py` 만 넘김.
+
+세 열이 같이 다니는 이유: `tau` 는 **다 자른 뒤** 값이라 그것만 보면 천장에 붙은
+것인지 그만큼만 필요했던 것인지 구분이 안 됨. 자르는 데가 둘임 --
+
+```
+모델 고정 상한    tmax_nm     RS03 60 Nm, RS04 120 Nm      속도와 무관
+토크-속도 곡선    tn_limit    빨리 돌면 낮아짐              구동 쪽만. 제동은 피크까지
+```
+
+`tau_lim` 은 그 순간 **둘 중 낮은 쪽**이고 부호는 `tau` 와 같음. `tau_lim` 이
+평평하면 고정 상한이 걸린 것이고, 움직이면 곡선이 걸린 것임.
+
+`tau_sat` 이 있는 이유: 주기 하나에 물리 스텝이 열 번(0.02 s / 0.002 s)이고 스텝마다
+PD 를 다시 풂. `tau` 는 그중 **크기가 가장 컸던 스텝**의 값이고, `tau_sat` 은 열 번
+중 몇 번이 잘렸는지임. 마지막 스텝만 남기면 주기 중간의 포화가 안 보임
+(`MotorState.torque_nm` 이 그 경우임).
+
+보는 것은 `sim/torque_viewer.html` -- 관절 열두 칸에 토크 실선, 상한 점선, 잘린
+구간은 색칠. `tools/policy_viewer.html` 은 이 열을 모르므로 그래프가 안 생김.
 
 
 ## 1. 무엇이 바뀌고 무엇이 그대로인가
@@ -240,10 +269,11 @@ DR                          발 마찰(0.3~1.2), 질량, 게인 흔들기 없음
 ```
 sim/
 ├── rollout.py              실행. 꾸러미 고르기·기록 이름은 scripts/run.py 함수를 씀
+├── torque_viewer.html      기록의 토크 세 열만 봄 (상한 점선, 포화 색칠)
 ├── conftest.py             pytest 경로
 ├── huphy_sim/
 │   ├── world.py            MuJoCo 모델·데이터. 액추에이터·바닥을 붙이고 20 ms 씩 굴림
-│   ├── actuator.py         PD 토크 -> 토크-속도 곡선 클램프 (MuJoCo 를 모름)
+│   ├── actuator.py         PD 토크 -> 토크-속도 곡선 클램프. 상한·잘린 이유도 냄
 │   ├── bus.py              SimBus. RobStrideBus 자리
 │   ├── imu.py              SimImu. Imu 프로토콜
 │   └── build.py            robot.yaml -> Leg x2 (SimBus) -> Biped
