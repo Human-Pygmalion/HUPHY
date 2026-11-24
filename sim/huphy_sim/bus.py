@@ -84,6 +84,8 @@ class SimBus:
         self._commands: Dict[int, MitCommand] = {}
         self._torque_on: Dict[int, bool] = {mid: False for mid in self.motors}
         self._states: Dict[int, MotorState] = {mid: MotorState() for mid in self.motors}
+        self._torque_log: Dict[int, List[actuator.Torque]] = {}
+        """이번 주기에 스텝마다 넣은 토크. 주기 시작에 비우고 `torque_report` 가 요약함."""
         self._connected = False
         world.register(self)
 
@@ -189,11 +191,16 @@ class SimBus:
             command = self._commands.get(mid)
             if command is None or not self._torque_on.get(mid, False):
                 self.world.set_torque(joint, 0.0)
+                # 힘이 빠진 모터도 줄을 남김 -- 안 남기면 지난 주기 요약이 그대로
+                # 남아 꺼진 뒤에도 토크가 나오는 것처럼 보임. 상한은 뜻이 없어 NaN.
+                self._torque_log.setdefault(mid, []).append(
+                    actuator.Torque(raw=0.0, applied=0.0, limit=float("nan"), source="")
+                )
                 continue
             cal = self.calibration[mid]
             target_rad = math.radians(cal.raw_to_cal(command.position_deg))
             target_vel = math.radians(command.velocity_deg_s * float(cal.sign))
-            tau = actuator.torque_nm(
+            detail = actuator.torque_detail(
                 kp=command.kp,
                 kd=command.kd,
                 target_rad=target_rad,
@@ -204,7 +211,39 @@ class SimBus:
                 curve=self.curves[motor.model],
                 effort_limit=tables.encoding_for(motor.model).tmax_nm,
             )
-            self.world.set_torque(joint, tau)
+            self._torque_log.setdefault(mid, []).append(detail)
+            self.world.set_torque(joint, detail.applied)
+
+    def begin_cycle(self) -> None:
+        """새 주기가 시작됨. 모아 둔 토크를 비움. **세계가 부름.**
+
+        주기 끝에 비우지 않는 이유: 양다리가 세계 하나를 같이 쓰므로, 한쪽 버스가
+        굴린 주기에 다른 쪽 버스도 토크를 넣음. 자기 상태를 읽을 때 비우면 그 사이에
+        쌓인 남의 주기 몫이 남아 두 주기가 한 줄로 섞임.
+        """
+        self._torque_log.clear()
+
+    def torque_report(self) -> Dict[int, Tuple[float, float, float]]:
+        """모터 id -> (토크, 상한, 포화비). **지난 한 주기**를 요약한 값임.
+
+            토크    그 주기에서 크기가 가장 컸던 스텝의 토크 (Nm, 부호 있음)
+            상한    그 스텝에 걸려 있던 상한 (Nm, 토크와 같은 부호)
+            포화비  잘린 스텝 수 / 전체 스텝 수 (0~1)
+
+        주기 하나에 물리 스텝이 열 번이고(0.02 s / 0.002 s) 스텝마다 PD 를 다시
+        푸므로 토크가 주기 안에서 움직임. `MotorState.torque_nm` 은 그중 **마지막
+        스텝**만 보여서, 중간에 포화했다가 풀리면 안 보임. 그래서 여기서는 가장
+        센 스텝을 골라 그 스텝의 상한을 함께 냄.
+        """
+        out: Dict[int, Tuple[float, float, float]] = {}
+        for mid, items in self._torque_log.items():
+            if not items:
+                continue
+            peak = max(items, key=lambda d: abs(d.applied))
+            clipped = sum(1 for d in items if d.clipped)
+            sign = 1.0 if peak.applied >= 0.0 else -1.0
+            out[mid] = (peak.applied, sign * peak.limit, clipped / len(items))
+        return out
 
     def _read_states(self) -> None:
         """MuJoCo 를 읽어 raw 공간 상태로 둠. `Leg` 가 다시 cal 로 되돌림."""

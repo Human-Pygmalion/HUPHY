@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import csv
 import math
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -87,6 +88,65 @@ def clamp_to_curve(tau: float, speed: float, curve: Curve) -> float:
     return min(max(float(tau), lower), upper)
 
 
+@dataclass(frozen=True)
+class Torque:
+    """토크 한 번의 내역. **자른 뒤 값만 보면 포화를 알 수 없어서** 상한도 같이 냄."""
+
+    raw: float
+    """자르기 전 (Nm). PD 와 `tau_ff` 를 더한 값."""
+
+    applied: float
+    """자른 뒤 (Nm). `data.ctrl` 에 들어가는 값."""
+
+    limit: float
+    """`raw` 가 미는 방향에서의 상한 (Nm, **크기**). 고정 상한과 곡선 중 낮은 쪽."""
+
+    source: str
+    """무엇에 잘렸나. `""` 안 잘림, `"effort"` 고정 상한, `"curve"` 토크-속도 곡선."""
+
+    @property
+    def clipped(self) -> bool:
+        return bool(self.source)
+
+
+def torque_detail(
+    *,
+    kp: float,
+    kd: float,
+    target_rad: float,
+    target_vel_rad_s: float,
+    pos_rad: float,
+    vel_rad_s: float,
+    tau_ff: float,
+    curve: Curve,
+    effort_limit: float,
+) -> Torque:
+    """`torque_nm` 과 같은 계산인데 **상한과 잘린 이유까지** 냄.
+
+    `torque_nm` 은 이것의 `applied` 임. 두 벌로 두지 않으려고 그쪽이 이것을 부름.
+
+    상한을 `raw` 가 미는 방향에서만 내는 이유: 곡선은 비대칭임 (구동 쪽은 곡선,
+    제동 쪽은 피크). 반대 방향 상한은 그 주기에 쓰이지 않은 값이라 같이 내면
+    기록에서 어느 쪽이 걸린 것인지 되짚을 수 없음.
+    """
+    raw = (
+        float(kp) * (float(target_rad) - float(pos_rad))
+        + float(kd) * (float(target_vel_rad_s) - float(vel_rad_s))
+        + float(tau_ff)
+    )
+    effort = abs(float(effort_limit))
+    speed = float(vel_rad_s)
+    peak = curve[0][1]
+    if raw >= 0.0:
+        from_curve = tn_limit(curve, speed) if speed >= 0.0 else peak
+    else:
+        from_curve = tn_limit(curve, -speed) if speed < 0.0 else peak
+    limit = min(effort, from_curve)
+    applied = min(max(raw, -limit), limit)
+    source = "" if applied == raw else ("effort" if effort <= from_curve else "curve")
+    return Torque(raw=raw, applied=applied, limit=limit, source=source)
+
+
 def torque_nm(
     *,
     kp: float,
@@ -104,10 +164,8 @@ def torque_nm(
     `kp`/`kd` 는 프레임에 실려 온 값임 (Nm/rad, Nm*s/rad -- 출력축 기준).
     `effort_limit` 은 모델의 토크 상한(`motors/robstride/tables.py` 의 `tmax_nm`)임.
     """
-    tau = (
-        float(kp) * (float(target_rad) - float(pos_rad))
-        + float(kd) * (float(target_vel_rad_s) - float(vel_rad_s))
-        + float(tau_ff)
-    )
-    tau = min(max(tau, -float(effort_limit)), float(effort_limit))
-    return clamp_to_curve(tau, vel_rad_s, curve)
+    return torque_detail(
+        kp=kp, kd=kd, target_rad=target_rad, target_vel_rad_s=target_vel_rad_s,
+        pos_rad=pos_rad, vel_rad_s=vel_rad_s, tau_ff=tau_ff,
+        curve=curve, effort_limit=effort_limit,
+    ).applied

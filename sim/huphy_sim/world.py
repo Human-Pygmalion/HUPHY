@@ -327,7 +327,15 @@ class SimWorld:
         self.drivers.append(driver)
 
     def advance_cycle(self) -> int:
-        """제어 한 주기만큼 굴림. 등록된 버스들이 스텝마다 토크를 다시 넣음."""
+        """제어 한 주기만큼 굴림. 등록된 버스들이 스텝마다 토크를 다시 넣음.
+
+        시작을 버스에 알림 (`begin_cycle`). 주기 경계를 아는 곳이 여기뿐임 --
+        버스는 스텝마다 불리므로 자기 힘으로는 주기가 바뀐 것을 모름.
+        """
+        for driver in self.drivers:
+            begin = getattr(driver, "begin_cycle", None)
+            if begin is not None:
+                begin()
         steps = self.advance(self.cycle_s, on_substep=self._apply_all)
         self.pending = False
         return steps

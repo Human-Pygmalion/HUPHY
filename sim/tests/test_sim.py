@@ -6,6 +6,7 @@
     2  IMU 가 규약대로 나옴              부호가 뒤집히면 정책이 반대로 기울었다고 봄
     3  관측 열 이름이 실물과 같음        다르면 deploy.py 가 다른 벡터를 만들어 검증이 무의미해짐
     4  토크-속도 클램프                  구동/제동을 섞으면 모터가 실제보다 세짐
+    4b 토크 기록이 상한과 같이 나옴      상한이 없으면 포화인지 수요인지 못 가림
     5  같은 입력이면 같은 결과           결정적이지 않으면 재현이 안 됨
     6  고리 구속이 시작부터 만족됨        어기면 첫 스텝에 로봇이 튐
     7  정책이 서 있음                    경로 전체가 이어졌는지 보는 것
@@ -21,6 +22,7 @@ import pytest
 mujoco = pytest.importorskip("mujoco", reason="pip install mujoco (또는 pip install -e .[sim])")
 
 from huphy.control import deploy                                  # noqa: E402
+from huphy.motors.robstride.bus import MitCommand                 # noqa: E402
 from huphy.robots.leg import REQUIRED_MOTORS                      # noqa: E402
 
 from huphy_sim import actuator                                    # noqa: E402
@@ -166,6 +168,149 @@ class TestActuator:
             curve=curves["RS04"], effort_limit=10.0,
         )
         assert tau == pytest.approx(10.0)
+
+
+class TestTorqueDetail:
+    """상한과 잘린 이유. **자른 뒤 값만 보면 포화를 알 수 없어서** 같이 냄."""
+
+    @pytest.fixture(scope="class")
+    def curves(self):
+        return actuator.load_curves(MOTOR_SPEC)
+
+    def detail(self, curves, model="RS04", effort=120.0, **kwargs):
+        args = dict(kp=0.0, kd=0.0, target_rad=0.0, target_vel_rad_s=0.0,
+                    pos_rad=0.0, vel_rad_s=0.0, tau_ff=0.0)
+        args.update(kwargs)
+        return actuator.torque_detail(curve=curves[model], effort_limit=effort, **args)
+
+    def test_applied_is_what_torque_nm_gives(self, curves):
+        """두 벌로 두면 한쪽만 고치는 일이 생김."""
+        args = dict(kp=120.0, kd=2.0, target_rad=0.3, target_vel_rad_s=1.0,
+                    pos_rad=0.0, vel_rad_s=-2.0, tau_ff=5.0)
+        got = actuator.torque_nm(curve=curves["RS03"], effort_limit=60.0, **args)
+        assert got == self.detail(curves, "RS03", 60.0, **args).applied
+
+    def test_not_clipped_leaves_no_mark(self, curves):
+        d = self.detail(curves, tau_ff=3.0)
+        assert d.applied == pytest.approx(3.0) == pytest.approx(d.raw)
+        assert d.source == "" and not d.clipped
+
+    def test_the_fixed_limit_is_named(self, curves):
+        d = self.detail(curves, effort=10.0, tau_ff=50.0)
+        assert d.applied == pytest.approx(10.0)
+        assert d.limit == pytest.approx(10.0)
+        assert d.source == "effort"
+
+    def test_the_curve_limit_is_named(self, curves):
+        """빨리 도는 쪽은 고정 상한보다 곡선이 먼저 걸림."""
+        fast = curves["RS04"][-2][0]
+        d = self.detail(curves, vel_rad_s=fast, tau_ff=1000.0)
+        assert d.limit == pytest.approx(actuator.tn_limit(curves["RS04"], fast))
+        assert d.limit < 120.0
+        assert d.applied == pytest.approx(d.limit)
+        assert d.source == "curve"
+
+    def test_braking_gets_the_peak(self, curves):
+        """제동은 속도 제약을 안 받음. 상한이 피크로 나와야 함."""
+        fast = curves["RS03"][-2][0]
+        d = self.detail(curves, "RS03", 1000.0, vel_rad_s=-fast, tau_ff=1000.0)
+        assert d.limit == pytest.approx(curves["RS03"][0][1])
+
+    def test_the_limit_follows_the_direction(self, curves):
+        """음의 토크는 음의 속도 쪽이 제동임. 방향을 안 보면 상한이 뒤바뀜."""
+        fast = curves["RS03"][-2][0]
+        pushing = self.detail(curves, "RS03", 1000.0, vel_rad_s=-fast, tau_ff=-1000.0)
+        braking = self.detail(curves, "RS03", 1000.0, vel_rad_s=+fast, tau_ff=-1000.0)
+        assert pushing.limit == pytest.approx(actuator.tn_limit(curves["RS03"], fast))
+        assert braking.limit == pytest.approx(curves["RS03"][0][1])
+        assert pushing.applied < 0 and braking.applied < 0
+
+
+class TestTorqueReport:
+    """버스가 주기마다 요약하는 토크. `sim/rollout.py --log` 의 `tau/...` 열이 됨."""
+
+    def report(self, pose, commands):
+        """명령 한 벌을 보내고 한 주기 굴린 뒤 (요약, 모터 id 표) 를 냄."""
+        robot, _ = standing(pose)
+        leg = robot.parts[0]
+        ids = {name: motor.id for name, motor in leg.config.motors.items()}
+        try:
+            leg.bus.send_mit({ids[n]: c for n, c in commands.items()})
+            leg.bus.collect()
+            return leg.bus.torque_report(), ids
+        finally:
+            robot.disconnect()
+
+    def test_every_motor_shows_up(self, default_pose):
+        """명령을 하나만 보냈어도 열두 칸이 다 차야 함 -- 빈 칸은 뷰어에서 끊긴 선임."""
+        report, ids = self.report(
+            default_pose, {"knee": MitCommand(position_deg=0.0, kp=1.0)}
+        )
+        assert set(report) == set(ids.values())
+        for value in report.values():
+            assert len(value) == 3
+
+    def test_a_motor_with_its_torque_off_reads_zero(self, default_pose):
+        """힘을 뺀 모터. 지난 주기 값이 남으면 끈 뒤에도 토크가 보임."""
+        robot, _ = standing(default_pose)
+        leg = robot.parts[0]
+        mid = leg.config.motors["hip_yaw"].id
+        try:
+            leg.bus.disable_torque([mid])
+            leg.bus.send_mit({leg.config.motors["knee"].id: MitCommand(position_deg=0.0)})
+            leg.bus.collect()
+            tau, limit, sat = leg.bus.torque_report()[mid]
+        finally:
+            robot.disconnect()
+        assert tau == 0.0 and sat == 0.0
+        assert limit != limit                      # 상한은 뜻이 없어 NaN
+
+    def test_a_saturated_motor_sits_on_its_limit(self, default_pose):
+        """상한 바깥을 요구하면 토크가 상한과 같아지고 포화비가 1 이 됨."""
+        report, ids = self.report(
+            default_pose,
+            {"knee": MitCommand(position_deg=0.0, kp=0.0, kd=0.0, torque_nm=1000.0)},
+        )
+        tau, limit, sat = report[ids["knee"]]
+        assert sat == pytest.approx(1.0)
+        assert tau == pytest.approx(limit)
+        assert tau > 0.0
+
+    def test_one_cycle_only(self, default_pose):
+        """양다리가 세계 하나를 같이 씀. 남의 주기 몫이 섞이면 포화비가 반으로 묽어짐."""
+        robot, _ = standing(default_pose)
+        legs = robot.parts
+        mid = legs[0].config.motors["knee"].id
+        try:
+            for leg in legs:                      # 실제 루프 순서: 둘 다 보낸 뒤 수거
+                leg.bus.send_mit({
+                    leg.config.motors["knee"].id:
+                        MitCommand(position_deg=0.0, kp=0.0, torque_nm=1000.0),
+                })
+            for leg in legs:
+                leg.bus.collect()
+            steps = len(legs[0].bus._torque_log[mid])
+        finally:
+            robot.disconnect()
+        assert steps == round(0.02 / 0.002)        # 주기 하나 = 물리 스텝 열 번
+
+    def test_the_peak_step_is_kept(self, default_pose):
+        """한 주기에 물리 스텝이 열 번임. 마지막 스텝만 보면 중간 포화가 안 보임."""
+        robot, _ = standing(default_pose)
+        leg = robot.parts[0]
+        mid = leg.config.motors["knee"].id
+        try:
+            # 한 주기는 세게, 다음 주기는 힘을 빼고 -- 요약이 주기마다 새로 나와야 함
+            leg.bus.send_mit({mid: MitCommand(position_deg=0.0, kp=0.0, torque_nm=50.0)})
+            leg.bus.collect()
+            strong = leg.bus.torque_report()[mid]
+            leg.bus.send_mit({mid: MitCommand(position_deg=0.0, kp=0.0, torque_nm=1.0)})
+            leg.bus.collect()
+            weak = leg.bus.torque_report()[mid]
+        finally:
+            robot.disconnect()
+        assert strong[0] == pytest.approx(50.0)
+        assert weak[0] == pytest.approx(1.0)
 
 
 class TestLoop:
